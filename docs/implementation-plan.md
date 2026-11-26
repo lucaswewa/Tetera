@@ -779,15 +779,20 @@ A first draft. P1.01 turns it into `docs/setup/toolchain.md`, tests each step on
 
 2. **The NVIDIA Windows driver.** It gives WSL2 its CUDA. Never install a Linux NVIDIA driver inside WSL.
 
-3. **`%UserProfile%\.wslconfig`**, to give WSL enough memory and keep it running. P1.01 checks each key against the installed WSL's version (`wsl --version`):
+3. **`%UserProfile%\.wslconfig`**, to give WSL enough memory and keep it running. Each key is as [Microsoft's WSL documentation](https://learn.microsoft.com/windows/wsl/wsl-config) gives it, checked on 2026-11-26 with WSL 3.0.5. Comments go on lines of their own: WSL silently ignores a file it can't parse.
 
    ```ini
    [wsl2]
-   memory=12GB          # of 15.7; builds and a 20 MP pipeline need it
+   # Of the host's 15.7 GB; builds and a 20 MP pipeline need it.
+   memory=12GB
    swap=16GB
    processors=16
-   networkingMode=mirrored   # lets LAN browsers reach the service (Q11)
-   vmIdleTimeout=-1          # don't stop the VM when idle
+   # Lets LAN browsers reach the service, when it listens there (Q11).
+   networkingMode=mirrored
+
+   [general]
+   # Never shut the distro down for being idle.
+   instanceIdleTimeout=-1
 
    [experimental]
    autoMemoryReclaim=dropCache
@@ -902,7 +907,7 @@ A first draft. P1.01 turns it into `docs/setup/toolchain.md`, tests each step on
 | R4 | **The camera's raw isn't the ADC's 12 bits.** OScope found that the SDK applies gamma and white balance, and rescales to about 58,000 levels with a black offset near 2,000 | Dark, flat and CCM nodes built for linear 12-bit data misbehave on real frames | Bayer16 with `significant_bits` and the black level in the metadata; the SDK set to its linear settings (gamma 128, contrast 32); the virtual camera can mimic the SDK (Q16, Q27) |
 | R5 | **CUDA under WSL2 has limits** that native Linux doesn't. NVIDIA's WSL guide lists them | A feature Tetera plans to use may not work, such as pinned memory at size, or IPC to Python workers | P1.04 checks each feature Tetera uses. Python workers get frames through host shared memory, not CUDA IPC |
 | R6 | **Disk:** OScope's phases built 60–70 GB each. WSL's virtual disk grows and doesn't shrink by itself | Full disks break WSL | `doctor` checks before G2 and G3; `sparseVhd`; the distro on D: (§12.1); cleaning between milestones |
-| R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `vmIdleTimeout=-1`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
+| R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
 | R8 | **Scope:** 58 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
 | R9 | **The extension ABI** must stay stable across SDK versions | Old extensions break, or crash the server | A versioned C ABI checked at install; panics caught; tests against the previous SDK version; Python in separate processes |
 | R10 | **Extensions as the only home** of stitching, deep zoom, depth from focus and volumes | The SDK must be rich enough for heavy, GPU-bound nodes | P2.03 gives Rust extensions the GPU; P3.01 is a small extension that proves the path before P3.02 |
@@ -1067,3 +1072,4 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 |---|---|
 | 2026-11-26 | First draft, for the owner's review |
 | 2026-11-26 | The owner's answers to 16 questions (§14). Clean room instead of porting (D1); binned live view with full-resolution captures (D5); Q1b and Q9b added |
+| 2026-11-26 | §12.1 and R7: `instanceIdleTimeout=-1` under `[general]` replaces `vmIdleTimeout=-1`, which the WSL documentation doesn't give as a way to stop idle shutdown; no comments after values |
