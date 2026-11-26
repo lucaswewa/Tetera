@@ -247,6 +247,7 @@ Tetera/
 ├─ Cargo.toml              workspace: resolver 3, edition 2024, shared lints and dependencies
 ├─ rust-toolchain.toml     1.98.1, as teta-wot v0.2.0
 ├─ .cargo/config.toml      mold as the linker; opt-level 2 for dependencies, sim, imaging and compute in dev
+├─ .vscode/                launch.json (CodeLLDB), extensions.json, settings.json: shared, from P1.01
 ├─ crates/tetera-*/        the crates in §6.2; each crate's examples/ folder holds its examples
 ├─ examples/               a few workspace crates for whole-server demos; examples/vendor/ for vendored JS
 ├─ extensions/             M3: first-party extensions, each a Rust crate or a Python package, packed as .tetx
@@ -571,7 +572,7 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 | ID | Phase | Scope | Try it | ADRs |
 |---|---|---|---|---|
 | P1.S0 | WSL2 hardware spike (Q15, confirmed) | Docs and two probe programs, run early in M1, whenever the owner is at the instrument: attach the MIChrome 20 and the grblHAL controller to WSL2 with usbipd-win; the TUCam Linux SDK under Ubuntu 24.04; sustained frame rate and MB/s; serial round trips; ext4 write rate. Writes `docs/hardware.md`, with OScope's measured facts carried over in our own words. If USB forwarding falls short, it sketches the Windows camera bridge for P1.09 to design for | The probes' READMEs | 0018 (input) |
-| P1.01 | Workspace and gates | Cargo workspace, toolchain pin, lints, the layering check, `cargo xtask gate` G0/G1/G2 and `doctor`, `cargo-deny`, `.gitattributes`, the PR template, docs skeleton and templates, `CLAUDE.md`, the toolchain guide (§12), `tetera.md` moved to `docs/goal.md` | `cargo xtask doctor`; `cargo xtask gate quick` | 0001–0005 |
+| P1.01 | Workspace and gates | Cargo workspace, toolchain pin, lints, the layering check, `cargo xtask gate` G0/G1/G2 and `doctor`, `cargo-deny`, `.gitattributes`, the PR template, shared VS Code settings in `.vscode/` (CodeLLDB debug configurations for the server, an example and a crate's tests; the recommended extensions for Remote-WSL; rust-analyzer running clippy), docs skeleton and templates, `CLAUDE.md`, the toolchain guide (§12), `tetera.md` moved to `docs/goal.md` | `cargo xtask doctor`; `cargo xtask gate quick`; an example debugged from VS Code over Remote-WSL | 0001–0005 |
 | P1.02 | Core types and logging | Units, geometry, the clock, IDs, errors; logging set-up (ring, files, journald, the critical marker) | `ex-core-tour` | 0006, 0007 |
 | P1.03 | The frame model | `PixelFormat`, `FrameMeta`, the buffer pool (pinned when CUDA is present), shared frames | `ex-frame-pool` | 0008 |
 
@@ -811,7 +812,7 @@ A first draft. P1.01 turns it into `docs/setup/toolchain.md`, tests each step on
    wsl --manage Ubuntu-24.04 --move D:\WSL\Ubuntu-24.04
    ```
 
-5. **VS Code**, with the *WSL* extension (`ms-vscode-remote.remote-wsl`). rust-analyzer, Vue (Official), ESLint and Prettier are installed on the WSL side.
+5. **VS Code**, with the *WSL* extension (`ms-vscode-remote.remote-wsl`). Open the repository with `code --remote wsl+Ubuntu-24.04 /home/lucas/repos/Tetera`, never as a `\\wsl.localhost` folder. Extensions are installed on the WSL side: rust-analyzer, CodeLLDB (the debugger) and Even Better TOML from P1.01; Python from M2; Vue (Official), ESLint and Prettier from M4; Nsight from P1.04. The repository's `.vscode/extensions.json` recommends them.
 
 6. **usbipd-win** (from P1.S0, or M5):
 
@@ -1073,3 +1074,4 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-26 | First draft, for the owner's review |
 | 2026-11-26 | The owner's answers to 16 questions (§14). Clean room instead of porting (D1); binned live view with full-resolution captures (D5); Q1b and Q9b added |
 | 2026-11-26 | §12.1 and R7: `instanceIdleTimeout=-1` under `[general]` replaces `vmIdleTimeout=-1`, which the WSL documentation doesn't give as a way to stop idle shutdown; no comments after values |
+| 2026-11-26 | P1.01 also ships shared VS Code settings in `.vscode/`: debug configurations, recommended extensions, rust-analyzer's check. §6.3 and §12.1 to match |
