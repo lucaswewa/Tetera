@@ -5,7 +5,7 @@
 | Status | **Draft for the owner's review**, 2026-11-26. 16 questions answered the same day ([§14](#14-questions-for-the-owner)). Nothing is built until the owner approves it |
 | Covers | Architecture for all five milestones, the phase overview of every milestone, the local gates, the toolchain set-up, risks, and the questions this draft needs answered |
 | Inputs | [`tetera.md`](../tetera.md) (the build specification); `OScope` at `../OScope` (its plan, 62 ADRs, both retrospectives, `hardware.md`); `teta-wot` v0.2.0 at `../teta-wot`; this PC's toolchains, checked on 2026-11-26 |
-| Next | Once approved: the detailed phase specs of Milestone 1 (`docs/m1/phases.md`), then phase P1.01 |
+| Next | Milestone 1's phase specs, drafted in [`m1/phases.md`](m1/phases.md) on 2026-11-26 for the owner's review; then phase P1.01 |
 
 **How to review it.** Every proposal the owner hasn't confirmed yet is marked *(proposed)*. Every open question is in [§14](#14-questions-for-the-owner), with the answer this draft assumes. Answer there, and the plan changes to match, with a row in the [change log](#appendix-d-change-log).
 
@@ -68,7 +68,7 @@ OScope is the owner's previous build of the same instrument software. It ran thr
 
 | OScope's lesson | Source | What Tetera does |
 |---|---|---|
-| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 21 phases each. Extensions get their own two milestones |
+| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 23 phases each. Extensions get their own two milestones |
 | Line budgets (300/600/900) never fit. Estimates in parts, committed before the code, did fit: median 1.04 in M1 | M1 retrospective | **No budgets.** A five-part estimate, committed before the code, with a cap that triggers a question to the owner ([§7](#7-how-phases-work)) |
 | The simulator on the CPU was the live view's bottleneck: about 160 ms a frame, 2 s while jogging. It moved to the GPU late | ADR-0062, performance notes | **The simulator is GPU-first from its first phase**, with the CPU path as reference and fallback |
 | Full replays took about an hour per phase. Change-reach gates cut that | ADR-0038, ADR-0061 | **Tiered gates from day one:** quick, phase, checkpoint, milestone ([§8](#8-local-ci-gates)). Each phase runs only what its change reaches |
@@ -207,7 +207,7 @@ Every `unsafe` block has a `SAFETY:` comment, which clippy's `undocumented_unsaf
 
 **What WSL2 changes, compared with OScope:**
 
-- **USB devices** reach WSL2 only through `usbipd-win` (USB/IP). Whether a USB 3 camera keeps up at 289 MB/s that way is unknown. [P1.S0](#stage-1a-groundwork) measures it early in M1. If it falls short, the owner's chosen fallback is a small Windows-side camera bridge ([§13](#13-risks), R1).
+- **USB devices** reach WSL2 only through `usbipd-win` (USB/IP). Whether a USB 3 camera keeps up at 289 MB/s that way is unknown. [P1.S0](#stage-1a-groundwork) measures it when the owner is at the instrument (deferred on 2026-11-26). If it falls short, the owner's chosen fallback is a small Windows-side camera bridge ([§13](#13-risks), R1).
 - **Disks:** raw data must stay on ext4, inside the WSL virtual disk or on a disk attached with `wsl --mount`. `/mnt/c` and `/mnt/d` go through a network file system that is far too slow (Q14).
 - **Memory:** WSL2 gets half of the host's RAM by default, about 7.8 GB on this PC. `.wslconfig` raises it ([§12](#12-installing-the-toolchains)).
 - **Power:** `systemctl reboot` restarts only the WSL VM. Rebooting Windows goes through interop (`shutdown.exe`) (Q13).
@@ -222,19 +222,20 @@ A crate depends only on crates in lower layers, plus the few edges within a laye
 |---|---|---|---|
 | L0 Foundation | `tetera-core` | Units, geometry (rects, 2D affines), the monotonic clock, IDs, frame and metadata types, the buffer pool's interface, errors. No I/O, no async | P1.02 |
 | L1 Compute | `tetera-compute` | CPU and CUDA backends, device buffers, pinned memory, streams, the kernel build, fused kernels *(unsafe)* | P1.04 |
+| | `tetera-log` | The `tracing` set-up: the ring's layer, rolling JSON files, journald. Added by M1's specs: `tetera-core` does no I/O | P1.02 |
 | | `tetera-shm` | Named shared memory and the frame-ring layout, for Python workers *(unsafe)* | P2.04 |
 | L1 Algorithms | `tetera-imaging` | The stock algorithms, each with a CPU and a CUDA path: Bayer, demosaic, dark, flat, CCM, denoise, deconvolution, resize, encode, focus measures, registration | P1.05 |
 | L2 Devices | `tetera-hal` | Device traits (`Camera`, `Stage`, `ObjectiveMount`, `Illumination`), capabilities and fakes | P1.09 |
 | | `tetera-sim` | The simulated world: the H&E sample, optics, illumination, the virtual camera and the virtual stage | P1.10 |
 | | `tetera-grbl` | The grblHAL driver and its protocol fake | P5.02 |
 | | `tetera-tucsen` | The TUCam SDK binding and the camera driver *(unsafe)* | P5.03 |
-| L2 Data | `tetera-store` | Datasets in OME-Zarr, the scratch frame log, the SQLite index | P1.15 |
-| L3 Engines | `tetera-jobs` | The job service | P1.15 |
+| L2 Data | `tetera-store` | Datasets in OME-Zarr, the scratch frame log, the SQLite index | P1.15b |
+| L3 Engines | `tetera-jobs` | The job service | P1.15a |
 | | `tetera-pipeline` | The DAG engine, the node registry, the stock node wrappers, GPU residency and fusion | P1.08 |
 | | `tetera-ext` | `.tetx` packages, the native loader and the Python worker supervisor *(unsafe)* | P2.01 |
 | | `tetera-ext-sdk` | What Rust extension authors build against *(unsafe in generated glue)* | P2.02 |
-| L4 Services | `tetera-acquire` | The frame bus, preview, live statistics and the recorder | P1.14 |
-| | `tetera-workflows` | Capture, autofocus, scans, calibration, batch processing; the workflow trait that extensions implement | P1.15 |
+| L4 Services | `tetera-acquire` | The frame bus, preview, live statistics and the recorder | P1.14a |
+| | `tetera-workflows` | Capture, autofocus, scans, calibration, batch processing; the workflow trait that extensions implement | P1.15b |
 | L5 Interface | `tetera-api` | teta-wot Things and the media-plane routes. **The only crate that depends on `teta-wot`** | P1.13 |
 | L6 Applications | `tetera-server` | The binary: configuration, systemd integration, the web app's static files | P1.13 |
 
@@ -271,10 +272,10 @@ Tetera/
 | `objective` | The catalogue, which objective is fitted | P1.13 |
 | `illumination` | On/off, intensity, colour temperature (simulated, or manual) | P1.13 |
 | `simulation` | Samples (choose, load, unload), illumination model, imperfections on demand | P1.13 |
-| `preview` | Preview defaults, sessions, and the binary stream | P1.14 |
-| `jobs` | Queue, history, progress, cancel | P1.15 |
-| `capture` | Single and multiple captures | P1.15 |
-| `datasets` | The Gallery: datasets, thumbnails, metadata, delete, export | P1.15 |
+| `preview` | Preview defaults, sessions, and the binary stream | P1.14b |
+| `jobs` | Queue, history, progress, cancel | P1.15a |
+| `capture` | Single and multiple captures | P1.15b |
+| `datasets` | The Gallery: datasets, thumbnails, metadata, delete, export | P1.15b |
 | `autofocus` | Autofocus as a job | P1.16 |
 | `scan` | Planners, plan preview, start, live progress | P1.17 |
 | `calibration` | Per-objective calibration sets, routines, the wizard's steps | P1.18 |
@@ -331,7 +332,7 @@ camera ─▶ frame pool (Bayer16) ─▶ frame bus ─┬─▶ recorder (lossl
 - The server crops or bins the raw frame, runs the fused ISP kernel, resizes, encodes JPEG, and sends it.
 - Each client has a one-frame mailbox, so a slow client always gets the newest frame.
 - **The rate is the camera's, never more.** At full resolution that is 7.24 fps in 16 bits and 14.49 fps in 8 bits. The spec's 30–60 fps needs a binned mode: 53 fps at 2736 × 1824, or 67 fps at 1824 × 1216, in 8 bits.
-- **So the live view runs binned, and captures run at full resolution** (D5). A capture or scan switches the camera's mode, takes its frames, and switches back. The switch's cost is measured on the virtual camera in P1.15, and on the real one in P5.03. The user can still choose any mode by hand.
+- **So the live view runs binned, and captures run at full resolution** (D5). A capture or scan switches the camera's mode, takes its frames, and switches back. The switch's cost is measured on the virtual camera in P1.15b, and on the real one in P5.03. The user can still choose any mode by hand.
 
 **Live statistics** come from the raw data, not from the 8-bit preview: per-channel histograms, the saturation mask, line profiles, ROI statistics, a focus value.
 
@@ -408,7 +409,7 @@ GPU-first, with a bit-exact CPU reference on each backend, and the two backends 
 
 ### 6.10 Jobs and workflows
 
-- **The job service** (P1.15) queues hardware jobs one at a time, and runs compute jobs on a pool. Every job has progress, a log, cancel, and a history in SQLite.
+- **The job service** (P1.15a) queues hardware jobs one at a time, and runs compute jobs on a pool. Every job has progress, a log, cancel, and a history in SQLite.
 - **Stock workflows (M1):**
   - **capture:** single and multiple;
   - **scanning:** an XY snake scan and a z-scan, stop and go;
@@ -571,7 +572,7 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 
 | ID | Phase | Scope | Try it | ADRs |
 |---|---|---|---|---|
-| P1.S0 | WSL2 hardware spike (Q15, confirmed) | Docs and two probe programs, run early in M1, whenever the owner is at the instrument: attach the MIChrome 20 and the grblHAL controller to WSL2 with usbipd-win; the TUCam Linux SDK under Ubuntu 24.04; sustained frame rate and MB/s; serial round trips; ext4 write rate. Writes `docs/hardware.md`, with OScope's measured facts carried over in our own words. If USB forwarding falls short, it sketches the Windows camera bridge for P1.09 to design for | The probes' READMEs | 0018 (input) |
+| P1.S0 | WSL2 hardware spike (**deferred**) | Deferred by the owner on 2026-11-26, until the instrument and the TUCam Linux SDK are at hand; a USB 3 SSD stand-in and a Windows-to-WSL link probe can run earlier. Docs and probe programs: attach the MIChrome 20 and the grblHAL controller to WSL2 with usbipd-win; the TUCam Linux SDK under Ubuntu 24.04; sustained frame rate and MB/s; serial round trips; ext4 write rate. Writes `docs/hardware.md`, with OScope's measured facts carried over in our own words. If USB forwarding falls short, it sketches the Windows camera bridge for P1.09 to design for | The probes' READMEs | 0018 (input) |
 | P1.01 | Workspace and gates | Cargo workspace, toolchain pin, lints, the layering check, `cargo xtask gate` G0/G1/G2 and `doctor`, `cargo-deny`, `.gitattributes`, the PR template, shared VS Code settings in `.vscode/` (CodeLLDB debug configurations for the server, an example and a crate's tests; the recommended extensions for Remote-WSL; rust-analyzer running clippy), docs skeleton and templates, `CLAUDE.md`, the toolchain guide (§12), `tetera.md` moved to `docs/goal.md` | `cargo xtask doctor`; `cargo xtask gate quick`; an example debugged from VS Code over Remote-WSL | 0001–0005 |
 | P1.02 | Core types and logging | Units, geometry, the clock, IDs, errors; logging set-up (ring, files, journald, the critical marker) | `ex-core-tour` | 0006, 0007 |
 | P1.03 | The frame model | `PixelFormat`, `FrameMeta`, the buffer pool (pinned when CUDA is present), shared frames | `ex-frame-pool` | 0008 |
@@ -600,8 +601,10 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 | ID | Phase | Scope | Try it | ADRs |
 |---|---|---|---|---|
 | P1.13 | The server and the device Things | `tetera-server` on teta-wot v0.2.0; configuration; data roots; the systemd unit in WSL; Things for system, camera, stage, objective, illumination and simulation | `curl` and teta-wot's `/docs` | 0017, 0018 |
-| P1.14 | The frame bus and the live preview | Frame bus; preview over a binary WebSocket and MJPEG; viewport-sized frames; the fused ISP on the GPU; live statistics. **Checkpoint B:** live H&E in a browser while jogging | `ex-live-view`: one plain HTML page | 0019 |
-| P1.15 | Jobs, capture and datasets | The job service and the `jobs` Thing; the scratch recorder; projects and datasets in OME-Zarr with the SQLite index; single and multiple capture, switching the camera from its binned live mode to full resolution and back | `ex-capture`: a burst, then the dataset on disk | 0020, 0021 |
+| P1.14a | The frame bus and the preview pipeline | Frame bus (lossless and latest-wins subscribers); preview sessions: crop or bin, the fused ISP on the GPU, JPEG; live statistics; no network yet | `ex-preview-pipeline` | — |
+| P1.14b | The preview protocol | The binary WebSocket with acknowledgements, and MJPEG; the `preview` Thing. **Checkpoint B:** live H&E in a browser while jogging | `ex-live-view`: one plain HTML page | 0019 |
+| P1.15a | The job service | Jobs, the hardware queue and the compute pool, cancel, the SQLite history; the `jobs` Thing | `ex-jobs` | 0020 |
+| P1.15b | Datasets and capture | The scratch recorder; projects and datasets in OME-Zarr with the SQLite index; single and multiple capture, switching the camera from its binned live mode to full resolution and back; the `capture` and `datasets` Things | `ex-capture`: a burst, then the dataset on disk | 0021 |
 
 #### Stage 1E: Workflows (ends with Checkpoint C)
 
@@ -682,7 +685,9 @@ Each driver phase is *Done* only after the owner has run its manual test on the 
 | P5.06 | Performance | The raw path at the camera's rate to scratch; preview latency and rate; GPU tuning; memory; several clients; H.264 only if needed | — |
 | P5.07 | Packaging and release 1.0 | A `.deb` and the systemd unit for WSL; a Windows bootstrap (`.wslconfig`, the task, usbipd); a 24-hour soak; the user's guide; the release; the retrospective | 0042 |
 
-**In all:** 58 phases, plus the spike: M1 21, M2 8, M3 10, M4 12, M5 7.
+**In all:** 60 phases, plus the spike: M1 23, M2 8, M3 10, M4 12, M5 7.
+
+**Milestone 1's detailed specs** are in [`m1/phases.md`](m1/phases.md): about 34,800 lines by first estimates. P1.14 and P1.15 were over 2,000 lines, and the owner split each in two on 2026-11-26.
 
 ## 10. Planned ADRs
 
@@ -697,7 +702,7 @@ Numbered across the project. Each is written in the phase named.
 | 0005 | Layered crates, and the local gates | P1.01 |
 | 0006 | Units, coordinates and the clock | P1.02 |
 | 0007 | Logging | P1.02 |
-| 0008 | The frame model and the buffer pool | P1.03 |
+| 0008 | The frame model, the buffer pool and the frame bus | P1.03 |
 | 0009 | Compute backends: the CPU reference and CUDA | P1.04 |
 | 0010 | Building and loading CUDA kernels under WSL2 | P1.04 |
 | 0011 | Fused kernels | P1.06 |
@@ -708,9 +713,9 @@ Numbered across the project. Each is written in the phase named.
 | 0016 | The virtual camera's model | P1.12 |
 | 0017 | Control plane and media plane | P1.13 |
 | 0018 | The service in WSL2: systemd, start-up, networking, devices | P1.13 |
-| 0019 | The preview protocol | P1.14 |
-| 0020 | The job service | P1.15 |
-| 0021 | Datasets on disk | P1.15 |
+| 0019 | The preview protocol | P1.14b |
+| 0020 | The job service | P1.15a |
+| 0021 | Datasets on disk | P1.15b |
 | 0022 | Scan planning and the scan engine | P1.17 |
 | 0023 | The calibration model | P1.18 |
 | 0024 | Power actions under WSL2 | P1.20 |
@@ -902,14 +907,14 @@ A first draft. P1.01 turns it into `docs/setup/toolchain.md`, tests each step on
 
 | # | Risk | Impact | Mitigation |
 |---|---|---|---|
-| R1 | **The USB 3 camera through usbipd into WSL2** may not sustain 289 MB/s, or may drop frames | The real camera can't feed the service at full rate | P1.S0 measures it early in M1. **The owner's chosen fallback:** a small Windows camera bridge using the Windows TUCam SDK, sending frames into WSL over shared memory or a socket. The `Camera` trait allows a remote driver from P1.09 (§6.8). The service itself stays in WSL |
+| R1 | **The USB 3 camera through usbipd into WSL2** may not sustain 289 MB/s, or may drop frames | The real camera can't feed the service at full rate | P1.S0 measures it when the owner is at the instrument; until then, M1 assumes forwarding works. A USB 3 SSD stand-in gives an early reading. **The owner's chosen fallback:** a small Windows camera bridge using the Windows TUCam SDK, sending frames into WSL over shared memory or a socket. The `Camera` trait allows a remote driver from P1.09 (§6.8). The service itself stays in WSL |
 | R2 | **The TUCam Linux SDK** may not support Ubuntu 24.04, or USB/IP devices | No camera in WSL | P1.S0 checks it; the same fallback as R1 |
 | R3 | **The development PC has 16 GB of RAM** (WSL gets 7.8 GB by default) and an 8 GB GPU, against OScope's 32–64 GB target. The instrument PC is a different machine (Q9), not yet specified | Builds run out of memory; the simulator, preview and jobs fight over VRAM during development | `.wslconfig` at 12 GB plus swap; `mold`; capped build jobs; few example binaries; VRAM budgets per user; a configurable frame pool. The budgets in §6.15 are set on this PC in M1 and re-measured on the instrument PC in M5 |
 | R4 | **The camera's raw isn't the ADC's 12 bits.** OScope found that the SDK applies gamma and white balance, and rescales to about 58,000 levels with a black offset near 2,000 | Dark, flat and CCM nodes built for linear 12-bit data misbehave on real frames | Bayer16 with `significant_bits` and the black level in the metadata; the SDK set to its linear settings (gamma 128, contrast 32); the virtual camera can mimic the SDK (Q16, Q27) |
 | R5 | **CUDA under WSL2 has limits** that native Linux doesn't. NVIDIA's WSL guide lists them | A feature Tetera plans to use may not work, such as pinned memory at size, or IPC to Python workers | P1.04 checks each feature Tetera uses. Python workers get frames through host shared memory, not CUDA IPC |
 | R6 | **Disk:** OScope's phases built 60–70 GB each. WSL's virtual disk grows and doesn't shrink by itself | Full disks break WSL | `doctor` checks before G2 and G3; `sparseVhd`; the distro on D: (§12.1); cleaning between milestones |
 | R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
-| R8 | **Scope:** 58 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
+| R8 | **Scope:** 60 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
 | R9 | **The extension ABI** must stay stable across SDK versions | Old extensions break, or crash the server | A versioned C ABI checked at install; panics caught; tests against the previous SDK version; Python in separate processes |
 | R10 | **Extensions as the only home** of stitching, deep zoom, depth from focus and volumes | The SDK must be rich enough for heavy, GPU-bound nodes | P2.03 gives Rust extensions the GPU; P3.01 is a small extension that proves the path before P3.02 |
 | R11 | **The host's sleep, and WSL's clock drift** | Wrong wall-clock times in metadata | A monotonic clock; UTC mapped at start-up and re-checked; a status warning on drift |
@@ -933,7 +938,7 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | Q10 | Move the working copy into WSL's ext4 | D3 |
 | Q13 | Restart the service; restart WSL; reboot and shut down Windows | D20 |
 | Q15 | The WSL2 hardware spike early in M1; a Windows camera bridge as the fallback | P1.S0, §6.1, §6.8, R1 |
-| Q17 | Binned live view; captures and scans switch to full resolution | D5, §6.5, P1.15 (not quite this draft's assumption) |
+| Q17 | Binned live view; captures and scans switch to full resolution | D5, §6.5, P1.15b (not quite this draft's assumption) |
 | Q29 | In-process `cdylib`s behind a C ABI | D10 |
 | Q31 | M3's extensions in this repository's `extensions/` | D12 |
 | Q33 | Classical first; an ONNX model optional | P3.08 |
@@ -1075,3 +1080,6 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-26 | The owner's answers to 16 questions (§14). Clean room instead of porting (D1); binned live view with full-resolution captures (D5); Q1b and Q9b added |
 | 2026-11-26 | §12.1 and R7: `instanceIdleTimeout=-1` under `[general]` replaces `vmIdleTimeout=-1`, which the WSL documentation doesn't give as a way to stop idle shutdown; no comments after values |
 | 2026-11-26 | P1.01 also ships shared VS Code settings in `.vscode/`: debug configurations, recommended extensions, rust-analyzer's check. §6.3 and §12.1 to match |
+| 2026-11-26 | P1.S0 deferred by the owner until the instrument and the TUCam Linux SDK are at hand (§6.1, §9, R1) |
+| 2026-11-26 | Milestone 1's phase specs drafted in `m1/phases.md`. `tetera-log` added to §6.2 for P1.02's log writers |
+| 2026-11-26 | The owner split P1.14 (frame bus and preview pipeline; preview protocol) and P1.15 (job service; datasets and capture): 60 phases, M1 23. ADR-0008 also records the frame bus's design |
