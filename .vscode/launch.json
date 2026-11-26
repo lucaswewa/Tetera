@@ -1,0 +1,42 @@
+{
+  // Debug configurations for CodeLLDB, used over Remote-WSL (plan §12.1).
+  // rust-analyzer's "Debug" links above `fn main` and `#[test]` work too.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug an example",
+      "cargo": {
+        "args": ["build", "--package", "${input:package}", "--example", "${input:example}"]
+      },
+      "args": [],
+      "env": { "RUST_LOG": "debug" },
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug a crate's tests",
+      "cargo": {
+        "args": ["test", "--no-run", "--package", "${input:package}", "--lib"]
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "package",
+      "type": "promptString",
+      "description": "Package",
+      "default": "tetera-core"
+    },
+    {
+      "id": "example",
+      "type": "promptString",
+      "description": "Example",
+      "default": "hello"
+    }
+  ]
+}

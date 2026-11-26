@@ -1,0 +1,38 @@
+# cargo-deny's checks, run by the phase gate and above (ADR-0002, plan §5.2).
+
+[graph]
+all-features = true
+
+[advisories]
+# Each ignored advisory needs the owner's word, and its reason beside it.
+ignore = []
+
+[licenses]
+# Licences that allow distributing Tetera under MIT. Anything else goes to the owner,
+# and is added under `exceptions` for the one crate that needs it, with the reason.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Unlicense",
+]
+confidence-threshold = 0.8
+# Allowed licences that no dependency uses yet aren't worth a warning.
+unused-allowed-license = "allow"
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# teta-wot isn't on crates.io: Tetera depends on its tag (ADR-0004).
+allow-git = ["https://github.com/lucaswewa/teta-wot"]

@@ -1,0 +1,9 @@
+{
+  // rust-analyzer checks with clippy, as the gates do.
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.allTargets": true,
+  "files.eol": "\n",
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "[rust]": { "editor.formatOnSave": true }
+}

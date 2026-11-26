@@ -1,0 +1,36 @@
+[workspace]
+resolver = "3"
+# `examples/*` joins when the first whole-server example crate does: Cargo refuses a member
+# pattern that matches no folder.
+members = ["crates/*", "xtask"]
+# Throwaway probes keep their own lock files and builds (P1.S0).
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# teta-wot v0.2.0's minimum. The pinned toolchain is in rust-toolchain.toml.
+rust-version = "1.98"
+license = "MIT"
+repository = "https://github.com/lucaswewa/Tetera"
+publish = false
+
+[workspace.dependencies]
+tetera-core = { path = "crates/tetera-core" }
+
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+# Every crate takes these with `[lints] workspace = true`, except the few allowed unsafe
+# code, which set their own (ADR-0005). The gates turn warnings into errors.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# Dependencies are built optimised in dev and test builds: they rarely change, and the
+# simulator and image code that use them run much faster (ADR-0005).
+[profile.dev.package."*"]
+opt-level = 2
