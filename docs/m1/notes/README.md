@@ -5,7 +5,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | Phase | Title | Status | Notes |
 |---|---|---|---|
 | P1.S0 | WSL2 hardware spike | Deferred (2026-11-26) | — |
-| P1.01 | Workspace and gates | In review | [P1.01](P1.01-workspace-and-gates.md) |
+| P1.01 | Workspace and gates | Done | [P1.01](P1.01-workspace-and-gates.md) |
 | P1.02 | Core types and logging | Not started | — |
 | P1.03 | The frame model | Not started | — |
 | P1.04 | Compute backends | Not started | — |
