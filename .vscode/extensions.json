@@ -1,0 +1,10 @@
+{
+  // Installed on the WSL side, over Remote-WSL. Later milestones add Python (M2) and the
+  // app's extensions (M4); P1.04 adds Nsight for CUDA.
+  "recommendations": [
+    "ms-vscode-remote.remote-wsl",
+    "rust-lang.rust-analyzer",
+    "vadimcn.vscode-lldb",
+    "tamasfe.even-better-toml"
+  ]
+}
