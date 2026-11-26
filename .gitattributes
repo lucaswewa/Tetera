@@ -1,0 +1,11 @@
+# LF everywhere, whatever the checkout's settings (plan §5.5).
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.tif binary
+*.tiff binary
+*.zip binary
+*.tetx binary
