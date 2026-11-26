@@ -4,7 +4,7 @@
 |---|---|
 | Status | **Draft for the owner's review**, 2026-11-26. 16 questions answered the same day ([§14](#14-questions-for-the-owner)). Nothing is built until the owner approves it |
 | Covers | Architecture for all five milestones, the phase overview of every milestone, the local gates, the toolchain set-up, risks, and the questions this draft needs answered |
-| Inputs | [`tetera.md`](../tetera.md) (the build specification); `OScope` at `../OScope` (its plan, 62 ADRs, both retrospectives, `hardware.md`); `teta-wot` v0.2.0 at `../teta-wot`; this PC's toolchains, checked on 2026-11-26 |
+| Inputs | [`goal.md`](goal.md) (the build specification, `tetera.md` until P1.01); `OScope` at `../OScope` (its plan, 62 ADRs, both retrospectives, `hardware.md`); `teta-wot` v0.2.0 at `../teta-wot`; this PC's toolchains, checked on 2026-11-26 |
 | Next | Milestone 1's phase specs, drafted in [`m1/phases.md`](m1/phases.md) on 2026-11-26 for the owner's review; then phase P1.01 |
 
 **How to review it.** Every proposal the owner hasn't confirmed yet is marked *(proposed)*. Every open question is in [§14](#14-questions-for-the-owner), with the answer this draft assumes. Answer there, and the plan changes to match, with a row in the [change log](#appendix-d-change-log).
@@ -86,7 +86,7 @@ OScope is the owner's previous build of the same instrument software. It ran thr
 
 ## 3. In and out of scope
 
-**In scope:** everything in [`tetera.md`](../tetera.md), as read by the decisions in [§4](#4-proposed-decisions).
+**In scope:** everything in [`goal.md`](goal.md), as read by the decisions in [§4](#4-proposed-decisions).
 
 **Out of scope, or deferred** *(proposed)*
 
@@ -1087,3 +1087,4 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-26 | The owner split P1.14 (frame bus and preview pipeline; preview protocol) and P1.15 (job service; datasets and capture): 60 phases, M1 23. ADR-0008 also records the frame bus's design |
 | 2026-11-26 | **P1.01's second estimate,** before its code: code 1,200 (xtask: layering 230, reach 170, the gate's steps and runner 330, stress 120, fresh clone 70, summary 90, doctor 190; `tetera-core` 30) · tests 420 · examples 20 · docs-as-code 230 (manifests, `deny.toml`, `.cargo/`, `.vscode/`, the PR template, READMEs) · glue 40 = **1,910**, against a first estimate of 1,750. Under 2,000, so the phase stays whole |
 | 2026-11-26 | P1.01 in review. `examples/*` left out of the workspace's members until its first crate (Cargo refuses a pattern with no folder); dependency optimisation set in `Cargo.toml`'s profile rather than `.cargo/config.toml` |
+| 2026-11-26 | **P1.01 measured 3,867 lines against its estimate of 1,910 (×2.02):** code 2,099, tests 1,476. The tests grew with the end-to-end checks that the checkpoint's mutants called for; the code with rustfmt's line breaks and doc comments. Later estimates count both ([notes](m1/notes/P1.01-workspace-and-gates.md#size)) |
