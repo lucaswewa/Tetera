@@ -200,6 +200,7 @@ mod tests {
 {"reason":"compiler-artifact","package_id":"path+file:///ws/crates/tetera-core#0.1.0","target":{"name":"tetera_core","kind":["lib"]},"profile":{"test":true},"executable":"/ws/target/debug/deps/tetera_core-1"}
 {"reason":"compiler-artifact","package_id":"path+file:///ws/crates/tetera-core#0.1.0","target":{"name":"tetera_core"},"profile":{"test":false},"executable":null}
 {"reason":"compiler-artifact","package_id":"registry+https://x#serde@1.0.0","target":{"name":"serde"},"profile":{"test":true},"executable":"/elsewhere"}
+{"reason":"compiler-message","package_id":"path+file:///ws/crates/tetera-core#0.1.0","target":{"name":"tetera_core","kind":["lib"]},"profile":{"test":true},"executable":"/ws/not-an-artifact"}
 {"reason":"build-finished","success":true}
 not json
 "#;
@@ -225,6 +226,7 @@ not json
         assert_eq!(cpus_of_slot(0, 16), "0,1");
         assert_eq!(cpus_of_slot(3, 16), "6,7");
         assert_eq!(cpus_of_slot(0, 1), "0");
+        assert_eq!(cpus_of_slot(0, 2), "0,1");
     }
 
     #[test]

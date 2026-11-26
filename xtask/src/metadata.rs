@@ -129,3 +129,91 @@ impl Metadata {
         self.packages.iter().find(|p| p.id == id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(name: &str, kind: &str) -> Target {
+        Target {
+            name: name.into(),
+            kind: vec![kind.into()],
+        }
+    }
+
+    fn dep(name: &str, source: Option<&str>) -> Dependency {
+        Dependency {
+            name: name.into(),
+            source: source.map(Into::into),
+            kind: None,
+        }
+    }
+
+    fn package(name: &str, targets: Vec<Target>, dependencies: Vec<Dependency>) -> Package {
+        Package {
+            name: name.into(),
+            id: format!("id-{name}"),
+            manifest_path: format!("/ws/{name}/Cargo.toml").into(),
+            dependencies,
+            targets,
+            features: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn a_packages_targets_say_what_it_holds() {
+        let lib_only = package("a", vec![target("a", "lib"), target("it", "test")], vec![]);
+        assert!(lib_only.has_lib() && !lib_only.has_bins());
+        assert!(lib_only.examples().is_empty());
+
+        let macros = package("m", vec![target("m", "proc-macro")], vec![]);
+        assert!(macros.has_lib());
+
+        let tool = package(
+            "t",
+            vec![
+                target("t", "bin"),
+                target("one", "example"),
+                target("two", "example"),
+            ],
+            vec![],
+        );
+        assert!(!tool.has_lib() && tool.has_bins());
+        assert_eq!(tool.examples(), ["one", "two"]);
+        assert_eq!(tool.dir(), Path::new("/ws/t"));
+    }
+
+    #[test]
+    fn member_edges_are_path_dependencies_on_members() {
+        let meta = Metadata {
+            packages: vec![
+                package(
+                    "core",
+                    vec![],
+                    vec![dep("serde", Some("registry+https://x"))],
+                ),
+                package(
+                    "app",
+                    vec![],
+                    vec![
+                        dep("core", None),
+                        dep("helper", None),
+                        dep("core-git", Some("git+https://x")),
+                    ],
+                ),
+                package("core-git", vec![], vec![]),
+            ],
+            workspace_root: "/ws".into(),
+            target_directory: "/ws/target".into(),
+        };
+        assert_eq!(
+            meta.member_edges(),
+            [("app".to_string(), "core".to_string())]
+        );
+        assert_eq!(
+            meta.package_by_id("id-app").map(|p| p.name.as_str()),
+            Some("app")
+        );
+        assert!(meta.package_by_id("id-none").is_none());
+    }
+}

@@ -96,24 +96,7 @@ fn checks(root: &Path) -> Vec<Check> {
     let wanted = std::fs::read_to_string(root.join("rust-toolchain.toml"))
         .ok()
         .and_then(|t| toolchain_channel(&t));
-    out.push(match (run("rustc", &["--version"]), wanted) {
-        (Some(v), Some(w)) if v.starts_with(&format!("rustc {w} ")) => ok("rustc", v),
-        (Some(v), Some(w)) => warn(
-            "rustc",
-            format!("{v}, but rust-toolchain.toml pins {w}"),
-            Need::Now,
-        ),
-        (Some(v), None) => warn(
-            "rustc",
-            format!("{v}; rust-toolchain.toml has no channel"),
-            Need::Now,
-        ),
-        (None, _) => missing(
-            "rustc",
-            "install rustup: docs/setup/toolchain.md",
-            Need::Now,
-        ),
-    });
+    out.push(rustc_check(run("rustc", &["--version"]), wanted));
     out.push(tool("rustfmt", "cargo", &["fmt", "--version"], Need::Now));
     out.push(tool("clippy", "cargo", &["clippy", "--version"], Need::Now));
     out.push(tool("clang", "clang", &["--version"], Need::Now));
@@ -134,11 +117,7 @@ fn checks(root: &Path) -> Vec<Check> {
 
     let name = run("git", &["config", "user.name"]).unwrap_or_default();
     let email = run("git", &["config", "user.email"]).unwrap_or_default();
-    out.push(if name.is_empty() || email.is_empty() {
-        missing("git identity", "set user.name and user.email", Need::Now)
-    } else {
-        ok("git identity", format!("{name} <{email}>"))
-    });
+    out.push(identity_check(&name, &email));
     out.push(match run("git", &["config", "core.autocrlf"]).as_deref() {
         Some("true") => warn(
             "core.autocrlf",
@@ -161,37 +140,14 @@ fn checks(root: &Path) -> Vec<Check> {
         ok("location", root.display().to_string())
     });
 
-    let free_gb = run("df", &["-Pk", "."])
-        .and_then(|s| df_available_kb(&s))
-        .map(|kb| kb / 1_048_576);
-    out.push(match free_gb {
-        Some(gb) if gb >= MIN_FREE_GB => ok("disk", format!("{gb} GB free")),
-        Some(gb) => warn(
-            "disk",
-            format!("{gb} GB free; the checkpoint gate wants {MIN_FREE_GB}"),
-            Need::Now,
-        ),
-        None => warn("disk", "df gave nothing readable".into(), Need::Now),
-    });
+    out.push(disk_check(
+        run("df", &["-Pk", "."]).and_then(|s| df_available_kb(&s)),
+    ));
     let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
-    let mem_gb = std::fs::read_to_string("/proc/meminfo")
+    let mem_kb = std::fs::read_to_string("/proc/meminfo")
         .ok()
-        .and_then(|s| meminfo_total_kb(&s))
-        .map(|kb| kb as f64 / 1_048_576.0);
-    out.push(match mem_gb {
-        Some(gb) => {
-            let detail = format!(
-                "{gb:.1} GB, {cpus} CPUs; suggested CARGO_BUILD_JOBS={}",
-                suggested_jobs(gb, cpus)
-            );
-            if gb < 8.0 {
-                warn("memory", detail, Need::Now)
-            } else {
-                ok("memory", detail)
-            }
-        }
-        None => warn("memory", "/proc/meminfo isn't readable".into(), Need::Now),
-    });
+        .and_then(|s| meminfo_total_kb(&s));
+    out.push(memory_check(mem_kb, cpus));
 
     let gpu = ["--query-gpu=name,driver_version", "--format=csv,noheader"];
     out.push(tool(
@@ -206,23 +162,87 @@ fn checks(root: &Path) -> Vec<Check> {
         &["--version"],
         Need::From("from P1.04"),
     ));
-    out.push(match run("node", &["--version"]) {
-        Some(v) if node_major(&v).is_some_and(|m| m >= 24) => {
-            ok("node", v).needed(Need::From("from M4"))
-        }
-        Some(v) => warn(
-            "node",
-            format!("{v}; M4 needs 24 or newer"),
-            Need::From("from M4"),
-        ),
-        None => missing("node", "install Node 24 LTS", Need::From("from M4")),
-    });
+    out.push(node_check(run("node", &["--version"])));
     out.push(tool("uv", "uv", &["--version"], Need::From("from M2")));
     out
 }
 
 /// The free disk space the checkpoint gate wants, in GB.
 pub const MIN_FREE_GB: u64 = 40;
+
+/// Less memory than this, in GB, is worth a warning.
+pub const LOW_MEMORY_GB: f64 = 8.0;
+
+/// The check of `rustc --version`'s output against the channel `rust-toolchain.toml` pins.
+pub fn rustc_check(found: Option<String>, wanted: Option<String>) -> Check {
+    match (found, wanted) {
+        (Some(v), Some(w)) if v.starts_with(&format!("rustc {w} ")) => ok("rustc", v),
+        (Some(v), Some(w)) => warn(
+            "rustc",
+            format!("{v}, but rust-toolchain.toml pins {w}"),
+            Need::Now,
+        ),
+        (Some(v), None) => warn(
+            "rustc",
+            format!("{v}; rust-toolchain.toml has no channel"),
+            Need::Now,
+        ),
+        (None, _) => missing(
+            "rustc",
+            "install rustup: docs/setup/toolchain.md",
+            Need::Now,
+        ),
+    }
+}
+
+/// The check of git's `user.name` and `user.email`: both must be set.
+pub fn identity_check(name: &str, email: &str) -> Check {
+    if name.is_empty() || email.is_empty() {
+        missing("git identity", "set user.name and user.email", Need::Now)
+    } else {
+        ok("git identity", format!("{name} <{email}>"))
+    }
+}
+
+/// The check of the free disk space, given in kilobytes.
+pub fn disk_check(free_kb: Option<u64>) -> Check {
+    match free_kb.map(|kb| kb / 1_048_576) {
+        Some(gb) if gb >= MIN_FREE_GB => ok("disk", format!("{gb} GB free")),
+        Some(gb) => warn(
+            "disk",
+            format!("{gb} GB free; the checkpoint gate wants {MIN_FREE_GB}"),
+            Need::Now,
+        ),
+        None => warn("disk", "df gave nothing readable".into(), Need::Now),
+    }
+}
+
+/// The check of the memory, given in kilobytes, with the build jobs it suggests.
+pub fn memory_check(total_kb: Option<u64>, cpus: usize) -> Check {
+    let Some(kb) = total_kb else {
+        return warn("memory", "/proc/meminfo isn't readable".into(), Need::Now);
+    };
+    let gb = kb as f64 / 1_048_576.0;
+    let detail = format!(
+        "{gb:.1} GB, {cpus} CPUs; suggested CARGO_BUILD_JOBS={}",
+        suggested_jobs(gb, cpus)
+    );
+    if gb < LOW_MEMORY_GB {
+        warn("memory", detail, Need::Now)
+    } else {
+        ok("memory", detail)
+    }
+}
+
+/// The check of `node --version`'s output: M4 needs 24 or newer.
+pub fn node_check(found: Option<String>) -> Check {
+    let need = Need::From("from M4");
+    match found {
+        Some(v) if node_major(&v).is_some_and(|m| m >= 24) => ok("node", v).needed(need),
+        Some(v) => warn("node", format!("{v}; M4 needs 24 or newer"), need),
+        None => missing("node", "install Node 24 LTS", need),
+    }
+}
 
 fn ok(name: &'static str, detail: String) -> Check {
     Check {
@@ -330,6 +350,78 @@ mod tests {
         assert_eq!(node_major("v24.11.0"), Some(24));
         assert_eq!(node_major("v18.19.1\n"), Some(18));
         assert_eq!(node_major("node"), None);
+    }
+
+    #[test]
+    fn rustc_must_be_the_pinned_version() {
+        let pinned = Some("1.98.1".to_string());
+        let found = |v: &str| Some(v.to_string());
+        assert_eq!(
+            rustc_check(found("rustc 1.98.1 (48a229cea 2026-09-01)"), pinned.clone()).status,
+            Status::Ok
+        );
+        let other = rustc_check(found("rustc 1.98.10 (x)"), pinned.clone());
+        assert_eq!(other.status, Status::Warn);
+        assert!(other.detail.contains("pins 1.98.1"));
+        assert_eq!(
+            rustc_check(found("rustc 1.98.1 (x)"), None).status,
+            Status::Warn
+        );
+        assert_eq!(rustc_check(None, pinned).status, Status::Missing);
+    }
+
+    #[test]
+    fn a_git_identity_needs_a_name_and_an_email() {
+        assert_eq!(
+            identity_check("Lucas", "l@example.invalid").status,
+            Status::Ok
+        );
+        assert_eq!(identity_check("Lucas", "").status, Status::Missing);
+        assert_eq!(
+            identity_check("", "l@example.invalid").status,
+            Status::Missing
+        );
+    }
+
+    #[test]
+    fn the_checkpoint_wants_forty_gigabytes_free() {
+        let gb = |n: u64| Some(n * 1_048_576);
+        let plenty = disk_check(gb(947));
+        assert_eq!(
+            (plenty.status, plenty.detail.as_str()),
+            (Status::Ok, "947 GB free")
+        );
+        assert_eq!(disk_check(gb(MIN_FREE_GB)).status, Status::Ok);
+        assert_eq!(disk_check(gb(MIN_FREE_GB - 1)).status, Status::Warn);
+        assert_eq!(disk_check(None).status, Status::Warn);
+    }
+
+    #[test]
+    fn little_memory_is_worth_a_warning() {
+        let enough = memory_check(Some(12_268_000), 16);
+        assert_eq!(enough.status, Status::Ok);
+        assert_eq!(
+            enough.detail,
+            "11.7 GB, 16 CPUs; suggested CARGO_BUILD_JOBS=7"
+        );
+        assert_eq!(memory_check(Some(8 * 1_048_576), 16).status, Status::Ok);
+        assert_eq!(
+            memory_check(Some(8 * 1_048_576 - 1), 16).status,
+            Status::Warn
+        );
+        assert_eq!(memory_check(None, 16).status, Status::Warn);
+    }
+
+    #[test]
+    fn node_24_is_needed_from_m4() {
+        let found = |v: &str| Some(v.to_string());
+        let current = node_check(found("v24.0.0"));
+        assert_eq!(
+            (current.status, current.need),
+            (Status::Ok, Need::From("from M4"))
+        );
+        assert_eq!(node_check(found("v23.9.0")).status, Status::Warn);
+        assert_eq!(node_check(None).status, Status::Missing);
     }
 
     #[test]

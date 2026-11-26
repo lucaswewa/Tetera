@@ -259,8 +259,10 @@ fn execute(
     }
 }
 
-/// Clones the commit into `target/gate-clone/src`, kept between runs with its own target
-/// folder so it starts warm, cleans it, and runs the gate inside it.
+/// Clones the commit into `target/gate-clone/src`, cleans it, and runs the gate inside it.
+/// The clone is kept between runs, and so is its own `target/`, so it starts warm. The
+/// target folder stays inside the clone rather than in `CARGO_TARGET_DIR`: tests that start
+/// cargo themselves would inherit that variable, and wait on the lock of the build running them.
 fn fresh_clone(
     root: &Path,
     meta: &Metadata,
@@ -310,7 +312,7 @@ fn fresh_clone(
         &["checkout", "--quiet", "--force", "--detach", "FETCH_HEAD"],
         &src,
     )?;
-    git(&["clean", "--quiet", "-ffdx"], &src)?;
+    git(&["clean", "--quiet", "-ffdx", "-e", "/target/"], &src)?;
 
     let mut args: Vec<String> = ["xtask", "gate", opts.level.name(), "--in-clone"]
         .iter()
@@ -333,7 +335,7 @@ fn fresh_clone(
     let mut cmd = Command::new("cargo");
     cmd.args(&args)
         .current_dir(&src)
-        .env("CARGO_TARGET_DIR", home.join("target"));
+        .env_remove("CARGO_TARGET_DIR");
     let outcome =
         exec::run_logged(cmd, log, None).map_err(|e| format!("cargo didn't start: {e}"))?;
 
@@ -485,6 +487,38 @@ mod tests {
         assert!(text.contains("- `tetera-core`: changed: `crates/tetera-core/src/lib.rs`"));
         assert!(text.contains("| 2 | tests | FAIL | 1.5 s | a / b |  |"));
         assert!(text.contains("| 3 | cuda | skip |"));
+    }
+
+    #[test]
+    fn notes_and_log_names_read_well() {
+        assert_eq!(note_suffix(""), "");
+        assert_eq!(note_suffix("2 failed"), " (2 failed)");
+        assert_eq!(
+            file_name(Path::new("/x/gates/03-clippy.log")),
+            "03-clippy.log"
+        );
+    }
+
+    #[test]
+    fn a_quick_summary_says_it_leaves_out_dependents() {
+        let opts = Options::new(Level::Quick);
+        let reach = Reach {
+            everything: None,
+            packages: [("tetera-core".to_string(), "changed".to_string())].into(),
+        };
+        let text = render(&Summary {
+            opts: &opts,
+            commit: "abc1234".into(),
+            dirty: false,
+            merge_base: None,
+            started: "now".into(),
+            elapsed: Duration::from_secs(1),
+            reach: &reach,
+            steps: &[],
+        });
+        assert!(text.contains("working tree clean"));
+        assert!(text.contains("leaves out their dependents"));
+        assert!(!text.contains("**Base:**"));
     }
 
     #[test]
