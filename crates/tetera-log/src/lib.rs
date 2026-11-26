@@ -1,9 +1,9 @@
 //! Tetera's logging (ADR-0007), on `tracing`. One [`RecordLayer`] turns every event into a
-//! [`LogRecord`] and hands it to:
+//! [`LogRecord`](tetera_core::LogRecord) and hands it to:
 //!
 //! - the [`LogRing`], which keeps the newest records for the `logs` Thing (P1.20);
-//! - JSON lines in [rotating files](file), when configured;
-//! - [journald](journald), when systemd started the process, with a critical record at
+//! - JSON lines in [rotating files](mod@file), when configured;
+//! - [journald](mod@journald), when systemd started the process, with a critical record at
 //!   priority 2 (CRIT).
 //!
 //! Readable lines go to standard error too, unless journald already has them. `tracing`
