@@ -1083,3 +1083,4 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-26 | P1.S0 deferred by the owner until the instrument and the TUCam Linux SDK are at hand (§6.1, §9, R1) |
 | 2026-11-26 | Milestone 1's phase specs drafted in `m1/phases.md`. `tetera-log` added to §6.2 for P1.02's log writers |
 | 2026-11-26 | The owner split P1.14 (frame bus and preview pipeline; preview protocol) and P1.15 (job service; datasets and capture): 60 phases, M1 23. ADR-0008 also records the frame bus's design |
+| 2026-11-26 | **P1.01's second estimate,** before its code: code 1,200 (xtask: layering 230, reach 170, the gate's steps and runner 330, stress 120, fresh clone 70, summary 90, doctor 190; `tetera-core` 30) · tests 420 · examples 20 · docs-as-code 230 (manifests, `deny.toml`, `.cargo/`, `.vscode/`, the PR template, READMEs) · glue 40 = **1,910**, against a first estimate of 1,750. Under 2,000, so the phase stays whole |
