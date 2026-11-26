@@ -1,0 +1,15 @@
+# cargo-mutants' settings (ADR-0005). Each exclusion is a mutant no test can tell from the
+# original, with the reason. Add one only with its reason, and say so in the phase's notes.
+exclude_re = [
+    # A command's time limit: `>` and `>=` differ only for a command still running at the
+    # exact poll that reaches the limit.
+    "replace > with >= in run_logged",
+    # Whether a checkpoint works out a merge base: it only feeds `--mutants`' diff, which
+    # every checkpoint run with `--mutants` exercises.
+    "replace && with \\|\\| in work_out_reach",
+    "delete ! in work_out_reach",
+    # The fresh clone runs `cargo xtask` inside a clone of this workspace, so no scratch
+    # workspace can stand in for it; every checkpoint gate runs it for real.
+    "replace fresh_clone ->",
+    "in fresh_clone$",
+]

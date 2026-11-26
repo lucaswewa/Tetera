@@ -100,6 +100,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn durations_change_units_at_ten_seconds_and_a_minute() {
+        assert_eq!(human(Duration::from_millis(9_960)), "10.0 s");
+        assert_eq!(human(Duration::from_secs(10)), "10 s");
+        assert_eq!(human(Duration::from_secs(60)), "1 min 0 s");
+    }
+
+    #[test]
+    fn a_command_within_its_limit_runs_to_the_end() {
+        let dir = std::env::temp_dir().join(format!("xtask-exec-ok-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut cmd = Command::new("sleep");
+        cmd.arg("0.3");
+        let outcome = run_logged(cmd, &dir.join("ok.log"), Some(Duration::from_secs(20))).unwrap();
+        assert!(outcome.success);
+        assert!(outcome.elapsed >= Duration::from_millis(300));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn durations_read_naturally() {
         assert_eq!(human(Duration::from_millis(420)), "0.4 s");
         assert_eq!(human(Duration::from_secs(12)), "12 s");

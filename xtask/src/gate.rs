@@ -157,6 +157,8 @@ pub struct PackageInfo {
 
 /// How many times the phase gate runs each reached test binary (plan §8).
 pub const STRESS_REPEATS: usize = 3;
+/// How many mutants `cargo mutants` builds and tests side by side.
+pub const MUTANTS_JOBS: &str = "4";
 /// How long an example's smoke run may take before it fails.
 pub const SMOKE_LIMIT_SECS: u64 = 120;
 
@@ -278,7 +280,13 @@ pub fn plan(opts: &Options, reach: &Reach, packages: &[PackageInfo]) -> Vec<Step
             Some(diff) => Step::new(
                 "mutants",
                 "cargo mutants on the change, to find tests that pass for the wrong reason",
-                cargo(&["mutants", "--in-diff", &diff.display().to_string()]),
+                cargo(&[
+                    "mutants",
+                    "--in-diff",
+                    &diff.display().to_string(),
+                    "--jobs",
+                    MUTANTS_JOBS,
+                ]),
             ),
             None => Step::new(
                 "mutants",
@@ -571,7 +579,13 @@ mod tests {
         let steps = plan(&opts, &reach(&[]), &workspace());
         assert_eq!(
             steps[9].action,
-            cargo(&["mutants", "--in-diff", "/tmp/change.diff"])
+            cargo(&[
+                "mutants",
+                "--in-diff",
+                "/tmp/change.diff",
+                "--jobs",
+                MUTANTS_JOBS
+            ])
         );
     }
 
