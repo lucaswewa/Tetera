@@ -1,0 +1,1065 @@
+# Milestone 1 phase specifications
+
+| | |
+|---|---|
+| Status | **Draft for the owner's review**, 2026-11-26 |
+| Covers | Every phase of Milestone 1, the backend core: P1.S0 and P1.01–P1.21 |
+| Companion | [The implementation plan](../implementation-plan.md): its [§9](../implementation-plan.md#milestone-1-backend-core) gives the overview, its [§7](../implementation-plan.md#7-how-phases-work) the delivery rules, its [§8](../implementation-plan.md#8-local-ci-gates) the gates |
+
+## How to read a spec
+
+Each phase has:
+
+- **a header table:** the crates it creates or changes, what it depends on, its ADRs, its gates, and its **first estimate**;
+- **goal:** one or two sentences;
+- **scope**, and what is **out of scope**;
+- **try it:** the examples, and the manual test's outline;
+- **done when:** what must be true before its PR opens;
+- **tests:** what they cover, and what is **broken on purpose** to prove a test fails;
+- **open questions** from plan §14 that the spec assumes an answer to. A different answer changes the spec.
+
+**Estimates.**
+
+- A first estimate is in five parts, in hand-written lines: code, tests, examples, docs-as-code (READMEs, schemas, configuration), and glue. Doc comments and blank lines count. Markdown docs don't.
+- Before a phase's code, its second estimate goes into the plan's change log, in a commit of its own (plan §7).
+- **The target is 1,500 lines a phase. An estimate over 2,000 goes to the owner,** who decides whether to split it. Two specs were over 2,000 (P1.14 and P1.15), and the owner split both on 2026-11-26: P1.14a and P1.14b, P1.15a and P1.15b.
+- Specs between 1,500 and 2,000 list a split that is ready if the second estimate grows.
+
+**What every phase does, so the specs don't repeat it** (plan §7):
+
+- tests, examples with a README and a `--smoke` mode, implementation notes, a manual-test entry, new ADRs, the phase's status in the plan;
+- **examples** live in the crate's `examples/` folder and run as `cargo run -p <crate> --example <name>`. With `--smoke`, an example finishes in under 10 seconds and exits 0;
+- the tests follow plan §5.4: they wait for conditions, get their own data roots and ports, and are skipped without their switch (`TETERA_CUDA=1` and so on);
+- **G1** before the PR. **G1c** when the change reaches CUDA code. **G2** at a checkpoint (P1.12, P1.14b, P1.18). **G3** at P1.21;
+- the notes name the ideas taken from OScope's documents (clean room, D1).
+
+## Summary
+
+| ID | Phase | Depends on | First estimate | Spec-first | Gates |
+|---|---|---|---|---|---|
+| [P1.S0](#p1s0-wsl2-hardware-spike) | WSL2 hardware spike (**deferred**) | — | 1,000 | — | G1 |
+| [P1.01](#p101-workspace-and-gates) | Workspace and gates | — | 1,750 | — | G1, G2 |
+| [P1.02](#p102-core-types-and-logging) | Core types and logging | P1.01 | 1,570 | — | G1 |
+| [P1.03](#p103-the-frame-model) | The frame model | P1.02 | 1,220 | — | G1 |
+| [P1.04](#p104-compute-backends) | Compute backends | P1.03 | 1,550 | — | G1, G1c |
+| [P1.05](#p105-bayer-demosaic-resize-and-jpeg) | Bayer, demosaic, resize and JPEG | P1.04 | 1,600 | — | G1, G1c |
+| [P1.06](#p106-dark-flat-colour-and-the-fused-kernel) | Dark, flat, colour, and the fused kernel | P1.05 | 1,600 | — | G1, G1c |
+| [P1.07](#p107-denoise-and-deconvolution) | Denoise and deconvolution | P1.05 | 1,670 | Yes | G1, G1c |
+| [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06, P1.07 | 1,880 | — | G1, G1c |
+| [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
+| [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09 | 1,350 | — | G1 |
+| [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04 | 1,800 | Yes | G1, G1c |
+| [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06, P1.10, P1.11 | 1,920 | — | G1, G1c, G2 |
+| [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12 | 1,980 | — | G1 |
+| [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08, P1.13 | 1,050 | — | G1, G1c |
+| [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
+| [P1.15a](#p115a-the-job-service) | The job service | P1.13 | 800 | — | G1 |
+| [P1.15b](#p115b-datasets-and-capture) | Datasets and capture | P1.14a, P1.15a | 1,550 | — | G1 |
+| [P1.16](#p116-autofocus) | Autofocus | P1.15b | 1,300 | Yes | G1 |
+| [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16 | 1,530 | — | G1 |
+| [P1.18](#p118-calibration) | Calibration (**Checkpoint C**) | P1.17 | 1,900 | Yes | G1, G1c, G2 |
+| [P1.19](#p119-batch-processing) | Batch processing | P1.15b, P1.08 | 1,400 | — | G1, G1c |
+| [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
+| [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
+
+**In all:** 23 phases, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+
+- **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
+- **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
+- **With every ready split taken,** M1 would have 35 phases of about 1,000 lines each.
+
+**Checkpoints:**
+
+- **A** (P1.12): the virtual instrument renders H&E live, on the GPU, while the stage moves.
+- **B** (P1.14b): live H&E in a browser page while jogging, from the server.
+- **C** (P1.18): calibrate an objective, autofocus, and scan.
+
+---
+
+## P1.S0: WSL2 hardware spike
+
+| | |
+|---|---|
+| Status | **Deferred** by the owner on 2026-11-26: the instrument isn't connected to this PC, and the TUCam Linux SDK isn't here yet. The USB 3 SSD stand-in and the link probe can run earlier |
+| Crates | None. Standalone probes in `spikes/p1-s0/`, outside the workspace |
+| Depends on | — |
+| ADRs | Input to 0018 (the service in WSL2) and 0040 (devices in WSL2) |
+| Gates | G1 (the probes build and their tests pass) |
+| First estimate | code 650 · tests 100 · examples 0 · docs-as-code 150 · glue 100 = **1,000** |
+
+**Goal.** Find out whether the real camera and stage work from inside WSL2, at what rates, and whether the Windows camera bridge is needed.
+
+**Scope.**
+
+- **A stand-in, before the instrument:** a USB 3 SSD's sequential read rate, natively on Windows and then attached to WSL2 through usbipd-win. The SSD moves data in bulk transfers, as the camera does.
+- **`link-probe`:** sends 40 MB frames from a Windows process to a WSL2 process over TCP, under mirrored networking, and reports the rate. It answers whether the bridge could carry 289 MB/s.
+- **`camera-probe`** (C, against the TUCam Linux SDK's own headers and documentation):
+  - open the MIChrome 20 attached through usbipd-win;
+  - list its modes;
+  - capture raw 16-bit and 8-bit at modes 0, 1 and 2, ten minutes at mode 0;
+  - report frame rate, MB/s, and dropped and broken frames.
+- **`serial-probe`** (Rust): opens the grblHAL port, reads `$I` and `$$`, times 1,000 `?` status round trips, and reports the status rate while jogging.
+- **`disk-probe`** (Rust): writes 40 MB frames sequentially to a preallocated file on ext4, at a target rate, and reports the sustained rate and the slowest writes.
+- **usbipd-win's set-up:** bind, attach and auto-attach, and udev rules for the camera and the serial port.
+- **`docs/hardware.md`:** OScope's measured facts about the camera, the stage and the disks, in our own words, plus what the spike measures in WSL2.
+- **If USB forwarding falls short:** a sketch of the camera bridge (the transport, the frame format, how it implements the `Camera` trait) for P1.09 and P5.01.
+
+**Out of scope.** Drivers (P5.02, P5.03); anything in the workspace.
+
+**Try it.** Each probe's README: how to build it, attach the device, run it, and read its report.
+
+**Done when.**
+
+- `docs/hardware.md` records each measurement, with the date, the commands and the hardware.
+- A decision is recorded in the notes: USB forwarding is enough, or the bridge is needed.
+
+**Tests.** The probes' argument parsing and report formatting. Hardware runs are the manual test.
+
+**Open questions.** Q14 (scratch disk), Q16 (raw bit depth: the probe records what the SDK delivers).
+
+**Owner's steps.** Install usbipd-win and bind each device as an administrator; provide the TUCam Linux kit's path; be at the instrument.
+
+---
+
+## P1.01: Workspace and gates
+
+| | |
+|---|---|
+| Crates | The workspace; `xtask` (new); `tetera-core` (new, empty, so the gates have something to run) |
+| Depends on | — |
+| ADRs | 0001 recording decisions and the delivery process · 0002 clean room and dependency licences · 0003 the runtime platform · 0004 teta-wot v0.2.0 · 0005 layered crates and the local gates |
+| Gates | G1; G2 once, to prove it works |
+| First estimate | code 1,050 · tests 400 · examples 20 · docs-as-code 200 · glue 80 = **1,750** |
+| Ready split | P1.01a: workspace, layering, `doctor`, G0, docs skeleton (~900) · P1.01b: G1 and G2, with change reach, stress runs and summaries (~850) |
+
+**Goal.** A complete, empty workspace in which every later phase lands, with the local gates, the docs skeleton and the working rules.
+
+**Scope.**
+
+- **The workspace:**
+  - `Cargo.toml`: resolver 3, edition 2024, `rust-version = "1.98"`. Members `crates/*`, `examples/*` and `xtask`; `spikes/*` excluded;
+  - workspace lints: `unsafe_code = "forbid"`, `missing_docs = "warn"`, clippy's `all` as warnings, which the gates deny;
+  - `rust-toolchain.toml`: 1.98.1, with rustfmt and clippy;
+  - `.cargo/config.toml`: clang with mold as the linker, `opt-level = 2` for dependencies in dev and test builds, and the `xtask` alias;
+  - `rustfmt.toml`, `deny.toml` (the licences of plan §5.2; advisories; sources limited to crates.io and teta-wot's repository), `.gitattributes` (LF), `.gitignore`.
+- **`cargo xtask layering`:** the layer table of plan §6.2, with every planned crate placed now, and the allowed edges within a layer. Checks every workspace member through `cargo metadata`:
+  - no upward edge, and no edge within a layer that the table doesn't allow;
+  - only `tetera-api` depends on `teta-wot`;
+  - every crate takes the workspace's lints, except the crates allowed unsafe code, which repeat them with `unsafe_code` allowed and clippy's `undocumented_unsafe_blocks` denied.
+
+  It is also an integration test, so `cargo test` runs it.
+- **`cargo xtask gate quick | phase | checkpoint | milestone`**, with `--base <ref>` (default `main`), `--cuda`, `--python` and `--jobs N`:
+  - **reach:** the files changed since the merge base, the packages holding them, and every package that depends on those. The workspace's manifest, the lock file, the toolchain, `.cargo/` and `xtask/` reach everything;
+  - **steps:** each level's steps as plan §8 lists them. A step nothing reaches says `skip`;
+  - **stress:** the reached test binaries 3 times side by side, each pinned to 2 CPUs with `taskset`;
+  - **fresh clone:** `checkpoint` and `milestone` clone the commit into a temporary folder and run there, with a target folder of their own kept between runs so they start warm;
+  - **summary:** `target/gates/<time>/summary.md`, with each step, why it ran, its time and its result, and each step's log beside it.
+- **`cargo xtask doctor`:** reports the toolchain, mold, clang, cargo-deny, cargo-mutants, CUDA (optional until P1.04), Node (until M4) and uv (until M2); free disk (at least 40 GB); WSL's memory, and the `CARGO_BUILD_JOBS` it suggests; a warning when the repository is under `/mnt/`; git's identity and `core.autocrlf`.
+- **`.vscode/`:** `launch.json` with CodeLLDB configurations for an example and for a crate's tests (the server's comes in P1.13); `extensions.json` recommending rust-analyzer, CodeLLDB and Even Better TOML; `settings.json` with rust-analyzer checking through clippy and LF line endings.
+- **`.github/pull_request_template.md`:** the Definition of Done of plan §7. No workflows.
+- **Docs:**
+  - `docs/README.md`, the index;
+  - `docs/goal.md`, the spec, moved from `tetera.md` unchanged;
+  - `docs/adr/` with its index and template, and ADRs 0001–0005;
+  - `docs/m1/notes/` with its index and template; `docs/m1/manual-tests.md`;
+  - `docs/setup/toolchain.md`, from plan §12, each step re-run on this PC;
+  - `CLAUDE.md`, the working rules: the delivery process, the clean room, dependencies, unsafe code, tests, ports, the gates.
+- **`tetera-core`:** a crate with its docs and one `hello` example, for the gates and the debugger to run.
+
+**Out of scope.** Domain code (P1.02 on); CUDA (P1.04); the web checks (M4); performance and soak runs (P1.21).
+
+**Try it.**
+
+- `cargo xtask doctor` from a fresh clone in WSL.
+- `cargo xtask gate quick`, then `cargo xtask gate phase --base main`.
+- Add an upward dependency on purpose, and see the gate name the edge.
+- In VS Code over Remote-WSL, debug the `hello` example and stop at a breakpoint.
+
+**Done when.**
+
+- From a fresh clone in WSL, `doctor` reports nothing required missing.
+- `gate quick` passes in under 90 seconds warm, `gate phase` passes, and `gate checkpoint` passes on a fresh clone.
+- The summary lists each step with why it ran.
+- Debugging the example from VS Code stops at a breakpoint.
+
+**Tests.**
+
+- **Reach**, over synthetic dependency graphs: a leaf change, a core change, a manifest change, a docs-only change.
+- **Layering**, over synthetic metadata: an upward edge, a sideways edge, an allowed edge within a layer, `teta-wot` outside `tetera-api`, a crate without the workspace's lints.
+- **The file classifier,** the summary's rendering, and `doctor`'s checks with faked inputs.
+- **Broken on purpose:** an upward edge, and a crate without `[lints] workspace = true`. Each must fail the gate. The mutants list covers reach and the layering rules.
+
+**Open questions.** Q40 (who merges), Q41 (no workflows), Q42 (gate contents), Q46 (Rust 1.98.1).
+
+---
+
+## P1.02: Core types and logging
+
+| | |
+|---|---|
+| Crates | `tetera-core`; `tetera-log` (new, L1). **A change to plan §6.2:** `tetera-core` does no I/O, so the log writers need a crate of their own |
+| Depends on | P1.01 |
+| ADRs | 0006 units, coordinates and the clock · 0007 logging |
+| Gates | G1 |
+| First estimate | code 900 · tests 450 · examples 120 · docs-as-code 60 · glue 40 = **1,570** |
+| Ready split | P1.02a: units, geometry, the clock, IDs, errors (~950) · P1.02b: logging (~620) |
+
+**Goal.** The vocabulary every other crate uses, and logging that every example and test can turn on.
+
+**Scope.**
+
+- **Units:** `Um` (µm, `f64`) for lengths, `std::time::Duration` for times, and conversions at the edges. Serde, and JSON Schema through `schemars` behind a `schema` feature.
+- **Geometry:** points and vectors in µm and in pixels; `Rect` in pixels; `Affine2` (compose, invert, apply); `StagePos { x, y, z }`.
+- **The clock:**
+  - `Timestamp`: nanoseconds since the process started, from the monotonic clock;
+  - a `Clock` trait, with `SystemClock`, and `ManualClock` for tests. P1.10's simulated clock implements it too;
+  - UTC mapped once at start-up, and re-checked: a drift over 1 s raises a warning (WSL2's clock can drift after the host sleeps).
+- **IDs:** `Id<T>`, a UUID v7, so IDs sort by time.
+- **Errors:** one `Error` with a kind (invalid argument, not found, busy, hardware, timeout, cancelled, internal) and a context chain, through `thiserror`.
+- **Log records** (in `tetera-core`): `LogRecord` with time, level, target, message and fields. The levels are trace, debug, info, warn, error and **critical**. `LogRing`, bounded, drops the oldest record and counts the drops.
+- **`tetera-log`:** the `tracing` subscriber's set-up:
+  - a layer into the ring;
+  - rolling JSON files, through `tracing-appender`;
+  - journald, through `tracing-journald`, when running under systemd;
+  - readable output to stderr;
+  - filters from the configuration or `RUST_LOG`;
+  - a `critical!` macro: an error record with `critical = true`, reported as *critical*.
+
+**Out of scope.** The `logs` Thing (P1.20); frames (P1.03).
+
+**Try it.** `core-tour` (units, geometry, the clock, IDs); `log-tour` (writes records, then shows the ring's tail and the file).
+
+**Done when.** The types round-trip through serde; the ring keeps the newest records under load; a critical record shows as critical in the ring, the file and journald.
+
+**Tests.**
+
+- Property tests (`proptest`): affine composition and inversion, rectangle intersections, unit conversions.
+- The clock: monotonic, and the drift warning, with `ManualClock`.
+- IDs sort by creation time.
+- The ring overflowing under several threads.
+- File rotation.
+- **Broken on purpose:** the ring's drop of the oldest record, and the drift check.
+
+---
+
+## P1.03: The frame model
+
+| | |
+|---|---|
+| Crates | `tetera-core` |
+| Depends on | P1.02 |
+| ADRs | 0008 the frame model, the buffer pool and the frame bus |
+| Gates | G1 |
+| First estimate | code 650 · tests 400 · examples 100 · docs-as-code 40 · glue 30 = **1,220** |
+
+**Goal.** One way to hold a frame, from any camera, real or virtual, that every later stage shares without copying.
+
+**Scope.**
+
+- **`PixelFormat`:** `Bayer16 { pattern, significant_bits }`, `Bayer8`, `Mono8`, `Mono16`, `Rgb8`, `Rgb16`, `Rgba8`, planar `F32`. Sizes and strides for each, with ROI and binning. **A crop at an odd offset changes the Bayer phase,** and the format records it.
+- **`FrameMeta`:** sequence number; exposure start, end and midpoint; line time (rolling shutter); exposure, gain, mode, binning, ROI, black level; objective; the light's state; the stage position at the midpoint, if known; frames dropped before this one.
+- **`FramePool`:** a fixed number of buffers of one size, aligned to 4 KiB without unsafe code; `take()` waits up to a timeout when all are in use; a frame is shared by reference count, and its buffer goes back to the pool when the last reference drops; statistics (in use, waits, misses).
+- **`Allocator` trait:** plain host memory now. P1.04 plugs in pinned memory for CUDA.
+- **Safe views:** rows, planes, Bayer sites; scaling between significant bits and full range.
+- **The frame bus's design,** decided here and recorded in ADR-0008: lossless subscribers with backpressure, latest-wins subscribers with a one-frame mailbox. P1.14a builds it.
+
+**Out of scope.** Pinned memory (P1.04); building the frame bus (P1.14a).
+
+**Try it.** `frame-pool`: a pool of 16 full Bayer16 frames (about 640 MB), filled and shared by three consumers, with the statistics, then an exhausted pool.
+
+**Done when.**
+
+- A 5472 × 3648 Bayer16 frame takes 39.9 MB, and its metadata round-trips.
+- After warming up, the pool allocates nothing (counted).
+- An exhausted pool waits, then fails with a clear error.
+
+**Tests.** Property tests of sizes and strides for every format, ROI and binning; Bayer phase after cropping; many threads taking and returning frames, also in the stress runs. **Broken on purpose:** returning a buffer to the pool, and the exhaustion timeout.
+
+**Open questions.** Q16 (`significant_bits = 12`).
+
+---
+
+## P1.04: Compute backends
+
+| | |
+|---|---|
+| Crates | `tetera-compute` (new, L1, unsafe allowed) |
+| Depends on | P1.03 |
+| ADRs | 0009 compute backends: the CPU reference and CUDA · 0010 building and loading CUDA kernels under WSL2 |
+| Gates | G1, G1c |
+| First estimate | code 900 · tests 350 · examples 120 · docs-as-code 60 · glue 120 = **1,550** |
+
+**Goal.** Run the same operation on the CPU or on CUDA, choose between them at run time, and prove the two agree.
+
+**Scope.**
+
+- **Backends:** `Cpu` (rayon) and `Cuda` (`cudarc`, the driver loaded at run time). The `cuda` feature builds the CUDA path; without a GPU, a driver, or the feature, everything runs on the CPU. `TETERA_FORCE_CPU=1` forces the CPU.
+- **Detection:** the device, its compute capability, free VRAM, the driver's and the toolkit's versions.
+- **Memory:** device buffers; pinned host memory, through P1.03's `Allocator`; streams; asynchronous copies.
+- **Kernels:** CUDA C under `kernels/`, compiled to PTX by `build.rs` when the feature is on and `nvcc` is found, and embedded in the binary.
+- **The twin harness:** runs an operation on both backends and compares the results within a stated tolerance; `cuda_or_skip!()` for tests that need `TETERA_CUDA=1`.
+- **One small kernel pair** (scale and offset `u16` to `f32`) to prove the path.
+- **VRAM budgets:** each user (simulator, preview, jobs) reserves a budget, and a request beyond it is refused.
+- **What WSL2's CUDA offers,** checked and recorded in ADR-0010: pinned memory at 640 MB, cuFFT, NVRTC, nvJPEG, and inter-process memory handles.
+- **The CUDA toolkit's version,** chosen and pinned, with its exact install commands in `docs/setup/toolchain.md`.
+
+**Out of scope.** Imaging kernels (P1.05 on); fusion (P1.06).
+
+**Try it.** `compute-info` (the device, the versions, and each WSL2 feature: works or not); `twin-scale` (both backends, with timings).
+
+**Done when.**
+
+- The workspace builds without the CUDA toolkit, and with it.
+- The CUDA twin tests pass with `TETERA_CUDA=1` on this PC.
+- With `TETERA_FORCE_CPU=1`, everything runs on the CPU.
+- The WSL2 feature table is in ADR-0010.
+
+**Tests.** Backend selection with faked detection; the harness's tolerance arithmetic; VRAM budget accounting; the CUDA twins (G1c). **Broken on purpose:** the fallback to the CPU when the driver is missing.
+
+**Owner's steps.** Install the CUDA toolkit for WSL-Ubuntu (it needs `sudo`), with the commands this phase writes.
+
+---
+
+## P1.05: Bayer, demosaic, resize and JPEG
+
+| | |
+|---|---|
+| Crates | `tetera-imaging` (new, L1) |
+| Depends on | P1.04 |
+| ADRs | — |
+| Gates | G1, G1c |
+| First estimate | code 1,000 · tests 400 · examples 120 · docs-as-code 40 · glue 40 = **1,600** |
+| Ready split | P1.05a: Bayer, demosaic, binning (~1,000) · P1.05b: resize, display transform, JPEG (~600) |
+
+**Goal.** Turn a raw Bayer frame into an image a person can see, on either backend.
+
+**Scope.**
+
+- **Bayer split:** RGGB into R, G1, G2 and B planes; a half-resolution RGB superpixel.
+- **Demosaic:** bilinear, and Malvar–He–Cutler (ICASSP 2004), to RGB in 16 bits or `f32`.
+- **Binning:** 2 × 2, 3 × 3 and 4 × 4, by sum or mean, keeping the Bayer layout.
+- **Resize:** area averaging for shrinking, bilinear otherwise, to any preview size.
+- **Display transform:** black and white levels, then a gamma table, to RGB8.
+- **JPEG:** on the CPU, with SIMD, at a chosen quality. MJPEG is a sequence of these.
+- **CUDA kernels** for each operation but JPEG, each with its CPU twin.
+- **ROIs at odd offsets** handled through the Bayer phase that P1.03 records.
+
+**Out of scope.** JPEG on the GPU (P5.06, if it pays); dark, flat and colour (P1.06).
+
+**Try it.** `demosaic`: a known RGB test pattern is mosaicked, demosaicked both ways on both backends, and written as JPEG, with timings and each method's PSNR against the pattern.
+
+**Done when.**
+
+- Integer operations agree exactly between backends, and `f32` ones within 1 least significant bit.
+- Malvar–He–Cutler's PSNR beats bilinear's on the test pattern; both numbers are recorded.
+- A 1920 × 1280 JPEG at quality 80 takes 10 ms or less on the CPU, in a release build.
+
+**Tests.** Flat colours survive mosaicking and demosaicking exactly; borders; every Bayer phase; property tests of binning sums; the CUDA twins. **Broken on purpose:** the Bayer phase after an odd crop, and border handling.
+
+**Open questions.** Q22 (demosaic methods).
+
+---
+
+## P1.06: Dark, flat, colour, and the fused kernel
+
+| | |
+|---|---|
+| Crates | `tetera-imaging`, `tetera-compute` |
+| Depends on | P1.05 |
+| ADRs | 0011 fused kernels |
+| Gates | G1, G1c |
+| First estimate | code 1,000 · tests 400 · examples 100 · docs-as-code 50 · glue 50 = **1,600** |
+| Ready split | P1.06a: dark, flat, white balance and CCM (~800) · P1.06b: the fused kernel and its equivalence (~800) |
+
+**Goal.** Correct the raw image for the sensor and the light, and do the whole live chain in one GPU pass.
+
+**Scope.**
+
+- **Dark subtraction:** a master dark, matched by exposure and gain through the metadata, clamped at zero.
+- **Flat-field correction:** a normalised, dark-subtracted master flat per Bayer channel, guarded against near-zero values.
+- **Colour:** white-balance gains, a 3 × 3 matrix to linear sRGB, then the sRGB transfer curve, to 8 bits.
+- **`IspParams`:** the calibration inputs in one struct.
+- **The fused kernel** (D7): crop or bin → dark → flat → demosaic (either method) → white balance and CCM → gamma → 8 bits → resize, in one CUDA pass.
+- **Its reference** is the unfused chain on the CPU. The tolerance: within 1 level in 8 bits for 99.9 % of pixels, and 2 levels for all.
+
+**Out of scope.** Calibrating darks, flats and CCMs (P1.18); recipes (P1.08).
+
+**Try it.** `isp`: the fused against the unfused chain, CPU against GPU, from 20 MP and from the binned modes to 1920 × 1280, with timings and the images.
+
+**Done when.**
+
+- Fused on the GPU, 20 MP to 1920 × 1280 takes 10 ms or less on this PC (plan §6.15).
+- The equivalence holds within the tolerance.
+- On a synthetic frame with an offset and vignetting, dark and flat correction leave a field flat within 1 %.
+
+**Tests.** Each stage alone; property tests; the fused kernel against the chain over random parameters. **Broken on purpose:** the clamp at zero, and the guard against division by small values.
+
+**Open questions.** Q19 (a hand-written fused kernel).
+
+---
+
+## P1.07: Denoise and deconvolution
+
+| | |
+|---|---|
+| Crates | `tetera-imaging`, `tetera-compute` |
+| Depends on | P1.05 |
+| ADRs | — |
+| Gates | G1, G1c |
+| Spec-first | Yes: the notes open with the behaviour and its literature before any code |
+| First estimate | code 1,100 · tests 400 · examples 120 · docs-as-code 50 = **1,670** |
+| Ready split | P1.07a: denoise (~600) · P1.07b: PSFs and deconvolution (~1,070) |
+
+**Goal.** Reduce noise without blurring edges, and restore detail the optics blurred.
+
+**Scope.**
+
+- **Temporal averaging:** a running mean over N frames, reset when the stage moves.
+- **One edge-preserving spatial filter.** The spec chooses between bilateral (Tomasi and Manduchi, 1998) and non-local means (Buades, Coll and Morel, 2005), weighing quality against time at 20 MP.
+- **PSFs:**
+  - a theoretical widefield PSF from the objective's NA and the wavelength: 2D in focus, and 3D through focus (scalar diffraction, Born and Wolf);
+  - a measured PSF, loaded from a file (measured in M5).
+- **Richardson–Lucy** (Richardson, 1972; Lucy, 1974), FFT-based, 2D and 3D, with a set number of iterations and optional total-variation regularisation (Dey and others, 2006). FFTs through `rustfft` on the CPU and cuFFT on the GPU.
+
+**Out of scope.** BM3D and learned denoisers (extensions); blind deconvolution.
+
+**Try it.** `denoise`: PSNR before and after, on a noisy synthetic image. `deconvolve`: an image blurred by a known PSF, with noise, restored; the error against the truth by iteration.
+
+**Done when.**
+
+- The behaviour spec, with its sources, was committed before the code.
+- Richardson–Lucy lowers the error against the ground truth on synthetic data; the numbers are recorded.
+- The backends agree within the spec's tolerance.
+- 20 iterations of 2D Richardson–Lucy at 20 MP on the GPU are timed and recorded.
+
+**Tests.** PSF normalisation and symmetry; Richardson–Lucy conserving flux; convergence on a point source; the twins. **Broken on purpose:** flux conservation, and the PSF's normalisation.
+
+**Open questions.** Q20 (denoise methods), Q21 (2D and 3D; theoretical PSF first).
+
+---
+
+## P1.08: The pipeline engine
+
+| | |
+|---|---|
+| Crates | `tetera-pipeline` (new, L3) |
+| Depends on | P1.06, P1.07 |
+| ADRs | 0012 the pipeline model |
+| Gates | G1, G1c |
+| First estimate | code 1,200 · tests 500 · examples 100 · docs-as-code 80 = **1,880** |
+| Ready split | P1.08a: the model, recipes, validation, the registry and the executor (~1,050) · P1.08b: GPU residency, fusion and tiling (~830) |
+
+**Goal.** Describe image processing as a graph of nodes, and run it on a live stream or over data, on the best backend.
+
+**Scope.**
+
+- **`Node`:** a descriptor (id, version, input and output ports with types, parameters as JSON Schema, backends, fusable), and its run function.
+- **Port types:** raw frame, image (its format), scalar, table.
+- **Recipes:** JSON, with a schema. Validation reports exactly what is wrong: an unknown node, mismatched ports, a cycle, a missing or invalid parameter.
+- **The registry:** the stock nodes of P1.05–P1.07 and the glue nodes, under stable ids.
+- **The executor:** topological order; data kept on the GPU between consecutive CUDA nodes, copied only at the boundaries; copies counted.
+- **The fusion pass:** finds the live chain in a recipe and runs P1.06's fused kernel in its place, when the backend and the parameters allow.
+- **Live mode:** one frame at a time; a frame that arrives while one is running replaces the waiting one.
+- **Batch mode:** over a list of inputs; large images in tiles, with a halo for neighbourhood operations.
+
+**Out of scope.** Batch over datasets as jobs (P1.19); extension nodes (M2).
+
+**Try it.** `recipe`: a JSON recipe run on a synthetic frame, then live at 14.5 fps, then over a folder of frames.
+
+**Done when.**
+
+- Every invalid recipe in the test set is refused with a precise message.
+- Fusion triggers, and its output matches the unfused recipe's.
+- A chain of CUDA nodes makes only the boundary copies.
+- Tiled and untiled results are the same.
+
+**Tests.** Validation cases; topological order; the fusion matcher; copy counts; tiles with halos; live mode never queueing more than one frame. **Broken on purpose:** the validator's type check, and the fusion matcher.
+
+---
+
+## P1.09: The HAL
+
+| | |
+|---|---|
+| Crates | `tetera-hal` (new, L2) |
+| Depends on | P1.03 |
+| ADRs | 0013 the hardware abstraction layer |
+| Gates | G1 |
+| First estimate | code 900 · tests 500 · examples 80 · docs-as-code 60 = **1,540** |
+
+**Goal.** One interface for each kind of device, which a real driver, a virtual device, a fake, or a remote bridge can each implement.
+
+**Scope.**
+
+- **`Camera`:** capabilities (modes with size, rates and bit depths; binning; ROI; exposure and gain ranges; triggers); configure; start and stop streaming into a `FrameSink`; snap; errors as events.
+- **`Stage`:** capabilities (axes, travel, speeds, homing); move to and by; jog and stop jogging; stop; home; position with its timestamp; state changes.
+- **`ObjectiveMount`:** the catalogue from `configs/objectives.toml` (the four Mitutoyo objectives: 5× NA 0.14, 10× NA 0.28, 20× NA 0.42, 50× NA 0.55, with working distances); which one is fitted, set by the user.
+- **`Illumination`:** channels, on and off, intensity, colour temperature; a manual implementation.
+- **Ready for a bridge** (the owner's fallback, R1): no borrowed buffers cross an interface; frames come from a pool the driver owns; configurations serialise.
+- **Blocking methods** on `Send + Sync` traits, since drivers block; the API layer calls them off its async threads.
+- **Fakes:** a camera with a test pattern at a set rate, and a stage with instant or timed moves, each with faults on demand.
+- **Contract suites:** tests any `Camera` or `Stage` must pass, run against the fakes now, and against the virtual and real devices later.
+
+**Out of scope.** The simulator (P1.10–P1.12); drivers (M5).
+
+**Try it.** `hal-fakes`: drives the fake camera and stage and prints their events.
+
+**Done when.** The fakes pass the contract suites, and a fake broken on purpose fails them.
+
+**Tests.** The contract suites; faults; configurations round-tripping. **Broken on purpose:** a fake that reports a move finished before it is, which the stage suite must catch.
+
+**Open questions.** Q24 (the objectives), Q25 (the light).
+
+---
+
+## P1.10: The simulated clock and the virtual stage
+
+| | |
+|---|---|
+| Crates | `tetera-sim` (new, L2) |
+| Depends on | P1.09 |
+| ADRs | 0014 the simulated clock |
+| Gates | G1 |
+| First estimate | code 800 · tests 450 · examples 80 · docs-as-code 20 = **1,350** |
+
+**Goal.** A stage that moves the way the real one does, in time that tests can control.
+
+**Scope.**
+
+- **`SimClock`** implements `Clock`: real time at 1×, faster at N×, or stepped by hand. Simulated devices wait on it.
+- **`VirtualStage`** implements `Stage`:
+  - trapezoidal motion, with acceleration and maximum speed per axis;
+  - grblHAL's states: Idle, Jog, Run, Hold, Home, Alarm;
+  - soft limits; a homing sequence that takes time;
+  - position reports at a set rate, with latency, kept in a timestamped track;
+  - faults on demand: an alarm, a limit hit, a stall.
+
+**Out of scope.** The sample and the camera (P1.11, P1.12).
+
+**Try it.** `virtual-stage`: a move's position against time, at 1× and stepped.
+
+**Done when.**
+
+- `VirtualStage` passes the stage contract suite.
+- In stepped time, a move's duration matches the trapezoid's within 1 ms.
+- The same steps give the same track, bit for bit.
+
+**Tests.** Property tests of motion profiles; the state machine; each fault; jogging cancelled mid-move. **Broken on purpose:** a soft limit, and a state transition.
+
+---
+
+## P1.11: The H&E sample on the GPU
+
+| | |
+|---|---|
+| Crates | `tetera-sim`, `tetera-compute` |
+| Depends on | P1.04 |
+| ADRs | 0015 simulated samples on the GPU |
+| Gates | G1, G1c |
+| Spec-first | Yes |
+| First estimate | code 1,300 · tests 350 · examples 100 · docs-as-code 50 = **1,800** |
+| Ready split | P1.11a: the model, on the CPU (~950) · P1.11b: GPU kernels and the tile cache (~850) |
+
+**Goal.** A slide of H&E tissue that looks right at every magnification, has depth, and is made on the GPU as fast as the camera needs it.
+
+**Scope.**
+
+- **The model,** as a function of position and depth:
+  - a tissue mask from large-scale noise;
+  - nuclei placed by hashing a jittered grid, with noisy ellipses and chromatin texture;
+  - stroma and cytoplasm as oriented fibres;
+  - glands with lumens, vessels with red cells, and fat;
+  - a section 3–5 µm thick, with nuclei at depths, an optional tilt, and folds.
+- **Colour** through absorbance: haematoxylin and eosin optical densities and stain vectors (Ruifrok and Johnston, 2001), turned into transmitted light by Beer–Lambert.
+- **Procedural texture** from the literature: improved noise (Perlin, 2002) and cellular noise (Worley, 1996).
+- **Tiles on demand:** keyed by level of detail, position and depth layer; half precision on the GPU; an LRU cache within a VRAM budget.
+- **Deterministic from a seed:** integer hashes, so the same tile is the same bits on the same backend.
+- **The CPU twin** is the reference; the backends agree within the spec's tolerance.
+
+**Out of scope.** Optics and the camera (P1.12); calibration targets (P1.18).
+
+**Try it.** `he-sample`: regions rendered at the sampling of 5×, 20× and 50×, as PNGs, with depth slices and timings on each backend.
+
+**Done when.**
+
+- The behaviour spec came first.
+- The same seed gives the same tile bits on the same backend.
+- The backends agree within tolerance.
+- A 512 × 512 tile's time on the GPU is measured and recorded.
+- The owner judges the PNGs plausible at Checkpoint A.
+
+**Tests.** Determinism; the cache's eviction within its budget; depth ordering; the twins. **Broken on purpose:** the seed's hashing (a changed bit must change the image), and the cache's budget.
+
+**Open questions.** Q26 (H&E only, in 3D).
+
+---
+
+## P1.12: Optics, light and the virtual camera
+
+| | |
+|---|---|
+| Crates | `tetera-sim`, `tetera-compute` |
+| Depends on | P1.06, P1.10, P1.11 |
+| ADRs | 0016 the virtual camera's model |
+| Gates | G1, G1c, **G2 (Checkpoint A)** |
+| First estimate | code 1,400 · tests 400 · examples 120 = **1,920** |
+| Ready split | P1.12a: optics and illumination, the field as the sensor sees it (~950) · P1.12b: the sensor, the camera's modes and timing, Checkpoint A (~970) |
+
+**Goal.** A MIChrome 20 that images the simulated slide through the fitted objective, live, at its real modes and rates.
+
+**Scope.**
+
+- **The field of view** from the magnification, the 2.4 µm pixels and the camera's mounting angle.
+- **Optics:** each depth layer blurred by its defocus (a Gaussian approximation from the NA and the distance to focus), plus the in-focus diffraction blur; vignetting.
+- **Simulated illumination:** intensity; colour temperature (blackbody weights per channel); a field uneven by a set amount.
+- **Motion:** the stage's path during the exposure; a rolling shutter, through the line time.
+- **The sensor:** RGGB sampling; quantum efficiency per channel; shot, read and dark noise; black level; gain; 12 significant bits in 16-bit words.
+- **Modes and rates** (OScope's measurements): mode 0, 5472 × 3648, 7.24 fps in 16 bits and 14.49 in 8; mode 1, 2736 × 1824, 26.57 and 53.14; mode 2, 1824 × 1216, 33.87 and 67.26. Frames are timed on the simulated clock.
+- **Optionally, the SDK's processing** (gamma, white balance, rescaling with an offset near 2,000), to mimic the real raw.
+- `VirtualCamera` implements `Camera`; `VirtualIllumination` implements `Illumination`; changing the objective changes the field and the blur.
+- **A CPU fallback,** with a scaled-down sensor for tests.
+
+**Out of scope.** The server (P1.13); the preview (P1.14a, P1.14b).
+
+**Try it.** `virtual-camera`: live frames while the stage moves at 1×, on the GPU, written as a strip of JPEGs, with the rate each mode reaches. **Checkpoint A's demo script** is in the notes.
+
+**Done when.**
+
+- A full frame takes 40 ms or less on the GPU, still or while jogging (plan §6.15).
+- Each mode reaches its rate in real time on this PC, or the notes say which falls short and by how much.
+- With a seed and stepped time, frames repeat bit for bit on the same backend.
+- The camera passes the contract suite.
+
+**Tests.** The field of view against the magnification; the blur against the distance to focus; noise statistics (mean and variance against the model); rolling-shutter skew while moving; mode timing. **Broken on purpose:** the noise model's variance, and the mode's frame interval.
+
+**Open questions.** Q27 (linear by default; the SDK's processing optional; rolling shutter modelled).
+
+---
+
+## P1.13: The server and the device Things
+
+| | |
+|---|---|
+| Crates | `tetera-api` (new, L5), `tetera-server` (new, L6) |
+| Depends on | P1.12 |
+| ADRs | 0017 control plane and media plane · 0018 the service in WSL2: systemd, start-up, networking, devices |
+| Gates | G1 |
+| First estimate | code 1,300 · tests 500 · examples 60 · docs-as-code 120 = **1,980** |
+| Ready split | P1.13a: the server, configuration, the `system` and `simulation` Things, systemd (~1,000) · P1.13b: the `camera`, `stage`, `objective` and `illumination` Things (~980) |
+
+**Goal.** The virtual instrument served over HTTP, as Things, by a service that runs under systemd in WSL.
+
+**Scope.**
+
+- **`tetera-server`:**
+  - a command line (`clap`), and `configs/tetera.toml`: address and port (127.0.0.1:8310), data root, scratch root, simulator, objectives, logging;
+  - data roots: `./.tetera/` in development, `/var/lib/tetera/` for the service;
+  - graceful shutdown.
+- **`tetera-api`,** on teta-wot v0.2.0:
+  - `system`: version, WSL's version, the kernel and distribution, GPU, disks, memory;
+  - `camera`: mode, exposure, gain, pixel format, binning, ROI, white balance, streaming;
+  - `stage`: position, moving, state, speed; move to, move by, jog, stop, home;
+  - `objective`: the catalogue, which is fitted;
+  - `illumination`: on, intensity, colour temperature;
+  - `simulation`: the sample (load, unload, seed), imperfections on demand;
+  - device errors mapped to teta-wot's error responses.
+- **systemd:** `packaging/linux/tetera.service`, with restart on failure, and how to install it for development (the owner runs the `sudo` steps).
+- **Windows:** how to reach the service from a browser; how a Windows task can start WSL at logon. Hardened in P5.07.
+- **`.vscode/launch.json`** gains the server's debug configuration.
+
+**Out of scope.** The preview (P1.14a, P1.14b); jobs (P1.15a); status, logs and power (P1.20).
+
+**Try it.** `cargo run -p tetera-server`; teta-wot's `/docs`; a README with `curl` for each Thing, including a move and its timing.
+
+**Done when.**
+
+- Each Thing serves its Thing Description, and the OpenAPI document is complete.
+- A move through HTTP takes the time the virtual stage says.
+- Watching `position` over WebSocket shows it change during the move.
+- Under systemd in WSL, the service restarts after it is killed.
+- A browser on Windows reaches http://localhost:8310.
+
+**Tests.** Each Thing through teta-wot's in-process test harness; configuration defaults and errors; each test's server on a port the system picks. **Broken on purpose:** the error mapping for a stage alarm.
+
+**Open questions.** Q11 (localhost only), Q12 (start-up), Q48 (port 8310).
+
+---
+
+## P1.14a: The frame bus and the preview pipeline
+
+| | |
+|---|---|
+| Crates | `tetera-acquire` (new, L4) |
+| Depends on | P1.08, P1.13 |
+| ADRs | — (the frame bus's design is in ADR-0008, from P1.03) |
+| Gates | G1, G1c |
+| First estimate | code 700 · tests 300 · examples 50 = **1,050** (the owner split P1.14 on 2026-11-26) |
+
+**Goal.** Get every frame from the camera to whatever needs it, and turn frames into preview JPEGs and live statistics, before any network is involved.
+
+**Scope.**
+
+- **The frame bus:**
+  - *lossless* subscribers, with a bounded queue and backpressure (the recorder, in P1.15b);
+  - *latest-wins* subscribers, with a one-frame mailbox (preview, statistics);
+  - "the first frame exposed after t", for workflows.
+- **The preview pipeline,** as a session object with no transport yet:
+  - its parameters: viewport size, ROI, quality, maximum rate, changeable mid-stream;
+  - crop or bin by the viewport, then P1.06's fused kernel through a live recipe, then JPEG;
+  - a hook to lower quality or size, for P1.14b's slow links;
+  - each stage's time, measured per frame.
+- **Live statistics,** at up to 10 Hz, from the raw data: a histogram per channel, the saturation mask at preview size, line profiles, ROI statistics, a focus value.
+- **The camera's live mode** is binned by default (D5).
+
+**Out of scope.** The WebSocket and MJPEG routes and the HTML page (P1.14b); recording (P1.15b).
+
+**Try it.** `preview-pipeline`: the virtual camera into the bus, two preview sessions of different sizes and the statistics, with each session's rate and each stage's time, and a few JPEGs written out.
+
+**Done when.**
+
+- In mode 1 at 8 bits, each session keeps up with the camera's rate, at least 30 fps, and each stage's time is recorded.
+- The statistics match a reference computed from the raw frame.
+- A latest-wins subscriber drops frames when slow; a lossless one slows its publisher instead.
+
+**Tests.** The bus: backpressure, and dropping; statistics against references; parameters changed mid-stream; the stress runs. **Broken on purpose:** the mailbox, and the backpressure.
+
+**Open questions.** Q17 (binned live mode), Q18 (JPEG).
+
+---
+
+## P1.14b: The preview protocol
+
+| | |
+|---|---|
+| Crates | `tetera-api`, `tetera-acquire` |
+| Depends on | P1.14a |
+| ADRs | 0019 the preview protocol |
+| Gates | G1, **G2 (Checkpoint B)** |
+| First estimate | code 700 · tests 250 · examples 200 = **1,150** |
+
+**Goal.** Live images from the virtual camera in a browser, at the camera's rate, with little delay.
+
+**Scope.**
+
+- **The binary WebSocket,** the `preview` Thing's stream:
+  - each frame with a header: sequence number, exposure timestamps, size, format;
+  - JSON messages from the client: viewport, ROI, quality, rate, acknowledgements.
+- **Acknowledgements:** no more than two frames sent but not yet shown, so no socket buffer holds stale frames.
+- **Slow links:** P1.14a's hook lowers quality or size.
+- **MJPEG,** for plain `<img>` pages and other tools.
+- **The `preview` Thing's properties:** its defaults, and the sessions open.
+
+**Out of scope.** The Vue app's viewer (M4).
+
+**Try it.** `live-view`: one plain HTML page (no framework) with the live image, a histogram, and buttons that jog the stage. **Checkpoint B's demo script** is in the notes.
+
+**Done when.**
+
+- In mode 1 at 8 bits, the page shows the camera's rate, at least 30 fps.
+- From the exposure's end to the page's paint takes 100 ms or less on localhost, measured from the timestamps in each frame's header.
+- A slow client never receives a stale frame.
+- The MJPEG stream plays in an `<img>`.
+
+**Tests.** A WebSocket client in the tests, also slowed down on purpose; the acknowledgement window; malformed client messages refused. **Broken on purpose:** the acknowledgement window, and the stale-frame check.
+
+**Open questions.** Q23 (MJPEG as a stream).
+
+---
+
+## P1.15a: The job service
+
+| | |
+|---|---|
+| Crates | `tetera-jobs` (new, L3), `tetera-api` |
+| Depends on | P1.13 |
+| ADRs | 0020 the job service |
+| Gates | G1 |
+| First estimate | code 450 · tests 300 · examples 50 = **800** (the owner split P1.15 on 2026-11-26) |
+
+**Goal.** Long work that can be followed, cancelled and looked up afterwards.
+
+**Scope.**
+
+- **A job:** id, kind (hardware or compute), state, progress and message, log lines, result.
+- **Hardware jobs** one at a time from a queue; **compute jobs** on a pool that shares the GPU, through P1.04's VRAM budgets.
+- **Cancel,** through tokens that a job checks.
+- **The history** in SQLite (`rusqlite`, bundled), pruned by age.
+- **The `jobs` Thing:** list, get, cancel, with events.
+
+**Out of scope.** The work itself: captures (P1.15b), autofocus (P1.16), scans (P1.17), batches (P1.19).
+
+**Try it.** `jobs`: hardware and compute jobs queued, one cancelled, then the history read back after a restart.
+
+**Done when.**
+
+- Hardware jobs never overlap.
+- A cancelled job stops within a second.
+- The history survives a restart, and old entries are pruned.
+
+**Tests.** State transitions; cancelling at each state; the queue's order; the pool's limit; the history across a restart. **Broken on purpose:** cancel, and the one-at-a-time rule.
+
+---
+
+## P1.15b: Datasets and capture
+
+| | |
+|---|---|
+| Crates | `tetera-store` (new, L2), `tetera-workflows` (new, L4), `tetera-api` |
+| Depends on | P1.14a, P1.15a |
+| ADRs | 0021 datasets on disk |
+| Gates | G1 |
+| First estimate | code 1,100 · tests 350 · examples 50 · docs-as-code 50 = **1,550** |
+| Ready split | P1.15b: projects, OME-Zarr, the recorder and ingest (~950) · P1.15c: the capture workflow and its Things (~600) |
+
+**Goal.** Captures that land on disk as datasets, in projects, without losing a frame.
+
+**Scope.**
+
+- **Projects and datasets** (`tetera-store`):
+  - the SQLite index: projects, datasets, files;
+  - each dataset's folder: OME-Zarr v3 arrays (through `zarrs`), `metadata.json` (instrument, camera settings, objective, calibration, positions, times), a JPEG thumbnail;
+  - raw Bayer stored as one channel, with its pattern in the metadata.
+- **The scratch recorder:** preallocated segment files, raw frames appended in order, with an index; a lossless subscriber of the frame bus.
+- **Ingest,** as a compute job: from the frame log into OME-Zarr, compressed with zstd.
+- **Capture** (`tetera-workflows`): one frame, N frames at an interval, or a burst at the full rate. **It switches the camera from its binned live mode to full resolution, captures, and switches back** (D5), and the switch's time is measured.
+- **Things:** `capture`, and `datasets` (projects, datasets, metadata, thumbnails, delete).
+
+**Out of scope.** Exports (P1.19); scans (P1.17).
+
+**Try it.** `capture`: a burst of 20 full frames into a new project, then the dataset's tree on disk, read back.
+
+**Done when.**
+
+- The recorder keeps up with the virtual camera at its full rate, 289 MB/s, on ext4, without a dropped frame.
+- Ingest writes OME-Zarr that reads back exactly and matches OME-NGFF 0.5's schema.
+- A capture switches the mode and back.
+- A capture cancelled through the `jobs` Thing leaves no half-written dataset in the index.
+
+**Tests.** The recorder under backpressure; OME-Zarr round trips and schema checks; the index across a restart; mode switching; cancelling a capture and an ingest. **Broken on purpose:** the recorder's backpressure (a dropped frame must fail the test), and the index's clean-up after a cancel.
+
+**Open questions.** Q14 (the scratch disk), Q36 and Q37 (answered: OME-Zarr, in projects).
+
+---
+
+## P1.16: Autofocus
+
+| | |
+|---|---|
+| Crates | `tetera-workflows`, `tetera-imaging`, `tetera-api` |
+| Depends on | P1.15b |
+| ADRs | — |
+| Gates | G1 |
+| Spec-first | Yes |
+| First estimate | code 800 · tests 400 · examples 80 · docs-as-code 20 = **1,300** |
+
+**Goal.** Find focus quickly and reliably at every objective.
+
+**Scope.**
+
+- **Focus measures** on the raw green channel, binned: Brenner's gradient, the variance of the Laplacian, normalised variance, Tenengrad. The spec picks the default from the literature (Groen, Young and Ligthart, 1985; Sun, Duthaler and Nelson, 2004).
+- **The search:** a coarse sweep, then a fine search around the peak (a parabola, or golden section), always approaching from one side, against backlash. The range and the steps come from the objective's depth of field.
+- **Frames** from "the first frame exposed after t", so a moving stage never blurs a measurement.
+- **A job,** with the focus curve as its result; the `autofocus` Thing.
+- **Failure:** on a blank field, it reports that it found no focus, and leaves the stage where it was.
+
+**Out of scope.** Focus maps and tracking (M3's workflows).
+
+**Try it.** `autofocus`: 100 starts at random distances from focus, at 5× and at 50×, with the error against the simulator's true focus.
+
+**Done when.**
+
+- The spec came first.
+- In at least 95 of 100 trials at each objective, the error is a quarter of the depth of field or less.
+- At 10×, it takes 5 s or less (plan §6.15).
+- A blank field fails cleanly.
+
+**Tests.** Each measure's peak on synthetic stacks; the search on known curves with noise; backlash; the blank field. **Broken on purpose:** the approach direction, and the blank-field check.
+
+---
+
+## P1.17: Snake scan and z-scan
+
+| | |
+|---|---|
+| Crates | `tetera-workflows`, `tetera-store`, `tetera-api` |
+| Depends on | P1.16 |
+| ADRs | 0022 scan planning and the scan engine |
+| Gates | G1 |
+| First estimate | code 1,000 · tests 450 · examples 80 = **1,530** |
+
+**Goal.** Acquire a grid of tiles, or a stack of planes, stop and go, with every frame's position recorded.
+
+**Scope.**
+
+- **Planners:**
+  - **XY snake:** a rectangle covered with tiles at a set overlap, from the field of view, in serpentine order;
+  - **z-scan:** a range and step, or N planes around the current focus.
+- **The plan's preview:** positions, and the estimated time.
+- **The engine:** move, wait until Idle and settled, optionally autofocus (none, first tile, every N tiles), capture at full resolution, next.
+- **Positions** from the stage's track at each exposure's midpoint.
+- **Datasets:** tiles with their positions; a z-stack as one 3D array.
+- **Pause, resume, cancel;** the `scan` Thing, with progress events.
+
+**Out of scope.** Raster, position and tiled z-stack scans, and the histo scan (M3); stitching (M3).
+
+**Try it.** `scan`: a 5 × 5 snake at 10×, and a 21-plane z-scan, with recorded positions against planned ones.
+
+**Done when.**
+
+- Recorded positions agree with the simulator's truth within the stage's repeatability.
+- A cancelled scan leaves a valid, partial dataset.
+- The z-scan reads back as a 3D array.
+- The estimated time is within 10 % of the time taken at 1×.
+
+**Tests.** The planners' coverage and order; overlap from the field of view; the engine's states; pause and cancel at every step. **Broken on purpose:** the serpentine order, and the settle wait.
+
+---
+
+## P1.18: Calibration
+
+| | |
+|---|---|
+| Crates | `tetera-workflows`, `tetera-sim`, `tetera-store`, `tetera-imaging`, `tetera-api` |
+| Depends on | P1.17 |
+| ADRs | 0023 the calibration model |
+| Gates | G1, G1c, **G2 (Checkpoint C)** |
+| Spec-first | Yes |
+| First estimate | code 1,300 · tests 500 · examples 100 = **1,900** |
+| Ready split | P1.18a: targets, dark, flat, pixel size and rotation (~1,000) · P1.18b: colour, calibration sets, the `calibration` Thing, Checkpoint C (~900) |
+
+**Goal.** Calibrate each objective from routines the user can run, and apply the results without being asked.
+
+**Scope.**
+
+- **Calibration targets in the simulator:** a blank field; a stage micrometer (a 10 µm grid); a 24-patch colour chart with known values.
+- **Routines,** each a job:
+  - **master dark:** N frames with the light off;
+  - **master flat:** N frames on the blank field, slightly defocused (shading correction as in Peng and others, 2017);
+  - **pixel size and the camera's rotation:** frames before and after known stage moves, registered by phase correlation (Kuglin and Hines, 1975), give the camera-to-stage affine;
+  - **white balance and the CCM:** least squares from the chart's patches to their reference values; a root-polynomial fit (Finlayson, Mackiewicz and Hurlbert, 2015) as the spec's alternative.
+- **Calibration sets,** per objective, with versions, in SQLite and files. The ISP uses the fitted objective's current set.
+- **The `calibration` Thing:** sets, routines, and the steps a wizard follows (for M4).
+
+**Out of scope.** Calibration on real optics (P5.04); measured PSFs (M5).
+
+**Try it.** `calibrate`: every routine at 10×, with the recovered values against the simulator's truth. **Checkpoint C's demo script:** calibrate 10×, autofocus, and run a 5 × 5 scan.
+
+**Done when.**
+
+- The spec came first.
+- Pixel size is recovered within 0.5 %, and rotation within 0.1°.
+- After flat correction, the blank field is uniform within 1 %.
+- The CCM's mean colour error over the chart is ΔE00 of 2 or less (Sharma, Wu and Dalal, 2005, for ΔE00).
+- Changing the objective changes the calibration the preview uses.
+
+**Tests.** Phase correlation on known shifts with noise; the affine fit; the CCM's fit on synthetic patches; sets and versions. **Broken on purpose:** the sign of the rotation, and the choice of set by objective.
+
+**Open questions.** Q26 (calibration targets in the simulator).
+
+---
+
+## P1.19: Batch processing
+
+| | |
+|---|---|
+| Crates | `tetera-workflows`, `tetera-pipeline`, `tetera-store`, `tetera-api` |
+| Depends on | P1.15b, P1.08 |
+| ADRs | — |
+| Gates | G1, G1c |
+| First estimate | code 900 · tests 400 · examples 80 · docs-as-code 20 = **1,400** |
+
+**Goal.** Run recipes over datasets, keep the results with their provenance, and export them.
+
+**Scope.**
+
+- **Recipes over datasets,** as compute jobs: tiled, on the GPU.
+- **Results** beside their dataset, with provenance: the recipe and its hash, each node's version, the input datasets, Tetera's version. The same inputs and recipe reuse an existing result.
+- **The `pipeline` Thing:** the node catalogue; recipes saved, read, changed and deleted; runs on a dataset.
+- **Exports:** OME-TIFF, with its OME-XML metadata; PNG and TIFF of images.
+
+**Out of scope.** The Workspace's analyses and reports (M4); extension nodes (M2).
+
+**Try it.** `batch`: denoising and colour correction over a scan's dataset, then an export to TIFF.
+
+**Done when.**
+
+- A tiled batch gives the same result as one untiled.
+- The provenance is complete.
+- An exported OME-TIFF reads back with its metadata; the manual test opens it in Fiji.
+
+**Tests.** Provenance hashing; reuse of results; tiled against untiled; exports read back. **Broken on purpose:** the provenance hash (a changed parameter must change it).
+
+---
+
+## P1.20: Status, logs, power and settings
+
+| | |
+|---|---|
+| Crates | `tetera-api`, `tetera-server`, `tetera-log` |
+| Depends on | P1.15a |
+| ADRs | 0024 power actions under WSL2 |
+| Gates | G1 |
+| First estimate | code 1,200 · tests 500 · examples 80 = **1,780** |
+| Ready split | P1.20a: status and logs (~900) · P1.20b: power and settings (~880) |
+
+**Goal.** Know the instrument's health, read its log, act on its power, and keep its settings.
+
+**Scope.**
+
+- **`status`:** each subsystem's health with its reasons: camera, stage, GPU (VRAM, temperature), disks (free space against thresholds), jobs, and WSL (clock drift, memory). A roll-up of OK, Degraded or Fault, with events when it changes.
+- **`logs`:** the ring, searched by level, target, time and text; a live tail; the log files, listed and downloaded.
+- **`power`,** four actions (D20):
+  - restart the service: `systemctl restart`, allowed by a polkit rule for the service's account;
+  - restart WSL: through a Windows task, started by interop;
+  - reboot or shut down Windows: `shutdown.exe`, through interop;
+  - each confirmed in two steps (a request, then a confirmation with its token within 30 s), logged, with a dry run that executes nothing.
+- **`settings`:** data and scratch locations, log levels, display defaults; kept in TOML, with a version for migrations.
+
+**Out of scope.** The Status Indicator and the Power tab (M4); extensions' health (M2).
+
+**Try it.** `system`: the health, a log tail, and a dry-run reboot.
+
+**Done when.**
+
+- Faults injected into the virtual devices show in the health and its roll-up.
+- A dry run executes nothing, and logs what it would have run.
+- Restarting the service works under systemd in WSL.
+- Settings survive a restart.
+- The owner runs the real reboot and shutdown in the manual test.
+
+**Tests.** The roll-up's rules; log queries; the two-step confirmation; the dry run; settings' migration. **Broken on purpose:** the dry-run switch (a test must catch a command that would run), and the confirmation's expiry.
+
+**Open questions.** Q13 (answered: four actions).
+
+---
+
+## P1.21: Milestone 1 close
+
+| | |
+|---|---|
+| Crates | `xtask` |
+| Depends on | All of M1 |
+| ADRs | — |
+| Gates | **G3** |
+| First estimate | code 700 · tests 200 · examples 50 = **950** |
+
+**Goal.** Measure Milestone 1 against its budgets, run it for an hour, and look back.
+
+**Scope.**
+
+- **`cargo xtask perf`:** runs the budget examples in release builds, compares each with plan §6.15, and writes `docs/performance/m1-baseline.md`.
+- **`cargo xtask soak --hours 1`:** the virtual instrument under a preview client, repeated scans, captures and batch jobs. It watches memory, VRAM, handles and disk, and fails on a growing trend.
+- **G3** completed with both, and the licence report.
+- **The manual tests:** the owner runs Checkpoints A, B and C, and the milestone's demo.
+- **The retrospective:** `docs/m1/retrospective.md`, with estimates against measurements, phase by phase.
+- **The plan:** M1's statuses, and anything M2 inherits.
+
+**Try it.** `cargo xtask gate milestone`.
+
+**Done when.**
+
+- G3 passes, or each missed budget is explained in the baseline.
+- The one-hour soak shows no growth.
+- The retrospective is written, and the owner has run the checkpoints.
+
+**Tests.** The soak's trend detection, on synthetic series; the perf comparison. **Broken on purpose:** a leak injected into a test build, which the soak must catch.
