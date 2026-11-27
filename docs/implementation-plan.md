@@ -68,7 +68,7 @@ OScope is the owner's previous build of the same instrument software. It ran thr
 
 | OScope's lesson | Source | What Tetera does |
 |---|---|---|
-| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 35 phases each. Extensions get their own two milestones |
+| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 36 phases each. Extensions get their own two milestones |
 | Line budgets (300/600/900) never fit. Estimates in parts, committed before the code, did fit: median 1.04 in M1 | M1 retrospective | **No budgets.** A five-part estimate, committed before the code, with a cap that triggers a question to the owner ([§7](#7-how-phases-work)) |
 | The simulator on the CPU was the live view's bottleneck: about 160 ms a frame, 2 s while jogging. It moved to the GPU late | ADR-0062, performance notes | **The simulator is GPU-first from its first phase**, with the CPU path as reference and fallback |
 | Full replays took about an hour per phase. Change-reach gates cut that | ADR-0038, ADR-0061 | **Tiered gates from day one:** quick, phase, checkpoint, milestone ([§8](#8-local-ci-gates)). Each phase runs only what its change reaches |
@@ -392,14 +392,14 @@ GPU-first, with a bit-exact CPU reference on each backend, and the two backends 
   - a coverslip-sized slide, made on demand as tiles, cached at several levels of detail;
   - deterministic from a seed.
 - **Calibration targets** (P1.18, Q26): a blank field, for flats; a stage micrometer grid, for pixel size and rotation; a colour chart, for the CCM.
-- **Optics** (P1.12):
+- **Optics** (P1.12a):
   - the objective's magnification and NA;
   - defocus blur from the distance to the sample's depth;
   - vignetting;
   - motion blur while the stage moves during an exposure;
   - the camera's mounting angle, which calibration then recovers.
-- **Simulated illumination** (P1.12): intensity, colour temperature, and a field that is uneven by a configurable amount, so flat-field correction has something to correct.
-- **The virtual camera** (P1.12):
+- **Simulated illumination** (P1.12a): intensity, colour temperature, and a field that is uneven by a configurable amount, so flat-field correction has something to correct.
+- **The virtual camera** (P1.12b):
   - the MIChrome 20's three modes and their rates;
   - RGGB Bayer;
   - shot, read and dark noise, black level, gain;
@@ -606,7 +606,8 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 | P1.10b | The virtual stage | `VirtualStage` with grblHAL-like motion, states, limits, homing, reports with latency, faults | `ex-virtual-stage`: a move's timeline | — |
 | P1.11a | The H&E sample, on the CPU *(spec-first)* | Procedural, 3D, deterministic H&E: the section, its tissue and its stains; colour by absorbance; regions rendered at any sampling; the CPU twin | `ex-he-sample`: regions at several magnifications, as PNGs | 0015 |
 | P1.11b | The H&E sample on the GPU, and its tiles *(spec-first)* | The model in a CUDA kernel; tiles on demand, levels of detail, half precision, the cache | `ex-he-sample` on each backend, timed | — |
-| P1.12 | Optics, light and the virtual camera | The objective's blur and defocus, vignetting, motion blur, mounting angle; simulated illumination; `VirtualCamera` with MIChrome 20's modes, Bayer and noise. **Checkpoint A:** the virtual instrument renders H&E live, on the GPU | `ex-virtual-camera`: frames while the stage moves | 0016 |
+| P1.12a | Optics and light: the field the sensor sees | The field of view and mounting angle; defocus by depth group, diffraction, vignetting; simulated illumination; the field from the tile cache on the GPU, and its CPU twin | `ex-virtual-optics`: the field through focus, under two lights | 0016 |
+| P1.12b | The virtual camera | Motion and the rolling shutter; `VirtualCamera` with MIChrome 20's modes, Bayer and noise, timed on the clock. **Checkpoint A:** the virtual instrument renders H&E live, on the GPU | `ex-virtual-camera`: frames while the stage moves | — |
 
 #### Stage 1D: The live instrument over HTTP (ends with Checkpoint B)
 
@@ -697,7 +698,7 @@ Each driver phase is *Done* only after the owner has run its manual test on the 
 | P5.06 | Performance | The raw path at the camera's rate to scratch; preview latency and rate; GPU tuning; memory; several clients; H.264 only if needed | — |
 | P5.07 | Packaging and release 1.0 | A `.deb` and the systemd unit for WSL; a Windows bootstrap (`.wslconfig`, the task, usbipd); a 24-hour soak; the user's guide; the release; the retrospective | 0042 |
 
-**In all:** 72 phases, plus the spike: M1 35, M2 8, M3 10, M4 12, M5 7.
+**In all:** 73 phases, plus the spike: M1 36, M2 8, M3 10, M4 12, M5 7.
 
 **Each phase's status** is in [`m1/notes/README.md`](m1/notes/README.md): *Not started*, *In review* or *Done*.
 
@@ -724,7 +725,7 @@ Numbered across the project. Each is written in the phase named.
 | 0013 | The hardware abstraction layer | P1.09a |
 | 0014 | The simulated clock | P1.10a |
 | 0015 | Simulated samples on the GPU | P1.11a |
-| 0016 | The virtual camera's model | P1.12 |
+| 0016 | The virtual camera's model | P1.12a |
 | 0017 | Control plane and media plane | P1.13 |
 | 0018 | The service in WSL2: systemd, start-up, networking, devices | P1.13 |
 | 0019 | The preview protocol | P1.14b |
@@ -928,7 +929,7 @@ A first draft. **From P1.01, [`setup/toolchain.md`](setup/toolchain.md) is the g
 | R5 | **CUDA under WSL2 has limits** that native Linux doesn't. NVIDIA's WSL guide lists them | A feature Tetera plans to use may not work, such as pinned memory at size, or IPC to Python workers | P1.04 checks each feature Tetera uses. Python workers get frames through host shared memory, not CUDA IPC |
 | R6 | **Disk:** OScope's phases built 60–70 GB each. WSL's virtual disk grows and doesn't shrink by itself | Full disks break WSL | `doctor` checks before G2 and G3; `sparseVhd`; the distro on D: (§12.1); cleaning between milestones |
 | R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
-| R8 | **Scope:** 72 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
+| R8 | **Scope:** 73 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
 | R9 | **The extension ABI** must stay stable across SDK versions | Old extensions break, or crash the server | A versioned C ABI checked at install; panics caught; tests against the previous SDK version; Python in separate processes |
 | R10 | **Extensions as the only home** of stitching, deep zoom, depth from focus and volumes | The SDK must be rich enough for heavy, GPU-bound nodes | P2.03 gives Rust extensions the GPU; P3.01 is a small extension that proves the path before P3.02 |
 | R11 | **The host's sleep, and WSL's clock drift** | Wrong wall-clock times in metadata | A monotonic clock; UTC mapped at start-up and re-checked; a status warning on drift |
@@ -1153,3 +1154,5 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-27 | **P1.11a measured 1,728 lines against its second estimate of 1,490 (×1.16):** code 776, tests 697. A golden test pins the procedural model, which property tests alone couldn't: the first mutants run missed 339 of its constants ([notes](m1/notes/P1.11a-the-he-sample-on-the-cpu.md#size)) |
 | 2026-11-27 | **P1.11b's second estimate:** code 800 (the CUDA kernels 450; launching them and half precision 100; tiles and the cache 250) · tests 400 · examples 80 · docs-as-code 30 · glue 30 = **1,340**, 1,742 at ×1.3, as at the split |
 | 2026-11-27 | **P1.11b measured 1,524 lines against its second estimate of 1,340 (×1.14):** code 977, tests 389. The GPU twin agrees with the CPU within 6e-4 OD, and renders a 512 × 512 region at 50× in 1.87 ms. P1.11's two phases came to 3,252 lines, against about 2,830 at its second estimate ([notes](m1/notes/P1.11b-the-he-sample-on-the-gpu-and-its-tiles.md#size)) |
+| 2026-11-27 | **P1.12's second estimate,** before its code: about 2,960 (code 1,650 · tests 900 · examples 250 · docs-as-code 100 · glue 60), 3,848 at ×1.3. Over 2,000: **split by the agent** under the owner's standing approval as its ready split proposed, into P1.12a (optics and light, the field the sensor sees, ADR-0016) and P1.12b (the virtual camera, Checkpoint A). Later phases that depended on P1.12 now depend on P1.12b. 73 phases, M1 36 |
+| 2026-11-27 | **P1.12a's second estimate:** code 850 (the field of view and depth groups 120; blur, vignetting and illumination 150; the CPU field 150; the GPU's kernels 250 and their launch 100; `VirtualIllumination` 80) · tests 450 · examples 100 · docs-as-code 40 · glue 30 = **1,470**, 1,911 at ×1.3 |

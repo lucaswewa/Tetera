@@ -30,7 +30,7 @@ Each phase has:
 - tests, examples with a README and a `--smoke` mode, implementation notes, a manual-test entry, new ADRs, the phase's status in the plan;
 - **examples** live in the crate's `examples/` folder and run as `cargo run -p <crate> --example <name>`. With `--smoke`, an example finishes in under 10 seconds and exits 0;
 - the tests follow plan §5.4: they wait for conditions, get their own data roots and ports, and are skipped without their switch (`TETERA_CUDA=1` and so on);
-- **G1** before the PR. **G1c** when the change reaches CUDA code. **G2** at a checkpoint (P1.12, P1.14b, P1.18). **G3** at P1.21;
+- **G1** before the PR. **G1c** when the change reaches CUDA code. **G2** at a checkpoint (P1.12b, P1.14b, P1.18). **G3** at P1.21;
 - the notes name the ideas taken from OScope's documents (clean room, D1).
 
 ## Summary
@@ -61,8 +61,9 @@ Each phase has:
 | [P1.10b](#p110b-the-virtual-stage) | The virtual stage | P1.10a | 1,480 | — | G1 |
 | [P1.11a](#p111a-the-he-sample-on-the-cpu) | The H&E sample, on the CPU | P1.04b | 1,490 | Yes | G1 |
 | [P1.11b](#p111b-the-he-sample-on-the-gpu-and-its-tiles) | The H&E sample on the GPU, and its tiles | P1.11a | 1,340 | Yes | G1, G1c |
-| [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10b, P1.11b | 1,920 | — | G1, G1c, G2 |
-| [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12 | 1,980 | — | G1 |
+| [P1.12a](#p112a-optics-and-light-the-field-the-sensor-sees) | Optics and light: the field the sensor sees | P1.06b, P1.10b, P1.11b | 1,470 | — | G1, G1c |
+| [P1.12b](#p112b-the-virtual-camera-checkpoint-a) | The virtual camera (**Checkpoint A**) | P1.12a | 1,490 | — | G1, G1c, G2 |
+| [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12b | 1,980 | — | G1 |
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13 | 1,050 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13 | 800 | — | G1 |
@@ -74,7 +75,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 35 phases since P1.04 to P1.11 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 36 phases since P1.04 to P1.12 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -82,7 +83,7 @@ Each phase has:
 
 **Checkpoints:**
 
-- **A** (P1.12): the virtual instrument renders H&E live, on the GPU, while the stage moves.
+- **A** (P1.12b): the virtual instrument renders H&E live, on the GPU, while the stage moves.
 - **B** (P1.14b): live H&E in a browser page while jogging, from the server.
 - **C** (P1.18): calibrate an objective, autofocus, and scan.
 
@@ -957,29 +958,60 @@ Each phase has:
 
 ---
 
-## P1.12: Optics, light and the virtual camera
+## P1.12a: Optics and light: the field the sensor sees
 
 | | |
 |---|---|
 | Crates | `tetera-sim`, `tetera-compute` |
 | Depends on | P1.06b, P1.10b, P1.11b |
 | ADRs | 0016 the virtual camera's model |
+| Gates | G1, G1c |
+| Second estimate | code 850 (the field of view and depth groups 120; blur, vignetting and illumination 150; the field on the CPU 150; on the GPU, resampling, blurring and lighting kernels 250 and their launch 100; `VirtualIllumination` 80) · tests 450 · examples 100 · docs-as-code 40 · glue 30 = **1,470** (1,911 at ×1.3). The agent split P1.12 (second estimate about 2,960, 3,848 at ×1.3) on 2026-11-27, under the owner's standing approval, as its ready split proposed |
+
+**Goal.** The light that reaches the sensor: the simulated slide through the fitted objective, its defocus and the illumination, on the GPU and on the CPU.
+
+**Scope.**
+
+- **The field of view** from the magnification, the 2.4 µm pixels and the camera's mounting angle; centred on where the stage itself is.
+- **Optics:** the section in depth groups as thick as the depth of field allows; each group blurred by its defocus (a Gaussian approximation from the NA and the distance to focus), plus the in-focus diffraction blur; vignetting.
+- **Simulated illumination:** intensity; colour temperature (blackbody weights per channel); a field uneven by a set amount. `VirtualIllumination` implements `Illumination`.
+- **The field** on the GPU from the tile cache, and on the CPU from a rendered region, resampled into the sensor's grid the same way, so the twins agree.
+- **Changing the objective** changes the field of view and the blur.
+
+**Out of scope.** The sensor, its noise, modes and rates, motion and the rolling shutter, and `VirtualCamera` (P1.12b).
+
+**Try it.** `virtual-optics`: the field at 5×, 20× and 50×, through focus, under two lights, as PNGs, with timings on each backend.
+
+**Done when.**
+
+- The field of view matches the magnification and the mounting angle.
+- The blur grows with the distance to focus, as the spec's model says.
+- The twins agree within the stated tolerance.
+- A full 5472 × 3648 field's time on the GPU is measured, still and while the stage moves, against the 40 ms budget (§6.15).
+
+**Tests.** The field of view against the magnification and angle; the blur against the distance to focus; vignetting and the uneven field; blackbody weights; the twins. **Broken on purpose:** the defocus model's sign (a field in focus must be the sharpest).
+
+---
+
+## P1.12b: The virtual camera (Checkpoint A)
+
+| | |
+|---|---|
+| Crates | `tetera-sim`, `tetera-compute` |
+| Depends on | P1.12a |
+| ADRs | — (0016) |
 | Gates | G1, G1c, **G2 (Checkpoint A)** |
-| First estimate | code 1,400 · tests 400 · examples 120 = **1,920** |
-| Ready split | P1.12a: optics and illumination, the field as the sensor sees it (~950) · P1.12b: the sensor, the camera's modes and timing, Checkpoint A (~970) |
+| Estimate | code 800 (the sensor 250; motion and the rolling shutter 150; modes, rates and the frame loop on the clock 250; `VirtualCamera` and the contract 150) · tests 450 · examples 150 · docs-as-code 60 · glue 30 = **1,490**, from P1.12's split; its own second estimate comes before its code |
 
 **Goal.** A MIChrome 20 that images the simulated slide through the fitted objective, live, at its real modes and rates.
 
 **Scope.**
 
-- **The field of view** from the magnification, the 2.4 µm pixels and the camera's mounting angle.
-- **Optics:** each depth layer blurred by its defocus (a Gaussian approximation from the NA and the distance to focus), plus the in-focus diffraction blur; vignetting.
-- **Simulated illumination:** intensity; colour temperature (blackbody weights per channel); a field uneven by a set amount.
 - **Motion:** the stage's path during the exposure; a rolling shutter, through the line time.
 - **The sensor:** RGGB sampling; quantum efficiency per channel; shot, read and dark noise; black level; gain; 12 significant bits in 16-bit words.
 - **Modes and rates** (OScope's measurements): mode 0, 5472 × 3648, 7.24 fps in 16 bits and 14.49 in 8; mode 1, 2736 × 1824, 26.57 and 53.14; mode 2, 1824 × 1216, 33.87 and 67.26. Frames are timed on the simulated clock.
 - **Optionally, the SDK's processing** (gamma, white balance, rescaling with an offset near 2,000), to mimic the real raw.
-- `VirtualCamera` implements `Camera`; `VirtualIllumination` implements `Illumination`; changing the objective changes the field and the blur.
+- `VirtualCamera` implements `Camera`.
 - **A CPU fallback,** with a scaled-down sensor for tests.
 
 **Out of scope.** The server (P1.13); the preview (P1.14a, P1.14b).
@@ -988,12 +1020,12 @@ Each phase has:
 
 **Done when.**
 
-- A full frame takes 40 ms or less on the GPU, still or while jogging (plan §6.15).
+- A full frame takes 40 ms or less on the GPU, still or while jogging (plan §6.15), or the notes say where it falls short and by how much.
 - Each mode reaches its rate in real time on this PC, or the notes say which falls short and by how much.
 - With a seed and stepped time, frames repeat bit for bit on the same backend.
 - The camera passes the contract suite.
 
-**Tests.** The field of view against the magnification; the blur against the distance to focus; noise statistics (mean and variance against the model); rolling-shutter skew while moving; mode timing. **Broken on purpose:** the noise model's variance, and the mode's frame interval.
+**Tests.** Noise statistics (mean and variance against the model); rolling-shutter skew while moving; mode timing; the contract. **Broken on purpose:** the noise model's variance, and the mode's frame interval.
 
 **Open questions.** Q27 (linear by default; the SDK's processing optional; rolling shutter modelled).
 
@@ -1004,7 +1036,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-api` (new, L5), `tetera-server` (new, L6) |
-| Depends on | P1.12 |
+| Depends on | P1.12b |
 | ADRs | 0017 control plane and media plane · 0018 the service in WSL2: systemd, start-up, networking, devices |
 | Gates | G1 |
 | First estimate | code 1,300 · tests 500 · examples 60 · docs-as-code 120 = **1,980** |
