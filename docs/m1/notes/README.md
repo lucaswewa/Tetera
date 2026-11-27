@@ -11,8 +11,9 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.04a | Compute backends | Done | [P1.04a](P1.04a-compute-backends.md) |
 | P1.04b | Kernels and the twin harness | Done | [P1.04b](P1.04b-kernels-and-the-twin-harness.md) |
 | P1.05a | Bayer and demosaic | Done | [P1.05a](P1.05a-bayer-and-demosaic.md) |
-| P1.05b | Binning, resize, display transform and JPEG | In review | [P1.05b](P1.05b-binning-resize-display-transform-and-jpeg.md) |
-| P1.06 | Dark, flat, colour, and the fused kernel | Not started | — |
+| P1.05b | Binning, resize, display transform and JPEG | Done | [P1.05b](P1.05b-binning-resize-display-transform-and-jpeg.md) |
+| P1.06a | Dark, flat and colour | Not started | — |
+| P1.06b | The fused kernel | Not started | — |
 | P1.07 | Denoise and deconvolution | Not started | — |
 | P1.08 | The pipeline engine | Not started | — |
 | P1.09 | The HAL | Not started | — |
