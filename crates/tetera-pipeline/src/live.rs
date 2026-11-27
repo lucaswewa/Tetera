@@ -145,10 +145,10 @@ impl Live {
         lock(&self.shared).stats
     }
 
-    /// Whether no frame waits: those offered have all run, or given their place.
+    /// Whether every frame offered has run, or given its place: none runs or waits.
     pub fn is_idle(&self) -> bool {
-        let state = lock(&self.shared);
-        state.waiting.is_none() && state.stats.ran + state.stats.replaced == state.stats.offered
+        let stats = lock(&self.shared).stats;
+        stats.ran + stats.replaced == stats.offered
     }
 
     /// Stops it: the frame running finishes, a frame waiting is dropped. It gives the plan back,
@@ -385,6 +385,19 @@ mod tests {
             }
         );
         assert_eq!(sums(&rx).len(), 1);
+    }
+
+    #[test]
+    fn dropping_a_live_run_stops_its_thread() {
+        let (plan, _tokens) = gated(Some(0.0));
+        let (tx, rx) = mpsc::channel::<Outputs>();
+        let live = Live::start(plan, compute(), "frame", move |out| tx.send(out).unwrap()).unwrap();
+        drop(live);
+        // The thread has ended, and its callback with it, so the channel has closed.
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(5)).unwrap_err(),
+            mpsc::RecvTimeoutError::Disconnected
+        );
     }
 
     #[test]
