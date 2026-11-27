@@ -263,6 +263,12 @@ mod device {
         pub fn new(value: T) -> Self {
             Self(Arc::new(value))
         }
+
+        /// How many hold it, for tests that a value is let go.
+        #[cfg(test)]
+        pub(crate) fn holders(&self) -> usize {
+            Arc::strong_count(&self.0)
+        }
     }
 
     impl<T> Clone for OnDevice<T> {
@@ -472,5 +478,63 @@ mod tests {
         };
         let raw = Mosaic::new(layout, vec![0; 4]).unwrap();
         assert_eq!(Value::Raw(raw).port_type(), PortType::Raw);
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "cuda")]
+mod cuda_tests {
+    use super::*;
+
+    #[test]
+    fn values_go_to_the_gpu_and_back_and_device_values_are_known_by_their_buffer() {
+        let gpu = tetera_compute::cuda_or_skip!();
+        let layout = tetera_imaging::MosaicLayout {
+            width: 4,
+            height: 2,
+            pattern: tetera_core::frame::format::BayerPattern::Rggb,
+            significant_bits: 12,
+        };
+        let host = [
+            (
+                Value::Raw(Mosaic::new(layout, (0..8).collect()).unwrap()),
+                16,
+            ),
+            (
+                Value::U8(Image::new(2, 1, 3, vec![1u8, 2, 3, 4, 5, 6]).unwrap()),
+                6,
+            ),
+            (Value::U16(Image::new(2, 1, 1, vec![7u16, 8]).unwrap()), 4),
+            (
+                Value::F32(Image::new(1, 1, 3, vec![0.5f32, 1.5, 2.5]).unwrap()),
+                12,
+            ),
+        ];
+        for (value, bytes) in host {
+            let (up, sent) = value.upload(&gpu).unwrap().unwrap();
+            assert!(up.on_device() && !value.on_device());
+            assert_eq!((up.port_type(), sent), (value.port_type(), bytes));
+            let (down, received) = up.download(&gpu).unwrap().unwrap();
+            assert_eq!((down, received), (value.clone(), bytes));
+            assert!(
+                value.download(&gpu).unwrap().is_none(),
+                "on the host already"
+            );
+            assert!(up.upload(&gpu).unwrap().is_none(), "on the GPU already");
+            assert_eq!(up, up.clone(), "the same buffer");
+            let (again, _) = value.upload(&gpu).unwrap().unwrap();
+            assert_ne!(up, again, "another buffer, though the same values");
+        }
+        for stays in [
+            Value::Scalar(1.0),
+            Value::Table(Table::new()),
+            Value::Encoded(Encoding::Jpeg, vec![1]),
+        ] {
+            assert!(stays.upload(&gpu).unwrap().is_none() && !stays.on_device());
+        }
+        let a = OnDevice::new(1);
+        assert_eq!(a.holders(), 1);
+        let b = a.clone();
+        assert_eq!((a.holders(), *b), (2, 1));
     }
 }

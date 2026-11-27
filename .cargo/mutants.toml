@@ -35,4 +35,6 @@ exclude_re = [
     # How many values a parallel task takes in deconvolution: it changes only how fast it runs.
     "replace per_task -> usize with 1",
     "replace / with (\\*|%) in per_task",
+    # The fused step's tables taken as stale every run: made again, the same preview, slower.
+    "replace == with != in <impl Step for FusedStep>::run",
 ]

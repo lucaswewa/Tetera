@@ -1,14 +1,9 @@
 //! The fusion pass (P1.08c): finds the live chain in a plan, and runs P1.06b's fused kernel in
 //! its place on the GPU (ADR-0011), which gives exactly what the chain's nodes give.
 
-use crate::node::{Context, Step, parameters};
+use crate::node::parameters;
 use crate::plan::{Planned, Source};
-use crate::port::Value;
-use crate::stock::{
-    BinModeParameter, BinParameters, ColourParameters, DemosaicParameters, ResizeParameters,
-};
-use tetera_core::{Error, Result};
-use tetera_imaging::{ColourCorrection, IspParams, Levels, Reduce};
+use crate::stock::{BinModeParameter, BinParameters};
 
 /// The live chain found in a plan, and the fused step to run in its place.
 pub(crate) struct Fusion {
@@ -17,7 +12,9 @@ pub(crate) struct Fusion {
     /// The fused step's inputs: the raw frame, then the master dark and the master flat, each
     /// when the chain has its node.
     pub(crate) sources: Vec<Source>,
-    pub(crate) step: Box<dyn Step>,
+    /// The fused step, which runs on the GPU alone.
+    #[cfg(feature = "cuda")]
+    pub(crate) step: Box<dyn crate::node::Step>,
 }
 
 /// The live chain in `steps`, when there is one the fused kernel can run: `[bin →] [dark →]
@@ -56,126 +53,145 @@ pub(crate) fn find(steps: &[Planned], outputs: &[(usize, usize)]) -> Option<Fusi
     });
     chain.extend(bin);
     chain.reverse();
-
-    let reduce = match bin {
-        Some(b) => match parameters::<BinParameters>(&steps[b].params).ok()?.factor {
-            1 => Reduce::Full,
-            factor => Reduce::Bin(factor),
-        },
-        None => Reduce::Full,
-    };
-    let c: ColourParameters = parameters(&steps[colour].params).ok()?;
-    let r: ResizeParameters = parameters(&steps[resize].params).ok()?;
-    let d: DemosaicParameters = parameters(&steps[demosaic].params).ok()?;
-    let template = IspParams {
-        reduce,
-        dark: None,
-        flat: None,
-        demosaic: d.method.into(),
-        colour: ColourCorrection {
-            white_balance: c.white_balance,
-            matrix: c.matrix,
-        },
-        levels: c.levels.map(Levels::from),
-        curve: c.curve.into(),
-        output: (r.width, r.height),
-    };
     let mut sources = vec![steps[chain[0]].sources[0]];
     sources.extend(dark.map(|i| steps[i].sources[1]));
     sources.extend(flat.map(|i| steps[i].sources[1]));
     Some(Fusion {
+        #[cfg(feature = "cuda")]
+        step: Box::new(device::FusedStep::new(
+            device::template(steps, bin, demosaic, resize, colour)?,
+            dark.is_some(),
+            flat.is_some(),
+        )),
         chain,
         sources,
-        step: Box::new(FusedStep {
-            template,
-            dark: dark.is_some(),
-            flat: flat.is_some(),
-            #[cfg(feature = "cuda")]
-            tables: None,
-        }),
     })
 }
 
-/// The fused ISP: the chain's parameters, and its tables on the GPU, made again when the raw
-/// frame's layout, the master dark or the master flat changes.
-struct FusedStep {
-    template: IspParams,
-    dark: bool,
-    flat: bool,
-    #[cfg(feature = "cuda")]
-    tables: Option<Tables>,
-}
-
 #[cfg(feature = "cuda")]
-type Master = crate::port::OnDevice<tetera_imaging::DeviceMosaic>;
+mod device {
+    use super::Planned;
+    use crate::node::{Context, Step, parameters};
+    use crate::port::{OnDevice, Value};
+    use crate::stock::{BinParameters, ColourParameters, DemosaicParameters, ResizeParameters};
+    use tetera_core::{Error, Result};
+    use tetera_imaging::isp::DeviceIsp;
+    use tetera_imaging::{
+        ColourCorrection, DeviceMosaic, FlatField, Isp, IspParams, Levels, MosaicLayout, Reduce,
+    };
 
-/// The tables made, and what they were made for.
-#[cfg(feature = "cuda")]
-struct Tables {
-    layout: tetera_imaging::MosaicLayout,
-    dark: Option<Master>,
-    flat: Option<Master>,
-    isp: tetera_imaging::Isp,
-    device: tetera_imaging::isp::DeviceIsp,
-}
-
-impl Step for FusedStep {
-    #[cfg(feature = "cuda")]
-    fn run(&mut self, context: &Context, inputs: &[&Value]) -> Result<Vec<Value>> {
-        use crate::port::OnDevice;
-        let gpu = context
-            .compute
-            .cuda()
-            .ok_or_else(|| Error::internal("the fused ISP runs on the GPU"))?;
-        let on_device = |v: &Value| match v {
-            Value::DeviceRaw(m) => Ok(m.clone()),
-            other => Err(Error::internal(format!(
-                "the fused ISP was given {} on the host",
-                other.port_type()
-            ))),
+    /// The ISP's parameters from the chain's nodes', without its masters.
+    pub(super) fn template(
+        steps: &[Planned],
+        bin: Option<usize>,
+        demosaic: usize,
+        resize: usize,
+        colour: usize,
+    ) -> Option<IspParams> {
+        let reduce = match bin {
+            Some(b) => match parameters::<BinParameters>(&steps[b].params).ok()?.factor {
+                1 => Reduce::Full,
+                factor => Reduce::Bin(factor),
+            },
+            None => Reduce::Full,
         };
-        let raw = on_device(inputs[0])?;
-        let mut rest = inputs[1..].iter();
-        let mut master = |wanted: bool| {
-            wanted
-                .then(|| on_device(rest.next().expect("an input for each master")))
-                .transpose()
-        };
-        let (dark, flat) = (master(self.dark)?, master(self.flat)?);
-        let current = self
-            .tables
-            .as_ref()
-            .is_some_and(|t| t.layout == *raw.layout() && t.dark == dark && t.flat == flat);
-        if !current {
-            let params = IspParams {
-                dark: dark.as_ref().map(|d| d.download(gpu)).transpose()?,
-                flat: flat
-                    .as_ref()
-                    .map(|f| tetera_imaging::FlatField::new(&f.download(gpu)?))
-                    .transpose()?,
-                ..self.template.clone()
-            };
-            let isp = tetera_imaging::Isp::new(params, *raw.layout())?;
-            let device = tetera_imaging::isp::DeviceIsp::upload(gpu, &isp)?;
-            self.tables = Some(Tables {
-                layout: *raw.layout(),
-                dark,
-                flat,
-                isp,
-                device,
-            });
-        }
-        let t = self.tables.as_ref().expect("made above");
-        let preview = t.device.run_fused(gpu, &t.isp, &raw)?;
-        Ok(vec![Value::DeviceU8(OnDevice::new(preview))])
+        let c: ColourParameters = parameters(&steps[colour].params).ok()?;
+        let r: ResizeParameters = parameters(&steps[resize].params).ok()?;
+        let d: DemosaicParameters = parameters(&steps[demosaic].params).ok()?;
+        Some(IspParams {
+            reduce,
+            dark: None,
+            flat: None,
+            demosaic: d.method.into(),
+            colour: ColourCorrection {
+                white_balance: c.white_balance,
+                matrix: c.matrix,
+            },
+            levels: c.levels.map(Levels::from),
+            curve: c.curve.into(),
+            output: (r.width, r.height),
+        })
     }
 
-    #[cfg(not(feature = "cuda"))]
-    fn run(&mut self, _: &Context, _: &[&Value]) -> Result<Vec<Value>> {
-        let _ = (&self.template, self.dark, self.flat);
-        Err(Error::internal(
-            "the fused ISP runs on the GPU, which this build hasn't",
-        ))
+    type Master = OnDevice<DeviceMosaic>;
+
+    /// The tables made, and what they were made for.
+    struct Tables {
+        layout: MosaicLayout,
+        dark: Option<Master>,
+        flat: Option<Master>,
+        isp: Isp,
+        device: DeviceIsp,
+    }
+
+    /// The fused ISP: the chain's parameters, and its tables on the GPU, made again when the
+    /// raw frame's layout, the master dark or the master flat changes.
+    pub(super) struct FusedStep {
+        template: IspParams,
+        dark: bool,
+        flat: bool,
+        tables: Option<Tables>,
+    }
+
+    impl FusedStep {
+        pub(super) fn new(template: IspParams, dark: bool, flat: bool) -> Self {
+            Self {
+                template,
+                dark,
+                flat,
+                tables: None,
+            }
+        }
+    }
+
+    impl Step for FusedStep {
+        fn run(&mut self, context: &Context, inputs: &[&Value]) -> Result<Vec<Value>> {
+            let gpu = context
+                .compute
+                .cuda()
+                .ok_or_else(|| Error::internal("the fused ISP runs on the GPU"))?;
+            let on_device = |v: &Value| match v {
+                Value::DeviceRaw(m) => Ok(m.clone()),
+                other => Err(Error::internal(format!(
+                    "the fused ISP was given {} on the host",
+                    other.port_type()
+                ))),
+            };
+            let raw = on_device(inputs[0])?;
+            let mut rest = inputs[1..].iter();
+            let mut master = |wanted: bool| {
+                wanted
+                    .then(|| on_device(rest.next().expect("an input for each master")))
+                    .transpose()
+            };
+            let (dark, flat) = (master(self.dark)?, master(self.flat)?);
+            let current = self
+                .tables
+                .as_ref()
+                .is_some_and(|t| t.layout == *raw.layout() && t.dark == dark && t.flat == flat);
+            if !current {
+                let params = IspParams {
+                    dark: dark.as_ref().map(|d| d.download(gpu)).transpose()?,
+                    flat: flat
+                        .as_ref()
+                        .map(|f| FlatField::new(&f.download(gpu)?))
+                        .transpose()?,
+                    ..self.template.clone()
+                };
+                let isp = Isp::new(params, *raw.layout())?;
+                let device = DeviceIsp::upload(gpu, &isp)?;
+                self.tables = Some(Tables {
+                    layout: *raw.layout(),
+                    dark,
+                    flat,
+                    isp,
+                    device,
+                });
+            }
+            let t = self.tables.as_ref().expect("made above");
+            let preview = t.device.run_fused(gpu, &t.isp, &raw)?;
+            Ok(vec![Value::DeviceU8(OnDevice::new(preview))])
+        }
     }
 }
 

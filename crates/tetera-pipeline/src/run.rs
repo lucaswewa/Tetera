@@ -191,6 +191,13 @@ impl Plan {
         self.copies
     }
 
+    /// The nodes whose steps the last run ran, in order: not those whose outputs were kept
+    /// from an earlier run. The nodes the fused kernel stood for are one, their ids joined
+    /// by ` + `.
+    pub fn ran(&self) -> &[String] {
+        &self.ran
+    }
+
     /// The recipe run on `inputs`, one for each of its inputs not held, by name: its outputs,
     /// by name, on the host.
     pub fn run(
@@ -270,12 +277,8 @@ impl Plan {
         let mut last = vec![0usize; n];
         let mut last_input = vec![0usize; self.inputs.len()];
         for i in (0..n).filter(|&i| !skipped(i)) {
-            let stateful = if Some(i) == last_of_chain && fused.is_some() {
-                false
-            } else {
-                self.steps[i].descriptor.stateful
-            };
-            constant[i] = !stateful
+            // The fused step stands for stock nodes, none of them stateful.
+            constant[i] = !self.steps[i].descriptor.stateful
                 && sources_of(i).iter().all(|s| match *s {
                     Source::Input(k) => held_inputs[k],
                     Source::Output(j, _) => constant[j],
@@ -292,6 +295,8 @@ impl Plan {
         }
 
         let mut copies = Copies::default();
+        let names: Vec<String> = self.steps.iter().map(|s| s.id.clone()).collect();
+        let mut ran = Vec::new();
         let Plan {
             steps,
             held,
@@ -312,16 +317,23 @@ impl Plan {
                 continue;
             }
             let fused_here = fused.is_some() && Some(i) == last_of_chain;
-            let (step, sources, on_device) = if fused_here {
-                let f = fusion.as_mut().expect("fused");
-                (&mut f.step, f.sources.as_slice(), true)
-            } else {
-                (
+            let (step, sources, on_device) = match fusion.as_mut() {
+                #[cfg(feature = "cuda")]
+                Some(f) if fused_here => (&mut f.step, f.sources.as_slice(), true),
+                _ => (
                     &mut planned.step,
                     planned.sources.as_slice(),
                     gpu && planned.descriptor.backends.cuda,
-                )
+                ),
             };
+            ran.push(match &fused {
+                Some((chain, _)) if fused_here => chain
+                    .iter()
+                    .map(|&c| names[c].as_str())
+                    .collect::<Vec<_>>()
+                    .join(" + "),
+                _ => planned.id.clone(),
+            });
             for &s in sources {
                 values
                     .slot_mut(s)
@@ -352,9 +364,7 @@ impl Plan {
             for &s in sources {
                 match s {
                     Source::Input(k) if last_input[k] == i => values.given[k] = None,
-                    Source::Output(j, _) if last[j] == i && !values.constant[j] => {
-                        values.slots[j] = None
-                    }
+                    Source::Output(j, _) if last[j] == i => values.slots[j] = None,
                     _ => {}
                 }
             }
@@ -369,6 +379,7 @@ impl Plan {
             result.insert(name.clone(), values.slot(source).get(false).clone());
         }
         self.copies = copies;
+        self.ran = ran;
         Ok(result)
     }
 }
@@ -468,6 +479,7 @@ mod tests {
             (&Value::Scalar(14.0), &Value::Scalar(4.0))
         );
         assert_eq!(names(&log), ["twice", "held_too", "count", "sum"]);
+        assert_eq!(plan.ran(), ["twice", "held_too", "count", "sum"]);
         let out = plan.run(&context, y(20.0)).unwrap();
         assert_eq!(out["sum"], Value::Scalar(24.0));
         assert_eq!(
@@ -475,6 +487,7 @@ mod tests {
             ["count", "sum"],
             "the held steps kept; the stateful one ran"
         );
+        assert_eq!(plan.ran(), ["count", "sum"]);
         // Held again: worked again.
         plan.hold("x", Value::Scalar(2.0)).unwrap();
         assert_eq!(
@@ -561,6 +574,22 @@ mod cuda_tests {
         ]
     }
 
+    /// Another sensor's dark and flat: a higher offset, more vignetting.
+    fn frames2(w: u32, h: u32) -> [Value; 3] {
+        let sensor = Sensor {
+            offset: 200,
+            vignetting: 0.5,
+            response: [0.7, 1.0, 0.5],
+            ..Sensor::default()
+        };
+        let even = Image::new(w, h, 3, [3_000u16; 3].repeat((w * h) as usize)).unwrap();
+        [
+            Value::Raw(sensor.expose(&test_pattern(w, h, 12)).unwrap()),
+            Value::Raw(sensor.dark(w, h).unwrap()),
+            Value::Raw(sensor.expose(&even).unwrap()),
+        ]
+    }
+
     fn chain() -> Recipe {
         let mut recipe = Recipe::from_json(include_str!("../recipes/live-chain.json")).unwrap();
         recipe
@@ -626,6 +655,34 @@ mod cuda_tests {
                 };
                 assert_eq!(plan.copies(), each, "fused: {fuse}");
             }
+            let order = if fuse {
+                vec!["less_dark + even + rgb + small + colour", "jpeg"]
+            } else {
+                vec!["less_dark", "even", "rgb", "small", "colour", "jpeg"]
+            };
+            assert_eq!(plan.ran(), order, "the flat's own dark subtraction kept");
+            // Another master flat, then another dark: the preview the CPU gives with them.
+            let [_, dark2, flat2] = frames2(w, h);
+            for (name, value) in [("flat", flat2.clone()), ("dark", dark2.clone())] {
+                plan.hold(name, value).unwrap();
+                let mut inputs = BTreeMap::from([("raw".to_string(), raw.clone())]);
+                let d = if name == "dark" {
+                    dark2.clone()
+                } else {
+                    dark.clone()
+                };
+                inputs.insert("dark".to_string(), d);
+                inputs.insert("flat".to_string(), flat2.clone());
+                let expected = Plan::new(&chain(), &Registry::stock())
+                    .unwrap()
+                    .run(&Context { compute: &cpu }, inputs)
+                    .unwrap();
+                let got = plan.run(&Context { compute: &gpu }, frame.clone()).unwrap();
+                assert_eq!(got, expected, "a new {name}, fused: {fuse}");
+                assert_ne!(got, on_cpu);
+            }
+            plan.hold("dark", dark.clone()).unwrap();
+            plan.hold("flat", flat.clone()).unwrap();
             // The same plan on the CPU works its held steps again, there.
             assert_eq!(plan.run(&Context { compute: &cpu }, frame).unwrap(), on_cpu);
             assert_eq!(plan.copies(), Copies::default());
@@ -671,6 +728,108 @@ mod cuda_tests {
         assert_eq!(
             copies.bytes,
             96 * 64 * 2 + 96 * 64 * 3 * 2 + 64 * 48 * 3 * 2 + 32 * 24 * 3
+        );
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "cuda")]
+mod freeing {
+    use super::*;
+    use crate::node::{Descriptor, NoParameters, Node, Step, parameters};
+    use crate::port::PortSpec;
+    use crate::recipe::Recipe;
+    use crate::registry::Registry;
+    use std::sync::{Arc, Mutex};
+    use tetera_compute::Compute;
+    use tetera_imaging::pattern::{Sensor, test_pattern};
+
+    /// What the taps kept of the values they read on the GPU.
+    type Kept = Arc<Mutex<Vec<Value>>>;
+
+    /// `test.tap_raw` and `test.tap_image` keep what they read, and give a scalar;
+    /// `test.holders` gives the most holders any kept value has.
+    struct Test(Descriptor, Kept);
+
+    struct TestStep(String, Kept);
+
+    impl Node for Test {
+        fn descriptor(&self) -> &Descriptor {
+            &self.0
+        }
+
+        fn prepare(&self, params: &serde_json::Value) -> Result<Box<dyn Step>> {
+            let _: NoParameters = parameters(params)?;
+            Ok(Box::new(TestStep(self.0.id.to_string(), self.1.clone())))
+        }
+    }
+
+    fn holders(value: &Value) -> usize {
+        match value {
+            Value::DeviceRaw(v) => v.holders(),
+            Value::DeviceU16(v) => v.holders(),
+            _ => 0,
+        }
+    }
+
+    impl Step for TestStep {
+        fn run(&mut self, _: &Context, inputs: &[&Value]) -> Result<Vec<Value>> {
+            let mut kept = self.1.lock().unwrap();
+            if self.0 == "test.holders" {
+                let most = kept.iter().map(holders).max().unwrap_or(0);
+                return Ok(vec![Value::Scalar(most as f64)]);
+            }
+            assert!(inputs[0].on_device(), "a tap on the GPU");
+            kept.push(inputs[0].clone());
+            Ok(vec![Value::Scalar(0.0)])
+        }
+    }
+
+    #[test]
+    fn a_value_is_let_go_after_its_last_reader() {
+        let _gpu = tetera_compute::cuda_or_skip!();
+        let gpu = Compute::from_probe(&tetera_compute::SystemProbe).unwrap();
+        let kept: Kept = Arc::default();
+        let mut registry = Registry::stock();
+        let scalar = |name| PortSpec::new(name, PortType::Scalar, "a number");
+        for (id, input) in [
+            ("test.tap_raw", PortType::Raw),
+            ("test.tap_image", PortType::ANY_IMAGE),
+        ] {
+            let d = Descriptor::new(id, 1, "keeps what it reads")
+                .input(PortSpec::new("value", input, "the value"))
+                .output(scalar("zero"))
+                .on_cuda()
+                .stateful();
+            registry.register(Arc::new(Test(d, kept.clone()))).unwrap();
+        }
+        let d = Descriptor::new("test.holders", 1, "counts holders")
+            .input(scalar("a"))
+            .input(scalar("b"))
+            .output(scalar("most"))
+            .stateful();
+        registry.register(Arc::new(Test(d, kept.clone()))).unwrap();
+        // The raw frame's last reader is its tap, the image's its tap; then the count.
+        let recipe = Recipe::from_json(
+            r#"{"name": "taps", "inputs": {"raw": {"kind": "raw"}},
+            "nodes": [
+                {"id": "rgb", "node": "tetera.demosaic", "inputs": {"raw": "raw"}},
+                {"id": "tap_raw", "node": "test.tap_raw", "inputs": {"value": "raw"}},
+                {"id": "tap_rgb", "node": "test.tap_image", "inputs": {"value": "rgb.image"}},
+                {"id": "count", "node": "test.holders", "inputs": {"a": "tap_raw.zero", "b": "tap_rgb.zero"}}
+            ],
+            "outputs": {"most": "count.most"}}"#,
+        )
+        .unwrap();
+        let mut plan = Plan::new(&recipe, &registry).unwrap();
+        let raw = Value::Raw(Sensor::default().expose(&test_pattern(32, 16, 12)).unwrap());
+        let inputs = BTreeMap::from([("raw".to_string(), raw)]);
+        let out = plan.run(&Context { compute: &gpu }, inputs).unwrap();
+        assert_eq!(kept.lock().unwrap().len(), 2);
+        assert_eq!(
+            out["most"],
+            Value::Scalar(1.0),
+            "only the taps hold what they read"
         );
     }
 }

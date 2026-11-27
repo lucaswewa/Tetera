@@ -65,6 +65,8 @@ pub struct Plan {
     /// Whether the last run had the GPU.
     pub(crate) last_backend: Option<bool>,
     pub(crate) copies: Copies,
+    /// The nodes the last run ran.
+    pub(crate) ran: Vec<String>,
 }
 
 impl fmt::Debug for Plan {
@@ -377,6 +379,7 @@ impl Plan {
             fusion_on: true,
             last_backend: None,
             copies: Copies::default(),
+            ran: Vec::new(),
             inputs,
             steps,
             outputs: outputs

@@ -1187,6 +1187,24 @@ mod cuda_tests {
             };
             assert_eq!(on(&gpu), on(&cpu), "{id}");
         }
+        // One resize step given two sizes in turn, on each backend.
+        let resize = registry.find("tetera.resize", None).unwrap();
+        let params = serde_json::json!({"width": 20, "height": 10});
+        let (mut on_gpu, mut on_cpu) = (
+            resize.prepare(&params).unwrap(),
+            resize.prepare(&params).unwrap(),
+        );
+        for (w, h) in [(64, 48), (40, 30), (64, 48)] {
+            let image = Value::U16(test_pattern(w, h, 12));
+            let up = image.upload(gpu.cuda().unwrap()).unwrap().unwrap().0;
+            let out = on_gpu.run(&Context { compute: &gpu }, &[&up]).unwrap();
+            let down = out[0].download(gpu.cuda().unwrap()).unwrap().unwrap().0;
+            assert_eq!(
+                down,
+                on_cpu.run(&Context { compute: &cpu }, &[&image]).unwrap()[0],
+                "{w} × {h}"
+            );
+        }
         let rgb = Value::U16(test_pattern(64, 48, 12));
         let node = registry.find("tetera.display", None).unwrap();
         let params =
