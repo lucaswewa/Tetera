@@ -15,7 +15,7 @@
 //! - [`noise`]: integer hashing, improved noise, cellular noise and fBm;
 //! - [`he`]: the [`HeSample`], a procedural section of H&E-stained tissue, and colour by
 //!   absorbance;
-//! - [`render`]: a region of it rendered at any pixel size and depth, the CPU twin.
+//! - [`render`](mod@render): a region of it rendered at any pixel size and depth, the CPU twin.
 
 pub mod clock;
 pub mod he;
