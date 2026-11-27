@@ -1,0 +1,20 @@
+[package]
+name = "tetera-pipeline"
+description = "Tetera's pipeline engine: nodes with typed ports, JSON recipes, their validation, the registry and the executor."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tetera-compute.workspace = true
+tetera-core.workspace = true
+tetera-imaging.workspace = true
+
+[lints]
+workspace = true

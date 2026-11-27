@@ -1,0 +1,25 @@
+{
+  "name": "crop and measure",
+  "summary": "A 256 × 256 crop of a frame, and each channel's statistics over it.",
+  "inputs": {
+    "frame": { "kind": "image", "channels": 3, "sample": "u16" }
+  },
+  "nodes": [
+    {
+      "id": "measure",
+      "node": "tetera.statistics",
+      "inputs": { "image": "crop.image" }
+    },
+    {
+      "id": "crop",
+      "node": "tetera.crop",
+      "version": 1,
+      "params": { "x": 64, "y": 64, "width": 256, "height": 256 },
+      "inputs": { "image": "frame" }
+    }
+  ],
+  "outputs": {
+    "statistics": "measure.table",
+    "cropped": "crop.image"
+  }
+}

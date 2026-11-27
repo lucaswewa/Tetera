@@ -20,6 +20,7 @@ tetera-compute = { path = "crates/tetera-compute" }
 tetera-core = { path = "crates/tetera-core" }
 tetera-imaging = { path = "crates/tetera-imaging" }
 tetera-log = { path = "crates/tetera-log" }
+tetera-pipeline = { path = "crates/tetera-pipeline" }
 
 # Each at least two weeks old when added (ADR-0002).
 # CUDA, loaded at run time, so the workspace builds without the toolkit (ADR-0009).
