@@ -46,7 +46,7 @@ Each phase has:
 | [P1.05a](#p105a-bayer-and-demosaic) | Bayer and demosaic | P1.04b | 1,860 | — | G1, G1c |
 | [P1.05b](#p105b-binning-resize-display-transform-and-jpeg) | Binning, resize, display transform and JPEG | P1.05a | 1,880 | — | G1, G1c |
 | [P1.06a](#p106a-dark-flat-and-colour) | Dark, flat and colour | P1.05b | 1,730 | — | G1, G1c |
-| [P1.06b](#p106b-the-fused-kernel) | The fused kernel | P1.06a | 950 | — | G1, G1c |
+| [P1.06b](#p106b-the-fused-kernel) | The fused kernel | P1.06a | 1,270 | — | G1, G1c |
 | [P1.07](#p107-denoise-and-deconvolution) | Denoise and deconvolution | P1.05b | 1,670 | Yes | G1, G1c |
 | [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06b, P1.07 | 1,880 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
@@ -460,7 +460,7 @@ Each phase has:
 | Depends on | P1.06a |
 | ADRs | 0011 fused kernels |
 | Gates | G1, G1c |
-| Estimate | code 410 · tests 400 · examples 100 · docs-as-code 30 · glue 10 = **950**, from P1.06's split; its own second estimate comes before its code |
+| Second estimate | code 660 · tests 500 · examples 80 · docs-as-code 20 · glue 10 = **1,270**, against 950 from P1.06's split |
 
 **Goal.** Do the whole live chain in one GPU pass.
 
