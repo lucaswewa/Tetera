@@ -82,6 +82,13 @@ pub const ISP: KernelSource = KernelSource {
     fatbin: generated::ISP_FATBIN,
 };
 
+/// `kernels/he.cu`: the H&E sample, its cells and its pixels (P1.11b).
+pub const HE: KernelSource = KernelSource {
+    name: "he",
+    source: generated::HE_SOURCE,
+    fatbin: generated::HE_FATBIN,
+};
+
 /// `kernels/demosaic.cu`: bilinear and Malvar-He-Cutler demosaicking.
 pub const DEMOSAIC: KernelSource = KernelSource {
     name: "demosaic",

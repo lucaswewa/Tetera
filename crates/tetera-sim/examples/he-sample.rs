@@ -3,7 +3,9 @@
 //! 50×, and a fold, written as PNGs to `target/he-sample/` with their timings.
 //!
 //! Run it with `cargo run --release -p tetera-sim --example he-sample [-- seed]`; `-- --smoke`
-//! renders small regions.
+//! renders small regions. With `--features cuda` and a GPU, each view is rendered on the GPU
+//! too, timed and compared with the CPU twin, and a grid of tiles is fetched through their
+//! cache (P1.11b).
 
 use std::path::Path;
 use std::time::Instant;
@@ -11,6 +13,23 @@ use tetera_core::{Error, Result};
 use tetera_sim::{Depth, HeSample, Region, Rendered, SectionConfig, render};
 
 const PIXEL: f64 = 2.4;
+
+/// The GPU, when the `cuda` feature is on and one starts.
+#[cfg(feature = "cuda")]
+type Gpu = Option<tetera_compute::CudaBackend>;
+#[cfg(not(feature = "cuda"))]
+type Gpu = Option<()>;
+
+fn gpu() -> Gpu {
+    #[cfg(feature = "cuda")]
+    {
+        tetera_compute::CudaBackend::new(0).ok()
+    }
+    #[cfg(not(feature = "cuda"))]
+    {
+        None
+    }
+}
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -22,7 +41,15 @@ fn main() -> Result<()> {
         .map_err(|e| Error::internal(format!("{}: {e}", out.display())))?;
     let scale = if smoke { 8 } else { 1 };
     let sample = HeSample::new(seed, SectionConfig::default())?;
-    println!("The H&E sample from seed {seed}, a section 4 µm thick:");
+    let gpu = gpu();
+    println!(
+        "The H&E sample from seed {seed}, a section 4 µm thick, {}:",
+        if gpu.is_some() {
+            "on the CPU and the GPU"
+        } else {
+            "on the CPU"
+        }
+    );
 
     // The 5× field's middle, and a nucleus near it for 50×.
     let middle = (2_000.0, 2_000.0);
@@ -48,6 +75,13 @@ fn main() -> Result<()> {
         let region = centred(centre, width, height, pixel, Depth::Whole);
         let r = timed(&sample, &region, &format!("{name}, {pixel:.3} µm a pixel"))?;
         png(&out.join(format!("he-{name}.png")), &r, 1.0)?;
+        on_gpu(
+            &gpu,
+            &sample,
+            &region,
+            &r,
+            &out.join(format!("he-{name}-gpu.png")),
+        )?;
     }
 
     // Depth slices through the nucleus at 50×, each 1 µm, shown as dark as a whole section.
@@ -99,6 +133,7 @@ fn main() -> Result<()> {
         let r = timed(&folded, &region, "5x, folds on")?;
         png(&out.join("he-5x-fold.png"), &r, 1.0)?;
     }
+    tiles(&gpu, &sample)?;
     println!("\nWrote the PNGs to {}", out.display());
     if smoke {
         println!("\nsmoke: ok");
@@ -210,4 +245,86 @@ fn adler32(bytes: &[u8]) -> u32 {
         b = (b + a) % 65_521;
     }
     (b << 16) | a
+}
+
+/// `region` on the GPU, if there is one: its time, how far it is from the CPU's, and its PNG.
+#[cfg(feature = "cuda")]
+fn on_gpu(
+    gpu: &Gpu,
+    sample: &HeSample,
+    region: &Region,
+    cpu: &Rendered,
+    path: &Path,
+) -> Result<()> {
+    let Some(gpu) = gpu else { return Ok(()) };
+    sample.render_on(gpu, region)?;
+    let ms = gpu.time_ms(|| sample.render_on(gpu, region).map(drop))?;
+    let r = sample.render_gpu(gpu, region)?;
+    let worst = cpu
+        .stains
+        .iter()
+        .zip(&r.stains)
+        .map(|(a, b)| {
+            (a.haematoxylin - b.haematoxylin)
+                .abs()
+                .max((a.eosin - b.eosin).abs())
+        })
+        .fold(0.0, f32::max);
+    println!("    on the GPU in {ms:.2} ms, within {worst:.1e} OD of the CPU's");
+    png(path, &r, 1.0)
+}
+
+#[cfg(not(feature = "cuda"))]
+fn on_gpu(_: &Gpu, _: &HeSample, _: &Region, _: &Rendered, _: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// A field of 3 × 3 tiles at 5×, seen twice, then moved a column at a time, through a cache
+/// that holds 12.
+#[cfg(feature = "cuda")]
+fn tiles(gpu: &Gpu, sample: &HeSample) -> Result<()> {
+    use tetera_sim::gpu::{HeTiles, TILE_BYTES};
+    use tetera_sim::{TileDepth, TileKey};
+    let Some(gpu) = gpu else { return Ok(()) };
+    let gpu = std::sync::Arc::new(gpu.clone());
+    let budgets = tetera_compute::budget::VramBudgets::new(64 * TILE_BYTES);
+    let tiles = HeTiles::new(
+        gpu.clone(),
+        *sample,
+        budgets.reserve("he-sample", 12 * TILE_BYTES)?,
+    )?;
+    let level = TileKey::level_for(PIXEL / 5.0);
+    println!("\nA field of 3 × 3 tiles at level {level}, through a cache of 12:");
+    for (pass, shift) in [0, 0, 1, 2].into_iter().enumerate() {
+        let start = Instant::now();
+        for row in 30..33 {
+            for column in 30 + shift..33 + shift {
+                tiles.tile(TileKey {
+                    level,
+                    column,
+                    row,
+                    depth: TileDepth::Whole,
+                })?;
+            }
+        }
+        gpu.synchronize()?;
+        let s = tiles.stats();
+        println!(
+            "  {}, moved {shift}: {} made, {} found, {} let go so far; {} held, {} of {} KiB, {:.1} ms",
+            pass + 1,
+            s.misses,
+            s.hits,
+            s.evictions,
+            s.tiles,
+            s.bytes / 1024,
+            tiles.budget().limit() / 1024,
+            start.elapsed().as_secs_f64() * 1e3
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "cuda"))]
+fn tiles(_: &Gpu, _: &HeSample) -> Result<()> {
+    Ok(())
 }
