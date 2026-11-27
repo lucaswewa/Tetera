@@ -394,4 +394,167 @@ mod tests {
             assert_eq!(t[k], transmittance(*p));
         }
     }
+
+    /// A region's fingerprint: its stains summed, and summed again weighted by where each
+    /// pixel lies, so a change to any pixel shows.
+    fn fingerprint(r: &Rendered) -> [f64; 4] {
+        let mut f = [0.0; 4];
+        for (k, p) in r.stains.iter().enumerate() {
+            let w = (k % 97 + 1) as f64;
+            let (h, e) = (f64::from(p.haematoxylin), f64::from(p.eosin));
+            f[0] += h;
+            f[1] += e;
+            f[2] += h * w;
+            f[3] += e * w;
+        }
+        f
+    }
+
+    /// The regions the golden test renders, which hold every part of the model: an
+    /// overview with a vessel and fat, a gland, a fold, the tissue's edge, a red cell and a
+    /// nucleus at 50×, in depth slices too.
+    fn golden_regions() -> Vec<(&'static str, HeSample, Region)> {
+        let s = sample(7);
+        let folded = HeSample::new(
+            7,
+            SectionConfig {
+                folds: true,
+                ..SectionConfig::default()
+            },
+        )
+        .unwrap();
+        let red = s.red_cell(0, 0).expect("a red cell at the origin");
+        let n = *s
+            .nuclei(1_000.0, 1_000.0, 1_400.0, 1_400.0)
+            .iter()
+            .find(|n| (1.0..3.0).contains(&n.depth))
+            .expect("a nucleus");
+        let around = |(x, y): (f64, f64), size: u32, pixel: f64| {
+            (
+                x - f64::from(size) * pixel / 2.0,
+                y - f64::from(size) * pixel / 2.0,
+            )
+        };
+        vec![
+            ("overview", s, region((0.0, 0.0), 128, 2.0, Depth::Whole)),
+            (
+                "gland",
+                s,
+                region(around((1_110.0, 0.0), 64, 0.48), 64, 0.48, Depth::Whole),
+            ),
+            (
+                "fold",
+                folded,
+                region(around((20.0, 0.0), 64, 1.0), 64, 1.0, Depth::Whole),
+            ),
+            (
+                "edge",
+                s,
+                region(around((2_480.0, 10.0), 64, 0.48), 64, 0.48, Depth::Whole),
+            ),
+            (
+                "red cell",
+                s,
+                region(
+                    around(red.centre, 64, 0.048),
+                    64,
+                    0.048,
+                    Depth::Range(red.depth - 0.5, red.depth + 0.5),
+                ),
+            ),
+            (
+                "nucleus",
+                s,
+                region(around(n.centre, 64, 0.048), 64, 0.048, Depth::Whole),
+            ),
+            (
+                "nucleus slice",
+                s,
+                region(
+                    around(n.centre, 64, 0.048),
+                    64,
+                    0.048,
+                    Depth::Range(n.depth + 0.5, n.depth + 1.5),
+                ),
+            ),
+        ]
+    }
+
+    /// The fingerprints recorded when the model was written (P1.11a). A deliberate change to
+    /// the model records them again, and says so in its phase's notes.
+    const GOLDEN: [(&str, [f64; 4]); 7] = [
+        (
+            "overview",
+            [
+                749.1638391960266,
+                3024.180845360899,
+                37015.96078688305,
+                147606.5736373446,
+            ],
+        ),
+        (
+            "gland",
+            [
+                554.5781022540447,
+                1251.2954908898905,
+                28363.73687429897,
+                61408.00755330179,
+            ],
+        ),
+        (
+            "fold",
+            [
+                165.82605194568168,
+                2350.020003245851,
+                8553.84920612388,
+                113644.72841460988,
+            ],
+        ),
+        ("edge", [0.0, 534.3495314940193, 0.0, 25686.308438347485]),
+        (
+            "red cell",
+            [0.0, 1134.5374239683151, 0.0, 55355.268564105034],
+        ),
+        (
+            "nucleus",
+            [
+                4687.365117788315,
+                1386.7999794334173,
+                229002.42960363626,
+                67620.95739085972,
+            ],
+        ),
+        (
+            "nucleus slice",
+            [
+                1351.7652901411057,
+                346.6999947465956,
+                66053.5228087008,
+                16905.239337753505,
+            ],
+        ),
+    ];
+
+    #[test]
+    fn the_model_renders_its_golden_regions_as_recorded() {
+        let mut now = Vec::new();
+        let mut wrong = Vec::new();
+        for ((name, sample, region), (golden_name, golden)) in golden_regions().iter().zip(GOLDEN) {
+            assert_eq!(*name, golden_name);
+            let f = fingerprint(&render(sample, region).unwrap());
+            // Within a maths library's last bits, and nothing more.
+            if f.iter()
+                .zip(golden)
+                .any(|(a, b)| (a - b).abs() > 1e-5 * b.abs().max(1e-3))
+            {
+                wrong.push(*name);
+            }
+            now.push(format!("        ({name:?}, {f:?}),"));
+        }
+        assert!(
+            wrong.is_empty(),
+            "{wrong:?} changed; now:\n{}",
+            now.join("\n")
+        );
+    }
 }
