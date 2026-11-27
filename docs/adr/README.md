@@ -18,3 +18,4 @@ The [plan's §10](../implementation-plan.md#10-planned-adrs) lists the ADRs stil
 | [0010](0010-building-and-loading-cuda-kernels-under-wsl2.md) | Building and loading CUDA kernels under WSL2 | Accepted | P1.04b |
 | [0011](0011-fused-kernels.md) | Fused kernels | Accepted | P1.06b |
 | [0012](0012-the-pipeline-model.md) | The pipeline model | Accepted | P1.08a |
+| [0013](0013-the-hardware-abstraction-layer.md) | The hardware abstraction layer | Accepted | P1.09a |

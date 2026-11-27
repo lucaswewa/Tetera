@@ -198,3 +198,11 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-pipeline --example recipe -- --smoke` — expect two small frames, whole and tiled the same, and `smoke: ok`.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-pipeline --features cuda tile::` — expect every test to pass.
 - **Result:** see the [notes](notes/P1.08e-batch-runs-and-tiling.md#manual-test).
+
+## P1.09a: The camera
+
+- **Prerequisites:** the phase's branch.
+- [ ] `cargo run -p tetera-hal --example hal-fakes` — expect the fake camera's two modes; its configuration as JSON; a snap of 640 × 480; about 28 frames streamed in a second, with 2 dropped on purpose; 3 frames for 3 software triggers; a snap failing once disconnected; and its events in order.
+- [ ] `cargo run -p tetera-hal --example hal-fakes -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-hal` — expect 20 tests to pass.
+- **Result:** see the [notes](notes/P1.09a-the-camera.md#manual-test).
