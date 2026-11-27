@@ -808,6 +808,14 @@ mod tests {
             spread(&smoothed),
             spread(&plain)
         );
+        // And it keeps the region's level, which total variation needn't do exactly.
+        let mean = |v: &Volume| v.sum() / v.values().len() as f64;
+        assert!(
+            (mean(&smoothed) / mean(&image) - 1.0).abs() < 0.01,
+            "{} against {}",
+            mean(&smoothed),
+            mean(&image)
+        );
     }
 
     #[test]
