@@ -643,6 +643,15 @@ mod tests {
         }
     }
 
+    /// The mean count of `colour` in a raw frame `width` wide.
+    fn mean_of(raw: &[u16], width: u32, colour: usize) -> f64 {
+        let v: Vec<f64> = (0..raw.len() as u32)
+            .filter(|k| crate::sensor::bayer(k % width, k / width) == colour)
+            .map(|k| f64::from(raw[k as usize]))
+            .collect();
+        v.iter().sum::<f64>() / v.len() as f64
+    }
+
     /// An exposure of `ms` ms at `gain`, in `bits`, binned `binning`.
     fn exposure(ms: u64, gain: f32, bits: u8, binning: u32) -> Exposure {
         Exposure {
@@ -766,6 +775,28 @@ mod tests {
                 "colour {colour}: {a} on the CPU, {b} on the GPU"
             );
         }
+        // Another size of sensor: its buffer made again.
+        let smaller = FieldOfView {
+            optics: Optics {
+                sensor: fov.optics.sensor.binned(2),
+                ..fov.optics
+            },
+            ..fov
+        };
+        let binned = Shot {
+            exposure: exposure(5, 1.0, 12, 2),
+            ..shot
+        };
+        let half = tiles
+            .frame(&smaller, &motion, &light, 2.0, &binned)
+            .unwrap();
+        assert_eq!(half.len(), 80 * 60);
+        let (full, quarter) = (mean_of(&raw, 160, 1), mean_of(&half, 80, 1));
+        let black = f64::from(shot.model.black_level);
+        assert!(
+            ((quarter - black) / (full - black) - 4.0).abs() < 0.2,
+            "binned 2 × 2, four pixels' light: {full} then {quarter}"
+        );
         let bad = Shot {
             exposure: exposure(5, 1.0, 10, 1),
             ..shot

@@ -369,6 +369,29 @@ mod tests {
     }
 
     #[test]
+    fn dark_current_grows_with_the_exposure_and_the_binning() {
+        let m = SensorModel {
+            read_noise: 0.0,
+            dark_current: 50.0,
+            ..SensorModel::default()
+        };
+        let black = f64::from(m.black_level);
+        let k = f64::from(m.electrons_per_count);
+        for (secs, binning, electrons) in [(1u64, 1u32, 50.0), (4, 1, 200.0), (2, 2, 400.0)] {
+            let e = Exposure {
+                time: Duration::from_secs(secs),
+                binning,
+                ..exposure(0, 1.0, 12)
+            };
+            let (mean, _) = statistics(&m, &e, 0.0, 1);
+            assert!(
+                ((mean - black) * k - electrons).abs() < 0.03 * electrons,
+                "{secs} s binned {binning}: {mean} counts, {electrons} e⁻ expected"
+            );
+        }
+    }
+
+    #[test]
     fn a_frame_repeats_from_its_seed_and_differs_by_its_number() {
         let m = SensorModel::default();
         let field = vec![[200.0f32, 300.0, 150.0]; 64];
@@ -385,10 +408,13 @@ mod tests {
             expose(&field, 8, 8, &m, &e, 12, 4).unwrap(),
             "another seed"
         );
-        assert_ne!(
-            a,
-            expose(&field, 8, 8, &m, &e, 11, 4 + (1 << 40)).unwrap(),
-            "a frame number's high bits"
-        );
+        // Each of the high bits: 8 << 32 is one the salts' own bits share.
+        for high in [1u64 << 40, 8 << 32] {
+            assert_ne!(
+                a,
+                expose(&field, 8, 8, &m, &e, 11, 4 + high).unwrap(),
+                "a frame number's high bits, {high:#x}"
+            );
+        }
     }
 }

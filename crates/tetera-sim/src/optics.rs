@@ -22,6 +22,20 @@ pub struct Sensor {
     pub pixel: f64,
 }
 
+impl Sensor {
+    /// The sensor binned `b` × `b`: a pixel `b` times as wide, `b` times fewer each way, the
+    /// same field of view. Its field is still light a 2.4 µm pixel's worth; the sensor's
+    /// binning sums the `b`² pixels' charge (`sensor::Exposure::binning`).
+    pub fn binned(&self, b: u32) -> Sensor {
+        let b = b.max(1);
+        Sensor {
+            width: self.width / b,
+            height: self.height / b,
+            pixel: self.pixel * f64::from(b),
+        }
+    }
+}
+
 /// The MIChrome 20's sensor: 5472 × 3648 pixels of 2.4 µm.
 pub const MICHROME_20: Sensor = Sensor {
     width: 5472,
@@ -881,6 +895,61 @@ mod tests {
         assert_eq!(
             &shown[at..at + 3],
             &crate::he::srgb8(middle.map(|v| v / (1_000.0 * warmth[0])))
+        );
+    }
+
+    #[test]
+    fn a_binned_sensor_sees_the_same_field_in_bigger_pixels() {
+        let two = MICHROME_20.binned(2);
+        assert_eq!((two.width, two.height, two.pixel), (2_736, 1_824, 4.8));
+        let three = MICHROME_20.binned(3);
+        assert_eq!((three.width, three.height), (1_824, 1_216));
+        assert!(near(three.pixel, 7.2, 1e-12));
+        assert_eq!(MICHROME_20.binned(0), MICHROME_20);
+        let sample = HeSample::new(7, SectionConfig::default()).unwrap();
+        let light = Light::default();
+        let fine = small(20.0, 0.42, 0.0);
+        let coarse = Optics {
+            sensor: fine.sensor.binned(2),
+            ..fine
+        };
+        assert!(near(coarse.pixel(), 2.0 * fine.pixel(), 1e-12));
+        let at = |optics| FieldOfView {
+            centre: (1_000.0, 1_000.0),
+            optics,
+        };
+        let a = field(&sample, &at(fine), &light, 2.0).unwrap();
+        let b = field(&sample, &at(coarse), &light, 2.0).unwrap();
+        assert_eq!((b.width, b.height), (96, 64));
+        // A binned pixel's light is its four pixels' mean, as each is a 2.4 µm pixel's worth.
+        let mean =
+            |f: &Field| f.rgb.iter().map(|p| f64::from(p[1])).sum::<f64>() / f.rgb.len() as f64;
+        assert!(
+            near(mean(&a), mean(&b), 0.01 * mean(&a)),
+            "{} against {}",
+            mean(&a),
+            mean(&b)
+        );
+        let quad = |c: u32, r: u32| {
+            (0..4)
+                .map(|k| f64::from(a.rgb[((2 * r + k / 2) * 192 + 2 * c + k % 2) as usize][1]))
+                .sum::<f64>()
+                / 4.0
+        };
+        // Point-sampled at the binned pixel's middle, against its four pixels' mean: close on
+        // average, apart only at sharp edges.
+        let diffs: Vec<f64> = (0..64 * 96)
+            .map(|k| (quad(k % 96, k / 96) - f64::from(b.rgb[k as usize][1])).abs())
+            .collect();
+        let average = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let worst = diffs.iter().copied().fold(0.0, f64::max);
+        eprintln!(
+            "binned: {average:.2} apart on average, {worst:.1} at most, of {:.0}",
+            mean(&a)
+        );
+        assert!(
+            average < 0.01 * mean(&a) && worst < 0.1 * mean(&a),
+            "{average}, {worst}"
         );
     }
 

@@ -55,8 +55,6 @@ mod device {
                 || raw.len() != n
                 || !matches!(params.bits, 8 | 12)
                 || params.binning == 0
-                || width > i32::MAX as u32
-                || height > i32::MAX as u32
             {
                 return Err(Error::invalid_argument(format!(
                     "a {width} × {height} frame from {} values into {}, {} bits, binned {}",
@@ -67,7 +65,11 @@ mod device {
                 )));
             }
             let function = self.module(&SENSOR)?.function("sensor_expose")?;
-            let (w, h) = (width as i32, height as i32);
+            let size = |v: u32| {
+                i32::try_from(v)
+                    .map_err(|_| Error::invalid_argument(format!("a frame {v} pixels across")))
+            };
+            let (w, h) = (size(width)?, size(height)?);
             let (lo, hi) = (params.frame as u32, (params.frame >> 32) as u32);
             let [r, g, b] = params.quantum_efficiency;
             let bits = i32::from(params.bits);
@@ -160,6 +162,16 @@ mod tests {
             gpu.download(&raw).unwrap()
         };
         assert_eq!(counts, again, "the same bits again");
+        let later = SensorParams {
+            frame: 3 + (1 << 40),
+            ..params()
+        };
+        gpu.sensor_expose(&rgb, 8, 8, &later, &mut raw).unwrap();
+        assert_ne!(
+            gpu.download(&raw).unwrap(),
+            counts,
+            "a frame number's high bits"
+        );
         let mut short = gpu.zeros::<u16>(63).unwrap();
         assert!(
             gpu.sensor_expose(&rgb, 8, 8, &params(), &mut short)

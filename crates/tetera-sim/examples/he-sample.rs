@@ -7,6 +7,9 @@
 //! too, timed and compared with the CPU twin, and a grid of tiles is fetched through their
 //! cache (P1.11b).
 
+#[path = "common/png.rs"]
+mod png;
+
 use std::path::Path;
 use std::time::Instant;
 use tetera_core::{Error, Result};
@@ -185,66 +188,7 @@ fn png(path: &Path, r: &Rendered, gain: f32) -> Result<()> {
             .collect(),
         ..r.clone()
     };
-    let rgb = shown.srgb8();
-    let row = r.width as usize * 3;
-    let mut raw = Vec::with_capacity((row + 1) * r.height as usize);
-    for line in rgb.chunks(row) {
-        raw.push(0);
-        raw.extend_from_slice(line);
-    }
-    // zlib, in stored blocks: no compression, no dependency.
-    let mut z = vec![0x78, 0x01];
-    let blocks: Vec<&[u8]> = raw.chunks(65_535).collect();
-    for (k, block) in blocks.iter().enumerate() {
-        z.push(u8::from(k + 1 == blocks.len()));
-        let len = block.len() as u16;
-        z.extend_from_slice(&len.to_le_bytes());
-        z.extend_from_slice(&(!len).to_le_bytes());
-        z.extend_from_slice(block);
-    }
-    z.extend_from_slice(&adler32(&raw).to_be_bytes());
-    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
-    let mut header = Vec::new();
-    header.extend_from_slice(&r.width.to_be_bytes());
-    header.extend_from_slice(&r.height.to_be_bytes());
-    header.extend_from_slice(&[8, 2, 0, 0, 0]);
-    chunk(&mut png, b"IHDR", &header);
-    chunk(&mut png, b"IDAT", &z);
-    chunk(&mut png, b"IEND", &[]);
-    std::fs::write(path, png).map_err(|e| Error::internal(format!("{}: {e}", path.display())))
-}
-
-fn chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
-    png.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    let start = png.len();
-    png.extend_from_slice(kind);
-    png.extend_from_slice(data);
-    let crc = crc32(&png[start..]);
-    png.extend_from_slice(&crc.to_be_bytes());
-}
-
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut crc = !0u32;
-    for &b in bytes {
-        crc ^= u32::from(b);
-        for _ in 0..8 {
-            crc = if crc & 1 == 1 {
-                (crc >> 1) ^ 0xedb8_8320
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    !crc
-}
-
-fn adler32(bytes: &[u8]) -> u32 {
-    let (mut a, mut b) = (1u32, 0u32);
-    for &x in bytes {
-        a = (a + u32::from(x)) % 65_521;
-        b = (b + a) % 65_521;
-    }
-    (b << 16) | a
+    png::write(path, r.width, r.height, &shown.srgb8())
 }
 
 /// `region` on the GPU, if there is one: its time, how far it is from the CPU's, and its PNG.
