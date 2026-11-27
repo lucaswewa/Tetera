@@ -7,6 +7,7 @@
 //! frame repeats exactly from its seed on the same backend.
 
 use crate::noise::{Seed, hash, unit};
+use rayon::prelude::*;
 use std::time::Duration;
 use tetera_core::{Error, Result};
 
@@ -179,6 +180,7 @@ pub fn expose(
     }
     let seed = Seed::new(seed);
     Ok((0..rgb.len())
+        .into_par_iter()
         .map(|k| {
             let (col, row) = ((k % width as usize) as u32, (k / width as usize) as u32);
             let area = (exposure.binning * exposure.binning) as f32;

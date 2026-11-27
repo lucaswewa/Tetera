@@ -233,7 +233,7 @@ impl HeTiles {
         let s = fov.optics.sensor;
         let groups = depth_groups(&fov.optics, focus, self.sample.section().thickness);
         let widest = groups.iter().map(|g| g.sigma).fold(0.0, f32::max);
-        let grid = Grid::new(fov, widest, motion.extent(s.height));
+        let grid = Grid::new(fov, widest, motion.travel(s.height));
         let (tile, columns, rows) = grid.tiles();
         let tiles = TileGrid {
             first: grid.first,
