@@ -153,7 +153,8 @@ pub mod camera {
         let meta = a.meta();
         assert_eq!(
             (meta.mode, meta.gain, meta.exposure, meta.binning),
-            (config.mode, config.gain, config.exposure, config.binning)
+            (config.mode, config.gain, config.exposure, config.binning),
+            "the configured metadata"
         );
         assert!(
             meta.exposure_end >= meta.exposure_start,
@@ -261,5 +262,203 @@ pub mod camera {
             "a trigger while free-running"
         );
         camera.stop().expect("the stream stops");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The suite's own tests: a camera flawed on purpose, in one way for each check, fails it.
+    use super::camera::*;
+    use crate::camera::{Camera, CameraCapabilities, CameraConfig, CameraEvent, FrameSink};
+    use crate::fake::FakeCamera;
+    use std::sync::Arc;
+    use std::sync::mpsc::{Receiver, channel};
+    use std::time::Duration;
+    use tetera_core::{Error, ErrorKind, Frame, Result, SystemClock};
+
+    /// A setting a flawed camera may ignore.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Setting {
+        Mode,
+        BitDepth,
+        Gain,
+        Exposure,
+    }
+
+    /// What is wrong with a flawed camera.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Flaw {
+        /// It has no modes.
+        NoModes,
+        /// It takes a configuration, and applies its default for one setting.
+        Ignores(Setting),
+        /// It refuses a configuration it can't take as a hardware fault.
+        RefusesAsAFault,
+        /// It hands frames on late, through a thread `stop` doesn't wait for.
+        HandsOnLate,
+        /// Stopping it when it isn't streaming is an error.
+        FailsToStopWhenStill,
+        /// Each software trigger gives two frames.
+        TwoFramesATrigger,
+    }
+
+    /// The fake camera, with a flaw.
+    struct Flawed {
+        camera: FakeCamera,
+        flaw: Flaw,
+    }
+
+    fn flawed(flaw: Flaw) -> Flawed {
+        Flawed {
+            camera: FakeCamera::new(Arc::new(SystemClock::new()), 200.0),
+            flaw,
+        }
+    }
+
+    impl Camera for Flawed {
+        fn capabilities(&self) -> CameraCapabilities {
+            let mut caps = self.camera.capabilities();
+            if self.flaw == Flaw::NoModes {
+                caps.modes.clear();
+            }
+            caps
+        }
+
+        fn config(&self) -> CameraConfig {
+            self.camera.config()
+        }
+
+        fn configure(&self, config: &CameraConfig) -> Result<()> {
+            let caps = self.camera.capabilities();
+            match self.flaw {
+                Flaw::Ignores(setting) => {
+                    caps.check(config)?;
+                    let default = caps.default_config();
+                    let mut applied = config.clone();
+                    match setting {
+                        Setting::Mode => applied.mode = default.mode,
+                        Setting::BitDepth => applied.bit_depth = default.bit_depth,
+                        Setting::Gain => applied.gain = default.gain,
+                        Setting::Exposure => applied.exposure = default.exposure,
+                    }
+                    self.camera.configure(&applied)
+                }
+                Flaw::RefusesAsAFault => self.camera.configure(config).map_err(|e| {
+                    if e.kind() == ErrorKind::InvalidArgument {
+                        Error::hardware(e.to_string())
+                    } else {
+                        e
+                    }
+                }),
+                _ => self.camera.configure(config),
+            }
+        }
+
+        fn start(&self, sink: Arc<dyn FrameSink>) -> Result<()> {
+            if self.flaw != Flaw::HandsOnLate {
+                return self.camera.start(sink);
+            }
+            let (tx, rx) = channel::<Frame>();
+            std::thread::spawn(move || {
+                for frame in rx {
+                    std::thread::sleep(Duration::from_millis(20));
+                    sink.deliver(frame);
+                }
+            });
+            self.camera.start(Arc::new(move |frame: Frame| {
+                let _ = tx.send(frame);
+            }))
+        }
+
+        fn stop(&self) -> Result<()> {
+            if self.flaw == Flaw::FailsToStopWhenStill && !self.is_streaming() {
+                return Err(Error::invalid_argument("the camera isn't streaming"));
+            }
+            self.camera.stop()
+        }
+
+        fn is_streaming(&self) -> bool {
+            self.camera.is_streaming()
+        }
+
+        fn snap(&self, timeout: Duration) -> Result<Frame> {
+            self.camera.snap(timeout)
+        }
+
+        fn trigger(&self) -> Result<()> {
+            if self.flaw == Flaw::TwoFramesATrigger {
+                self.camera.trigger()?;
+            }
+            self.camera.trigger()
+        }
+
+        fn subscribe(&self) -> Receiver<CameraEvent> {
+            self.camera.subscribe()
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "one frame for each trigger")]
+    fn the_suite_runs_every_check_to_the_last() {
+        all(&|| Box::new(flawed(Flaw::TwoFramesATrigger)));
+    }
+
+    #[test]
+    #[should_panic(expected = "a camera has a mode")]
+    fn a_camera_without_a_mode_fails() {
+        capabilities_are_sound(&flawed(Flaw::NoModes));
+    }
+
+    #[test]
+    #[should_panic(expected = "mode 1 at 8 bits reads back")]
+    fn a_camera_that_ignores_the_mode_fails_the_round_trip() {
+        configurations_round_trip(&flawed(Flaw::Ignores(Setting::Mode)));
+    }
+
+    #[test]
+    #[should_panic(expected = "mode 0 at 8 bits reads back")]
+    fn a_camera_that_ignores_the_bit_depth_fails_the_round_trip() {
+        configurations_round_trip(&flawed(Flaw::Ignores(Setting::BitDepth)));
+    }
+
+    #[test]
+    fn a_camera_that_ignores_a_setting_fails_the_snap() {
+        let fails = |setting| {
+            std::panic::catch_unwind(|| {
+                a_snap_is_the_configured_frame(&flawed(Flaw::Ignores(setting)));
+            })
+            .expect_err("a flawed snap fails")
+            .downcast::<String>()
+            .map(|message| *message)
+            .unwrap_or_default()
+        };
+        assert!(fails(Setting::Mode).contains("the configured layout"));
+        assert!(fails(Setting::BitDepth).contains("the configured layout"));
+        assert!(fails(Setting::Gain).contains("the configured metadata"));
+        assert!(fails(Setting::Exposure).contains("the configured metadata"));
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidArgument")]
+    fn a_camera_that_refuses_as_a_fault_fails() {
+        bad_configurations_are_refused(&flawed(Flaw::RefusesAsAFault));
+    }
+
+    #[test]
+    #[should_panic(expected = "a frame came after stop returned")]
+    fn a_camera_that_streams_on_after_stop_fails() {
+        a_stream_runs_in_order_and_stops_dead(&flawed(Flaw::HandsOnLate));
+    }
+
+    #[test]
+    #[should_panic(expected = "nothing to stop")]
+    fn a_camera_that_cant_stop_when_still_fails() {
+        stopping_a_camera_not_streaming_does_nothing(&flawed(Flaw::FailsToStopWhenStill));
+    }
+
+    #[test]
+    #[should_panic(expected = "one frame for each trigger")]
+    fn a_camera_with_two_frames_a_trigger_fails() {
+        a_software_trigger_gives_one_frame_each(&flawed(Flaw::TwoFramesATrigger));
     }
 }

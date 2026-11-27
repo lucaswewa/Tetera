@@ -91,7 +91,7 @@ impl FakeCamera {
                     name: "small".into(),
                     width: 160,
                     height: 120,
-                    bit_depths: vec![12],
+                    bit_depths: vec![8, 12],
                     max_fps: max_fps * 2.0,
                 },
             ],
@@ -401,7 +401,15 @@ mod tests {
             let at = y * f.layout().stride + x * 2;
             u16::from_le_bytes([f.data()[at], f.data()[at + 1]])
         };
-        assert_eq!((sample(&frame, 0, 0), sample(&frame, 3, 2)), (0, 80));
+        assert_eq!(
+            (
+                sample(&frame, 0, 0),
+                sample(&frame, 3, 2),
+                sample(&frame, 159, 119)
+            ),
+            (0, 80, 352),
+            "the first pixels, and the last of the last row"
+        );
         let next = camera.snap(Duration::from_secs(1)).unwrap();
         assert_eq!(
             (next.meta().seq, sample(&next, 0, 0), sample(&next, 159, 96)),
@@ -519,5 +527,34 @@ mod tests {
         let frame = frames.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(frame.meta().dropped_before > 0);
         camera.stop().unwrap();
+    }
+
+    #[test]
+    fn a_stream_keeps_to_its_rate() {
+        // At 200 frames a second, a 10 ms exposure sets the pace: the 20th frame is due
+        // 190 ms after the first, and never comes sooner.
+        let camera = fake();
+        let (sink, frames) = channel_sink();
+        let start = Instant::now();
+        camera.start(sink).unwrap();
+        for _ in 0..20 {
+            frames.recv_timeout(Duration::from_secs(1)).unwrap();
+        }
+        let elapsed = start.elapsed();
+        camera.stop().unwrap();
+        assert!(
+            elapsed >= Duration::from_millis(190),
+            "too soon: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn dropping_the_camera_stops_its_stream() {
+        let camera = fake();
+        let events = camera.subscribe();
+        let (sink, _frames) = channel_sink();
+        camera.start(sink).unwrap();
+        drop(camera);
+        assert_eq!(events.try_iter().last(), Some(CameraEvent::Stopped));
     }
 }

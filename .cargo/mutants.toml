@@ -37,4 +37,12 @@ exclude_re = [
     "replace / with (\\*|%) in per_task",
     # The fused step's tables taken as stale every run: made again, the same preview, slower.
     "replace == with != in .*<impl Step for FusedStep>::run",
+    # The fake camera's schedule: `<` and `<=` differ only at the very instant a frame is due.
+    "replace < with <= in <impl Camera for FakeCamera>::start",
+    # The camera contract's too-long exposure, twice the longest: each mutant of its
+    # arithmetic is an exposure out of range too, refused the same.
+    "replace [/*] with [%*+] in camera::bad_configurations_are_refused",
+    # The contract's snap at 1 ms becomes one at 1 s: an exposure the camera takes too, and
+    # the snap's checks are the same.
+    "replace / with % in camera::a_snap_is_the_configured_frame",
 ]
