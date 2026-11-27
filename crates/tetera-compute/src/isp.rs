@@ -146,7 +146,8 @@ mod device {
     }
 }
 
-#[cfg(all(test, feature = "cuda"))]
+#[cfg(test)]
+#[cfg(feature = "cuda")]
 mod tests {
     use super::*;
     use crate::imaging::TABLE_SIZE;

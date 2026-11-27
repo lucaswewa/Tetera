@@ -13,7 +13,7 @@ Tetera's imaging algorithms, L1 (plan §6.6). Each has a CPU twin here, and, wit
 - **`jpeg`:** JPEG through libjpeg-turbo, RGB in 4:2:0 or grey. A `JpegEncoder` is kept for a stream of frames, MJPEG. Building libjpeg-turbo needs `cmake` and `nasm`; its licences are in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
 - **`correct`:** dark subtraction, clamped at zero, with a `DarkLibrary` that picks the master dark matching a frame's mode, binning, gain and exposure; and the `FlatField`, a gain per site in 1/4096ths, each channel evened out, near-zero sites left alone.
 - **`colour`:** white balance and a colour matrix as one fixed-point matrix, then levels and the transfer curve to 8 bits.
-- **`isp`:** the whole chain, `IspParams` to `Isp`, from a raw frame to a preview: crop or bin → dark → flat → demosaic → resize → colour → 8 bits. It resizes before colour, in linear light. On either backend, and the two agree exactly.
+- **`isp`:** the whole chain, `IspParams` to `Isp`, from a raw frame to a preview: crop or bin → dark → flat → demosaic → resize → colour → 8 bits. It resizes before colour, in linear light. On either backend, and the two agree exactly. `Isp::run_fused` runs it as one fused kernel on the GPU (P1.06b), which matches it exactly too; `compare_previews` measures two previews against the fused kernel's tolerance.
 - **`pattern::Sensor`:** a synthetic sensor with an offset, vignetting and unequal channels, for testing the ISP.
 
 Each operation runs on whichever backend a `Compute` chose. `_cpu` runs its twin, and `_device` leaves data on the GPU.
@@ -51,6 +51,6 @@ It writes the pattern and both results to `target/demosaic` as 16-bit PPM files,
 cargo run --release -p tetera-imaging --example isp --features cuda
 ```
 
-`isp` puts the test pattern through the synthetic sensor, then through the ISP with the sensor's own dark and flat field and white balance, from a full frame and from a 2 × 2 binned one, to 1920 × 1280. It times each stage on each backend, checks that the previews agree, and writes them to `target/isp`. On this PC, the binned chain takes 42 ms on the CPU and 3.1 ms with CUDA; the full frame, 112 ms and 9.7 ms, most of either in demosaicking.
+`isp` puts the test pattern through the synthetic sensor, then through the ISP with the sensor's own dark and flat field and white balance, from a full frame and from a 2 × 2 binned one, to 1920 × 1280. It times each stage on each backend, checks that the previews agree, and writes them to `target/isp`. On this PC, the binned chain takes 38 ms on the CPU and 2.4 ms with CUDA; the full frame, 107 ms and 9.6 ms, most of either in demosaicking. The fused kernel takes 5.3 ms from the full frame, inside the plan's 10 ms.
 
 The CUDA tests run with `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda`.

@@ -248,8 +248,8 @@ pub fn resize(
 #[cfg(feature = "cuda")]
 #[derive(Debug)]
 pub struct DeviceResize {
-    x: tetera_compute::imaging::DeviceAxis,
-    y: tetera_compute::imaging::DeviceAxis,
+    pub(crate) x: tetera_compute::imaging::DeviceAxis,
+    pub(crate) y: tetera_compute::imaging::DeviceAxis,
 }
 
 #[cfg(feature = "cuda")]

@@ -8,6 +8,11 @@
 //!
 //! [`IspParams`] holds the calibration inputs; [`Isp`] prepares them for one raw layout, once;
 //! `DeviceIsp`, with the `cuda` feature, holds the prepared tables on the GPU.
+//!
+//! **The fused kernel** (P1.06b, plan D7, ADR-0011) does the whole chain in one pass on the
+//! GPU: [`Isp::run_fused`], or `DeviceIsp::run_fused`. It computes the same integers in the same
+//! order, so it matches this chain exactly; [`compare_previews`] measures how closely two
+//! previews agree, against the spec's tolerance.
 
 use crate::bayer::{BinMode, bin_cpu};
 use crate::colour::{Colour, ColourCorrection, colour_cpu};
@@ -17,18 +22,9 @@ use crate::display::{Curve, Levels};
 use crate::image::{Image, Mosaic, MosaicLayout};
 use crate::resize::{Resize, resize_cpu};
 use tetera_compute::{Compute, CpuBackend};
-use tetera_core::{Error, Rect, Result};
+use tetera_core::{Error, Result};
 
-/// How the chain reduces a raw frame first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Reduce {
-    /// The whole frame.
-    Full,
-    /// A region of it, its pattern moved for an odd column or row.
-    Crop(Rect),
-    /// Binned by 2, 3 or 4, by the mean, keeping the Bayer layout.
-    Bin(u32),
-}
+pub use tetera_compute::imaging::Reduce;
 
 /// The ISP's inputs: what to reduce, the calibrations, and the output.
 #[derive(Debug, Clone, PartialEq)]
@@ -61,7 +57,7 @@ impl IspParams {
             flat: None,
             demosaic: Demosaic::MalvarHeCutler,
             colour: ColourCorrection::IDENTITY,
-            levels: [Levels {
+            levels: [crate::display::Levels {
                 black: 0,
                 white: max,
             }; 3],
@@ -72,25 +68,7 @@ impl IspParams {
 
     /// The layout the chain works at, after reducing a raw frame of `raw`.
     pub fn reduced(&self, raw: &MosaicLayout) -> Result<MosaicLayout> {
-        match self.reduce {
-            Reduce::Full => Ok(*raw),
-            Reduce::Crop(roi) => {
-                let whole = Rect::new(0, 0, raw.width, raw.height);
-                if roi.is_empty() || !whole.contains_rect(&roi) {
-                    return Err(Error::invalid_argument(format!(
-                        "{roi:?} isn't inside the {} × {} frame",
-                        raw.width, raw.height
-                    )));
-                }
-                Ok(MosaicLayout {
-                    width: roi.width,
-                    height: roi.height,
-                    pattern: raw.pattern.cropped(roi.x, roi.y),
-                    ..*raw
-                })
-            }
-            Reduce::Bin(factor) => raw.binned(factor, BinMode::Mean),
-        }
+        raw.reduced(self.reduce)
     }
 }
 
@@ -243,6 +221,70 @@ impl Isp {
     }
 }
 
+impl Isp {
+    /// The whole chain, fused into one pass on CUDA when `compute` chose it; on the CPU, the
+    /// unfused chain, which gives the same preview.
+    pub fn run_fused(&self, compute: &Compute, raw: &Mosaic) -> Result<Image<u8>> {
+        #[cfg(feature = "cuda")]
+        if let Some(gpu) = compute.cuda() {
+            self.check_raw(raw.layout())?;
+            let on_device = crate::DeviceMosaic::upload(gpu, raw)?;
+            let prepared = DeviceIsp::upload(gpu, self)?;
+            return prepared.run_fused(gpu, self, &on_device)?.download(gpu);
+        }
+        self.run_cpu(compute.cpu(), raw)
+    }
+}
+
+/// How closely two previews agree: the largest difference of any value, and the share of
+/// values within 1 level, and identical.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PreviewDifference {
+    /// The largest difference, in levels.
+    pub max: u8,
+    /// The share of values within 1 level of each other.
+    pub within_one: f64,
+    /// The share of values identical.
+    pub identical: f64,
+}
+
+impl PreviewDifference {
+    /// Whether it meets the fused kernel's tolerance (P1.06b): within 1 level for 99.9 % of
+    /// values, and within 2 for all.
+    pub fn meets_tolerance(&self) -> bool {
+        self.within_one >= 0.999 && self.max <= 2
+    }
+}
+
+/// How closely `a` and `b`, two previews of one shape, agree.
+pub fn compare_previews(a: &Image<u8>, b: &Image<u8>) -> Result<PreviewDifference> {
+    let same = (a.width(), a.height(), a.channels()) == (b.width(), b.height(), b.channels());
+    if !same || a.data().is_empty() {
+        return Err(Error::invalid_argument(format!(
+            "previews compare at one shape, not {} × {} × {} and {} × {} × {}",
+            a.width(),
+            a.height(),
+            a.channels(),
+            b.width(),
+            b.height(),
+            b.channels()
+        )));
+    }
+    let n = a.data().len() as f64;
+    let (mut max, mut within_one, mut identical) = (0u8, 0usize, 0usize);
+    for (&x, &y) in a.data().iter().zip(b.data()) {
+        let d = x.abs_diff(y);
+        max = max.max(d);
+        within_one += usize::from(d <= 1);
+        identical += usize::from(d == 0);
+    }
+    Ok(PreviewDifference {
+        max,
+        within_one: within_one as f64 / n,
+        identical: identical as f64 / n,
+    })
+}
+
 /// An [`Isp`]'s calibrations and tables on the device, uploaded once.
 #[cfg(feature = "cuda")]
 #[derive(Debug)]
@@ -273,6 +315,33 @@ impl DeviceIsp {
             resize: crate::resize::DeviceResize::upload(gpu, &isp.resize)?,
             colour: crate::colour::DeviceColour::upload(gpu, &isp.colour)?,
         })
+    }
+
+    /// The whole chain in one pass, the fused kernel, from `raw`, the whole raw frame, even
+    /// for a crop.
+    pub fn run_fused(
+        &self,
+        gpu: &tetera_compute::CudaBackend,
+        isp: &Isp,
+        raw: &crate::DeviceMosaic,
+    ) -> Result<crate::DeviceImage<u8>> {
+        isp.check_raw(raw.layout())?;
+        let inputs = tetera_compute::fused::FusedInputs {
+            raw: raw.buffer(),
+            layout: *raw.layout(),
+            reduce: isp.params.reduce,
+            dark: self.dark.as_ref(),
+            gains: self.gains.as_ref(),
+            demosaic: isp.params.demosaic,
+            x: &self.resize.x,
+            y: &self.resize.y,
+            matrix: &self.colour.matrix,
+            tables: &self.colour.tables,
+        };
+        let (width, height) = isp.params.output;
+        let mut out = crate::DeviceImage::zeros(gpu, width, height, 3)?;
+        gpu.fused_isp(&inputs, out.buffer_mut())?;
+        Ok(out)
     }
 
     /// The chain on the device. `input` is the raw frame, or, for a crop, the cropped frame.
@@ -326,6 +395,7 @@ mod tests {
     use super::*;
     use crate::correct::subtract_dark_cpu;
     use crate::pattern::{Sensor, test_pattern};
+    use tetera_core::Rect;
     use tetera_core::frame::format::BayerPattern;
 
     fn cpu() -> CpuBackend {
@@ -587,6 +657,62 @@ mod tests {
     }
 
     #[test]
+    fn previews_are_compared_by_their_largest_difference_and_the_share_within_one() {
+        let a = Image::new(2, 1, 3, vec![10u8, 20, 30, 40, 50, 60]).unwrap();
+        let same = compare_previews(&a, &a).unwrap();
+        assert_eq!(
+            same,
+            PreviewDifference {
+                max: 0,
+                within_one: 1.0,
+                identical: 1.0
+            }
+        );
+        assert!(same.meets_tolerance());
+        let b = Image::new(2, 1, 3, vec![11u8, 20, 30, 40, 52, 60]).unwrap();
+        let d = compare_previews(&a, &b).unwrap();
+        assert_eq!(d.max, 2);
+        assert!(
+            (d.within_one - 5.0 / 6.0).abs() < 1e-12 && (d.identical - 4.0 / 6.0).abs() < 1e-12,
+            "{d:?}"
+        );
+        assert!(!d.meets_tolerance(), "a sixth beyond 1 level");
+        let ok = PreviewDifference {
+            max: 2,
+            within_one: 0.999,
+            identical: 0.5,
+        };
+        assert!(ok.meets_tolerance());
+        assert!(!PreviewDifference { max: 3, ..ok }.meets_tolerance());
+        assert!(
+            !PreviewDifference {
+                within_one: 0.998_9,
+                ..ok
+            }
+            .meets_tolerance()
+        );
+        let c = Image::new(1, 2, 3, vec![0u8; 6]).unwrap();
+        let err = compare_previews(&a, &c).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "previews compare at one shape, not 2 × 1 × 3 and 1 × 2 × 3"
+        );
+        let empty = Image::new(0, 0, 3, Vec::<u8>::new()).unwrap();
+        assert!(compare_previews(&empty, &empty).is_err());
+    }
+
+    #[test]
+    fn on_the_cpu_the_fused_path_is_the_chain() {
+        let compute = Compute::cpu_only().unwrap();
+        let raw = sensor().expose(&test_pattern(24, 16, 12)).unwrap();
+        let isp = Isp::new(IspParams::preview(4_095, 12, 8), *raw.layout()).unwrap();
+        assert_eq!(
+            isp.run_fused(&compute, &raw).unwrap(),
+            isp.run_cpu(compute.cpu(), &raw).unwrap()
+        );
+    }
+
+    #[test]
     fn on_the_cpu_the_chosen_backend_does_the_work() {
         let compute = Compute::cpu_only().unwrap();
         let raw = sensor().expose(&test_pattern(24, 16, 12)).unwrap();
@@ -645,5 +771,148 @@ mod tests {
         let wrong =
             crate::DeviceMosaic::upload(&gpu, &raw.crop(Rect::new(0, 0, 8, 6)).unwrap()).unwrap();
         assert!(prepared.run(&gpu, &isp, &wrong).is_err());
+        assert!(
+            prepared.run_fused(&gpu, &isp, &wrong).is_err(),
+            "the fused kernel takes the whole frame"
+        );
+    }
+
+    /// A random ISP and frame: sizes, a reduction, calibrations or not, a method, white balance
+    /// and a matrix, and a preview larger or smaller, from `seed`.
+    #[cfg(feature = "cuda")]
+    fn random_case(seed: u64) -> (Isp, Mosaic) {
+        let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        let mut next = |n: u32| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % u64::from(n)) as u32
+        };
+        let (w, h) = (24 + next(120), 24 + next(90));
+        let pattern = [
+            BayerPattern::Rggb,
+            BayerPattern::Grbg,
+            BayerPattern::Gbrg,
+            BayerPattern::Bggr,
+        ][next(4) as usize];
+        let s = Sensor {
+            pattern,
+            offset: 50 + next(200) as u16,
+            vignetting: f64::from(next(40)) / 100.0,
+            ..sensor()
+        };
+        let raw = s.expose(&test_pattern(w, h, 12)).unwrap();
+        let reduce = match next(3) {
+            0 => Reduce::Full,
+            1 => {
+                let (cx, cy) = (next(w / 3), next(h / 3));
+                Reduce::Crop(Rect::new(
+                    cx,
+                    cy,
+                    (w / 2 + next(w / 3)).min(w - cx),
+                    (h / 2 + next(h / 3)).min(h - cy),
+                ))
+            }
+            _ => Reduce::Bin(2 + next(3)),
+        };
+        let reduced = raw.layout().reduced(reduce).unwrap();
+        let at_reduced = Sensor {
+            pattern: reduced.pattern,
+            ..s
+        };
+        let (dark, flat) = calibrations(&at_reduced, reduced.width, reduced.height);
+        let wb = [
+            0.5 + f64::from(next(150)) / 100.0,
+            1.0,
+            0.5 + f64::from(next(150)) / 100.0,
+        ];
+        let off = |n: u32| (f64::from(n) - 25.0) / 100.0;
+        let colour = ColourCorrection {
+            white_balance: wb,
+            matrix: [
+                [1.2, off(next(50)), off(next(50))],
+                [off(next(50)), 1.3, off(next(50))],
+                [off(next(50)), off(next(50)), 1.1],
+            ],
+        };
+        let output = (
+            1 + next(reduced.width * 3 / 2),
+            1 + next(reduced.height * 3 / 2),
+        );
+        let params = IspParams {
+            reduce,
+            dark: (next(2) == 1).then_some(dark),
+            flat: (next(2) == 1).then_some(flat),
+            demosaic: if next(2) == 1 {
+                Demosaic::MalvarHeCutler
+            } else {
+                Demosaic::Bilinear
+            },
+            colour,
+            levels: [crate::display::Levels {
+                black: next(100) as u16,
+                white: 3_000 + next(1_000) as u16,
+            }; 3],
+            curve: Curve::Srgb,
+            output,
+        };
+        (Isp::new(params, *raw.layout()).unwrap(), raw)
+    }
+
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn the_fused_kernel_matches_the_chain_over_random_parameters() {
+        let _gpu = tetera_compute::cuda_or_skip!();
+        let compute = Compute::from_probe(&tetera_compute::SystemProbe).unwrap();
+        let cpu = CpuBackend::new(0).unwrap();
+        for seed in 0..60 {
+            let (isp, raw) = random_case(seed);
+            let fused = isp.run_fused(&compute, &raw).unwrap();
+            let chain = isp.run_cpu(&cpu, &raw).unwrap();
+            let d = compare_previews(&fused, &chain).unwrap();
+            assert!(
+                d.meets_tolerance(),
+                "seed {seed}, {:?}: {d:?}",
+                isp.params().reduce
+            );
+            assert_eq!(d.max, 0, "seed {seed}: the same integers, so identical");
+        }
+    }
+
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn the_fused_kernel_matches_the_chain_from_a_full_frame() {
+        let _gpu = tetera_compute::cuda_or_skip!();
+        let compute = Compute::from_probe(&tetera_compute::SystemProbe).unwrap();
+        let cpu = CpuBackend::new(0).unwrap();
+        let s = sensor();
+        let raw = s.expose(&test_pattern(5_472, 3_648, 12)).unwrap();
+        for reduce in [
+            Reduce::Full,
+            Reduce::Bin(2),
+            Reduce::Crop(Rect::new(1_001, 333, 2_049, 1_367)),
+        ] {
+            let reduced = raw.layout().reduced(reduce).unwrap();
+            let (dark, flat) = calibrations(
+                &Sensor {
+                    pattern: reduced.pattern,
+                    ..s
+                },
+                reduced.width,
+                reduced.height,
+            );
+            let params = IspParams {
+                reduce,
+                dark: Some(dark),
+                flat: Some(flat),
+                ..IspParams::preview(4_095, 1_920, 1_280)
+            };
+            let isp = Isp::new(params, *raw.layout()).unwrap();
+            assert_eq!(
+                isp.run_fused(&compute, &raw).unwrap(),
+                isp.run_cpu(&cpu, &raw).unwrap(),
+                "{reduce:?}"
+            );
+        }
     }
 }

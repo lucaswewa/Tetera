@@ -42,6 +42,6 @@ pub use display::{Curve, DisplayTransform, Levels};
 pub use image::{BayerPlanes, Image, Mosaic, MosaicLayout};
 #[cfg(feature = "cuda")]
 pub use image::{DeviceImage, DeviceMosaic};
-pub use isp::{Isp, IspParams, Reduce};
+pub use isp::{Isp, IspParams, PreviewDifference, Reduce, compare_previews};
 pub use jpeg::JpegEncoder;
 pub use resize::Resize;

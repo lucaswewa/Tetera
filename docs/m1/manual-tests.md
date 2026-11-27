@@ -108,3 +108,11 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-imaging --example isp -- --smoke` — expect `-` for every CUDA time and `smoke: ok`.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda` — expect every test to pass, with none saying `skipped`.
 - **Result:** see the [notes](notes/P1.06a-dark-flat-and-colour.md#manual-test).
+
+## P1.06b: The fused kernel
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3, `cmake` and `nasm` in WSL.
+- [ ] `cargo run --release -p tetera-imaging --example isp --features cuda` — expect, for `full` and `binned`, a `Fused` row with the fused kernel's time, 10 ms or less for `full`, and `Twins:      the previews identical, fused and unfused`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda fused` — expect the fused kernel to match the chain over 60 random cases and from full frames.
+- [ ] `NVCC=none TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda fused` — expect the same through NVRTC, which compiles `fused.cu` with its header inlined.
+- **Result:** see the [notes](notes/P1.06b-the-fused-kernel.md#manual-test).
