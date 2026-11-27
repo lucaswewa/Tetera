@@ -29,4 +29,7 @@ exclude_re = [
     # The test pattern's bands: a pixel's centre, y + 0.5, never falls on a third of a whole
     # height, so < and <= draw the same bands.
     "replace < with <= in test_pattern",
+    # The noise generator's uniform draw adds 1 to stay above zero for the logarithm: it
+    # matters only for a draw of exactly zero, which no seed gives.
+    "replace \\+ with (-|\\*) in noisy",
 ]

@@ -20,6 +20,10 @@
 //! - [`colour`]: white balance and a colour matrix, then levels and a curve, to 8 bits;
 //! - [`isp`]: the whole chain, from a raw frame to a preview, stage by stage.
 //!
+//! From P1.07a:
+//! - [`denoise`]: temporal averaging over a window of frames, reset when the stage moves, and
+//!   the bilateral filter.
+//!
 //! Each operation runs on whichever backend a [`Compute`](tetera_compute::Compute) chose;
 //! `_cpu` runs its twin, and `_device` leaves data on the GPU.
 
@@ -27,6 +31,7 @@ pub mod bayer;
 pub mod colour;
 pub mod correct;
 pub mod demosaic;
+pub mod denoise;
 pub mod display;
 pub mod image;
 pub mod isp;
@@ -38,6 +43,7 @@ pub use bayer::BinMode;
 pub use colour::{Colour, ColourCorrection};
 pub use correct::{DarkLibrary, FlatField, MasterDark};
 pub use demosaic::{Demosaic, Sample};
+pub use denoise::{Bilateral, TemporalMean};
 pub use display::{Curve, DisplayTransform, Levels};
 pub use image::{BayerPlanes, Image, Mosaic, MosaicLayout};
 #[cfg(feature = "cuda")]

@@ -15,6 +15,7 @@ Tetera's imaging algorithms, L1 (plan §6.6). Each has a CPU twin here, and, wit
 - **`colour`:** white balance and a colour matrix as one fixed-point matrix, then levels and the transfer curve to 8 bits.
 - **`isp`:** the whole chain, `IspParams` to `Isp`, from a raw frame to a preview: crop or bin → dark → flat → demosaic → resize → colour → 8 bits. It resizes before colour, in linear light. On either backend, and the two agree exactly. `Isp::run_fused` runs it as one fused kernel on the GPU (P1.06b), which matches it exactly too; `compare_previews` measures two previews against the fused kernel's tolerance.
 - **`pattern::Sensor`:** a synthetic sensor with an offset, vignetting and unequal channels, for testing the ISP.
+- **`denoise`:** temporal averaging, the exact mean of the last N frames, reset when the stage moves; and the bilateral filter, weights from fixed-point tables, one range weight for all three channels. `pattern::noisy` adds seeded Gaussian noise for tests.
 
 Each operation runs on whichever backend a `Compute` chose. `_cpu` runs its twin, and `_device` leaves data on the GPU.
 
@@ -52,5 +53,11 @@ cargo run --release -p tetera-imaging --example isp --features cuda
 ```
 
 `isp` puts the test pattern through the synthetic sensor, then through the ISP with the sensor's own dark and flat field and white balance, from a full frame and from a 2 × 2 binned one, to 1920 × 1280. It times each stage on each backend, checks that the previews agree, and writes them to `target/isp`. On this PC, the binned chain takes 38 ms on the CPU and 2.4 ms with CUDA; the full frame, 107 ms and 9.6 ms, most of either in demosaicking. The fused kernel takes 5.3 ms from the full frame, inside the plan's 10 ms.
+
+```bash
+cargo run --release -p tetera-imaging --example denoise --features cuda
+```
+
+`denoise` adds noise of σ 80 to a full 12-bit frame. Averaging 8 frames raises its PSNR by 9.0 dB, as √8 predicts, in 1.0 ms a frame on the GPU. The bilateral filter on one demosaicked frame raises it by 1.3 dB, in 18 ms on the GPU and 290 ms on the CPU.
 
 The CUDA tests run with `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda`.

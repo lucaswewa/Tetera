@@ -116,3 +116,14 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda fused` — expect the fused kernel to match the chain over 60 random cases and from full frames.
 - [ ] `NVCC=none TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda fused` — expect the same through NVRTC, which compiles `fused.cu` with its header inlined.
 - **Result:** see the [notes](notes/P1.06b-the-fused-kernel.md#manual-test).
+
+## P1.07a: Denoise
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3, `cmake` and `nasm` in WSL.
+- [ ] `cargo run --release -p tetera-imaging --example denoise --features cuda` — expect:
+  - the temporal mean of 8 raising the PSNR by about 9 dB;
+  - the bilateral filter raising it too;
+  - a time for each on the CPU and on CUDA, with no error, since each CUDA result is checked against the CPU's.
+- [ ] `cargo run -p tetera-imaging --example denoise -- --smoke` — expect `-` for CUDA and `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda denoise` — expect every test to pass.
+- **Result:** see the [notes](notes/P1.07a-denoise.md#manual-test).
