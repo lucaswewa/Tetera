@@ -3,7 +3,7 @@
 
 use crate::node::{Descriptor, Node, parameters};
 use crate::port::{PortSpec, PortType, SampleType, Value};
-use crate::stock::{ANY16, given, invalid, mosaic, node, raw, step};
+use crate::stock::{ANY16, given, invalid, local, mosaic, node, raw, step};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -45,7 +45,7 @@ fn temporal_mean() -> Arc<dyn Node> {
         let mut host = TemporalMean::new(p.window)?;
         #[cfg(feature = "cuda")]
         let mut device = DeviceTemporalMean::new(p.window)?;
-        step(move |ctx, inputs| {
+        local(0, move |ctx, inputs| {
             #[cfg(feature = "cuda")]
             if let Value::DeviceRaw(m) = inputs[0] {
                 let mean = device.push(gpu(ctx)?, m, false)?;
@@ -81,7 +81,7 @@ fn bilateral() -> Arc<dyn Node> {
         let f = Bilateral::new(p.sigma_spatial, p.sigma_range)?;
         #[cfg(feature = "cuda")]
         let mut tables: Option<DeviceBilateral> = None;
-        step(move |ctx, inputs| {
+        local(f.radius(), move |ctx, inputs| {
             #[cfg(feature = "cuda")]
             if let Value::DeviceU16(i) = inputs[0] {
                 let gpu = gpu(ctx)?;

@@ -1,0 +1,25 @@
+{
+  "name": "denoise",
+  "summary": "An RGB image's noise smoothed by the bilateral filter, then shown in 8 bits through sRGB's curve.",
+  "inputs": {
+    "image": { "kind": "image", "channels": 3, "sample": "u16" }
+  },
+  "nodes": [
+    {
+      "id": "smooth",
+      "node": "tetera.bilateral",
+      "params": { "sigma_spatial": 1.5, "sigma_range": 160 },
+      "inputs": { "image": "image" }
+    },
+    {
+      "id": "show",
+      "node": "tetera.display",
+      "params": { "levels": [{ "black": 0, "white": 4095 }], "curve": "srgb" },
+      "inputs": { "image": "smooth.image" }
+    }
+  ],
+  "outputs": {
+    "smooth": "smooth.image",
+    "show": "show.image"
+  }
+}
