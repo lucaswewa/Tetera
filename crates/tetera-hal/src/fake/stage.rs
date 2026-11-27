@@ -1,6 +1,6 @@
 //! The fake stage (P1.09b): three axes that move at once or in time, on a straight line at
 //! each axis's speed, that jog, home, and fail when asked. It stands in for a stage in tests
-//! and examples; the virtual stage (P1.10) adds acceleration and grblHAL's ways.
+//! and examples; the virtual stage (P1.10b) adds acceleration and grblHAL's ways.
 
 use super::lock;
 use crate::camera::Span;

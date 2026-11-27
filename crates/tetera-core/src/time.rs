@@ -3,7 +3,7 @@
 //! A [`Timestamp`] counts nanoseconds since its clock started. A clock maps its start to a
 //! [`UtcTime`] once; [`Clock::drift`] then says how far the wall clock has moved from that
 //! mapping, as WSL2's can after the host sleeps. Beyond [`DRIFT_LIMIT`], the drift is worth
-//! a warning. P1.10's simulated clock implements [`Clock`] too.
+//! a warning. P1.10a's simulated clock implements [`Clock`] too.
 
 use crate::error::{Error, Result};
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};

@@ -10,7 +10,7 @@ Tetera's hardware abstraction layer, L2 (plan §6.8, [ADR-0013](../../docs/adr/0
 - **`contract::camera::all`:** the checks every camera must pass. The fake passes them now; the virtual camera (P1.12) and the real one (M5) will run them too.
 - **`Stage`:** its capabilities (each axis's travel and fastest speed, its resolution, where it homes), readings of where it is and what it is doing, timestamped; moves to and by, jogs, stop, homing, and its state changes as events. Moves, jogs and homing start and return, and `wait` waits until the stage is still.
 - **`FakeStage`:** three axes that move at once or in time, on a straight line at each axis's speed, with faults on demand: a refused move, a stall into alarm, an alarm, a disconnection.
-- **`contract::stage::all`:** the checks every stage must pass. The fake passes them at either pace; the virtual stage (P1.10) and the grblHAL driver (M5) will run them too.
+- **`contract::stage::all`:** the checks every stage must pass. The fake passes them at either pace; the virtual stage (P1.10b) and the grblHAL driver (M5) will run them too.
 - **Each contract suite has tests of its own:** a device flawed on purpose, in one way for each check, fails that check.
 - **`ObjectiveCatalogue`:** the objectives, from `configs/objectives.toml`, each checked; `ManualObjectiveMount`, where the user says which is fitted.
 - **`Illumination`:** a light's channels, each with its intensity and colour temperature checked; `ManualIllumination` records what the user says of a light set by hand.

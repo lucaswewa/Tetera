@@ -9,7 +9,7 @@
 - **Lengths come in several units:** the stage moves in micrometres, the sensor counts pixels of 2.4 µm, objectives are specified in millimetres and wavelengths in nanometres. A bare `f64` says none of that, and a pixel coordinate passed as a stage coordinate is off by a factor of 20 or more without an error.
 - **The plan fixes the API's units** (D18): µm as `f64` and ms as `f64` everywhere.
 - **Every frame and stage report needs a timestamp** on one clock, so a frame's position can be interpolated at its exposure's midpoint (plan §6.5). The host's wall clock can jump; under WSL2 it can drift after the host sleeps (plan §6.1).
-- **Simulated devices run on a clock of their own** (P1.10), which must stand in wherever the real one does.
+- **Simulated devices run on a clock of their own** (P1.10a), which must stand in wherever the real one does.
 - **Records and datasets need IDs** that are unique, and better still sort by creation.
 
 ## Decision
@@ -31,7 +31,7 @@
 
 - **Gains:** a pixel can't be used as a micrometre, nor a map applied the wrong way; tests can run time exactly with `ManualClock`; drift after a sleep is noticed, not silently baked into timestamps.
 - **Costs:** generic points need hand-written schemas; `UtcTime`'s range stops in 2261.
-- **To watch:** whether the simulated clock (P1.10) needs more of `Clock` than `now`, `origin` and `wall_now`.
+- **To watch:** whether the simulated clock (P1.10a) needs more of `Clock` than `now`, `origin` and `wall_now`.
 
 ## Alternatives considered
 

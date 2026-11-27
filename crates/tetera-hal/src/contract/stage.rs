@@ -1,5 +1,5 @@
 //! The stage's contract (ADR-0013): what any stage must do, as checks that panic with what went
-//! wrong. Each stage's tests run [`all`]: the fake now, the virtual stage (P1.10) and the
+//! wrong. Each stage's tests run [`all`]: the fake now, the virtual stage (P1.10b) and the
 //! grblHAL driver (M5) later. The checks move each axis a little from where it is.
 
 use crate::stage::{Axis, Stage, StageCapabilities, StageEvent, StageReading, StageState};
