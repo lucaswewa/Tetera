@@ -68,7 +68,7 @@ OScope is the owner's previous build of the same instrument software. It ran thr
 
 | OScope's lesson | Source | What Tetera does |
 |---|---|---|
-| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 32 phases each. Extensions get their own two milestones |
+| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 33 phases each. Extensions get their own two milestones |
 | Line budgets (300/600/900) never fit. Estimates in parts, committed before the code, did fit: median 1.04 in M1 | M1 retrospective | **No budgets.** A five-part estimate, committed before the code, with a cap that triggers a question to the owner ([§7](#7-how-phases-work)) |
 | The simulator on the CPU was the live view's bottleneck: about 160 ms a frame, 2 s while jogging. It moved to the GPU late | ADR-0062, performance notes | **The simulator is GPU-first from its first phase**, with the CPU path as reference and fallback |
 | Full replays took about an hour per phase. Change-reach gates cut that | ADR-0038, ADR-0061 | **Tiered gates from day one:** quick, phase, checkpoint, milestone ([§8](#8-local-ci-gates)). Each phase runs only what its change reaches |
@@ -225,7 +225,7 @@ A crate depends only on crates in lower layers, plus the few edges within a laye
 | | `tetera-log` | The `tracing` set-up: the ring's layer, rolling JSON files, journald. Added by M1's specs: `tetera-core` does no I/O | P1.02 |
 | | `tetera-shm` | Named shared memory and the frame-ring layout, for Python workers *(unsafe)* | P2.04 |
 | L1 Algorithms | `tetera-imaging` | The stock algorithms, each with a CPU twin here and a CUDA kernel in `tetera-compute`: Bayer, demosaic, dark, flat, CCM, denoise, deconvolution, resize, encode, focus measures, registration | P1.05a |
-| L2 Devices | `tetera-hal` | Device traits (`Camera`, `Stage`, `ObjectiveMount`, `Illumination`), capabilities and fakes | P1.09 |
+| L2 Devices | `tetera-hal` | Device traits (`Camera`, `Stage`, `ObjectiveMount`, `Illumination`), capabilities and fakes | P1.09a |
 | | `tetera-sim` | The simulated world: the H&E sample, optics, illumination, the virtual camera and the virtual stage | P1.10 |
 | | `tetera-grbl` | The grblHAL driver and its protocol fake | P5.02 |
 | | `tetera-tucsen` | The TUCam SDK binding and the camera driver *(unsafe)* | P5.03 |
@@ -600,7 +600,8 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 
 | ID | Phase | Scope | Try it | ADRs |
 |---|---|---|---|---|
-| P1.09 | The HAL | `Camera`, `Stage`, `ObjectiveMount`, `Illumination`, capabilities, fakes; the objective catalogue | `ex-hal-fakes` | 0013 |
+| P1.09a | The camera | `Camera`, its capabilities and configuration, the fake camera, the camera's contract suite | `ex-hal-fakes`: the fake camera | 0013 |
+| P1.09b | The stage, the objectives and the light | `Stage`, `ObjectiveMount`, `Illumination`, the fake stage, the stage's contract suite; the objective catalogue | `ex-hal-fakes`: the fake stage too | — |
 | P1.10 | The clock and the virtual stage | The simulated clock (real, stepped, faster); `VirtualStage` with grblHAL-like motion, states, limits, homing, faults | `ex-virtual-stage`: a move's timeline | 0014 |
 | P1.11 | The H&E sample on the GPU *(spec-first)* | Procedural, 3D, deterministic H&E; tiles on demand, levels of detail, the cache; CPU twin | `ex-he-sample`: renders a region at several magnifications | 0015 |
 | P1.12 | Optics, light and the virtual camera | The objective's blur and defocus, vignetting, motion blur, mounting angle; simulated illumination; `VirtualCamera` with MIChrome 20's modes, Bayer and noise. **Checkpoint A:** the virtual instrument renders H&E live, on the GPU | `ex-virtual-camera`: frames while the stage moves | 0016 |
@@ -694,7 +695,7 @@ Each driver phase is *Done* only after the owner has run its manual test on the 
 | P5.06 | Performance | The raw path at the camera's rate to scratch; preview latency and rate; GPU tuning; memory; several clients; H.264 only if needed | — |
 | P5.07 | Packaging and release 1.0 | A `.deb` and the systemd unit for WSL; a Windows bootstrap (`.wslconfig`, the task, usbipd); a 24-hour soak; the user's guide; the release; the retrospective | 0042 |
 
-**In all:** 69 phases, plus the spike: M1 32, M2 8, M3 10, M4 12, M5 7.
+**In all:** 70 phases, plus the spike: M1 33, M2 8, M3 10, M4 12, M5 7.
 
 **Each phase's status** is in [`m1/notes/README.md`](m1/notes/README.md): *Not started*, *In review* or *Done*.
 
@@ -718,7 +719,7 @@ Numbered across the project. Each is written in the phase named.
 | 0010 | Building and loading CUDA kernels under WSL2 | P1.04b |
 | 0011 | Fused kernels | P1.06b |
 | 0012 | The pipeline model | P1.08a |
-| 0013 | The hardware abstraction layer | P1.09 |
+| 0013 | The hardware abstraction layer | P1.09a |
 | 0014 | The simulated clock | P1.10 |
 | 0015 | Simulated samples on the GPU | P1.11 |
 | 0016 | The virtual camera's model | P1.12 |
@@ -925,7 +926,7 @@ A first draft. **From P1.01, [`setup/toolchain.md`](setup/toolchain.md) is the g
 | R5 | **CUDA under WSL2 has limits** that native Linux doesn't. NVIDIA's WSL guide lists them | A feature Tetera plans to use may not work, such as pinned memory at size, or IPC to Python workers | P1.04 checks each feature Tetera uses. Python workers get frames through host shared memory, not CUDA IPC |
 | R6 | **Disk:** OScope's phases built 60–70 GB each. WSL's virtual disk grows and doesn't shrink by itself | Full disks break WSL | `doctor` checks before G2 and G3; `sparseVhd`; the distro on D: (§12.1); cleaning between milestones |
 | R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
-| R8 | **Scope:** 69 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
+| R8 | **Scope:** 70 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
 | R9 | **The extension ABI** must stay stable across SDK versions | Old extensions break, or crash the server | A versioned C ABI checked at install; panics caught; tests against the previous SDK version; Python in separate processes |
 | R10 | **Extensions as the only home** of stitching, deep zoom, depth from focus and volumes | The SDK must be rich enough for heavy, GPU-bound nodes | P2.03 gives Rust extensions the GPU; P3.01 is a small extension that proves the path before P3.02 |
 | R11 | **The host's sleep, and WSL's clock drift** | Wrong wall-clock times in metadata | A monotonic clock; UTC mapped at start-up and re-checked; a status warning on drift |
@@ -1135,3 +1136,5 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-27 | **P1.08d measured 1,054 lines against its second estimate of 900 (×1.17):** code 394, tests 550. Every stock node is in the registry. Live runs keep one frame waiting at most, the latest; the live chain runs live at 14.5 fps on CUDA, every frame ([notes](m1/notes/P1.08d-denoise-and-deconvolution-nodes-and-live-runs.md#size)) |
 | 2026-11-27 | **P1.08e's second estimate,** before its code: code 340 (batch runs 40; each step's reach 60; the halo 40; tiles cut and stitched 120; the tiled run 80) · tests 340 · examples 80 · docs-as-code 15 · glue 5 = **780**, 1,014 at ×1.3 |
 | 2026-11-27 | **P1.08e measured 861 lines against its second estimate of 780 (×1.10):** code 326, tests 379. Tiled runs give exactly the whole frame's outputs. P1.08's five phases came to 7,236 lines, against 5,070 at its second estimate and 1,880 at its first: the model's validation and the GPU's residency were most of the difference ([notes](m1/notes/P1.08e-batch-runs-and-tiling.md#size)) |
+| 2026-11-27 | **P1.09's second estimate,** before its code, counting tests at the code's size: about 2,190 (code 1,120 · tests 900 · examples 100 · docs-as-code 40 · glue 30), 2,850 at ×1.3. Over 2,000: **split by the agent** under the owner's standing approval into P1.09a (the camera, its fake and contract suite, ADR-0013) and P1.09b (the stage, the objectives and the light, the fake stage and its suite). P1.10 now depends on P1.09b. 70 phases, M1 33 |
+| 2026-11-27 | **P1.09a's second estimate:** code 550 (events and errors 100; the `Camera` trait, capabilities and configuration 250; the fake camera 200) · tests 500 · examples 60 · docs-as-code 20 · glue 20 = **1,150**, 1,495 at ×1.3 |

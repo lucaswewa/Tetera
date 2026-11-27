@@ -21,8 +21,9 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.08b | The raw path's nodes | Done | [P1.08b](P1.08b-the-raw-paths-nodes.md) |
 | P1.08c | GPU residency and fusion | Done | [P1.08c](P1.08c-gpu-residency-and-fusion.md) |
 | P1.08d | Denoise and deconvolution nodes, and live runs | Done | [P1.08d](P1.08d-denoise-and-deconvolution-nodes-and-live-runs.md) |
-| P1.08e | Batch runs and tiling | In review | [P1.08e](P1.08e-batch-runs-and-tiling.md) |
-| P1.09 | The HAL | Not started | — |
+| P1.08e | Batch runs and tiling | Done | [P1.08e](P1.08e-batch-runs-and-tiling.md) |
+| P1.09a | The camera | In progress | [P1.09a](P1.09a-the-camera.md) |
+| P1.09b | The stage, the objectives and the light | Not started | — |
 | P1.10 | The simulated clock and the virtual stage | Not started | — |
 | P1.11 | The H&E sample on the GPU | Not started | — |
 | P1.12 | Optics, light and the virtual camera | Not started | — |

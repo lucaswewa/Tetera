@@ -55,8 +55,9 @@ Each phase has:
 | [P1.08c](#p108c-gpu-residency-and-fusion) | GPU residency and fusion | P1.08b | 1,440 | — | G1, G1c |
 | [P1.08d](#p108d-denoise-and-deconvolution-nodes-and-live-runs) | Denoise and deconvolution nodes, and live runs | P1.08c | 900 | — | G1, G1c |
 | [P1.08e](#p108e-batch-runs-and-tiling) | Batch runs and tiling | P1.08d | 780 | — | G1, G1c |
-| [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
-| [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09 | 1,350 | — | G1 |
+| [P1.09a](#p109a-the-camera) | The camera | P1.03 | 1,150 | — | G1 |
+| [P1.09b](#p109b-the-stage-the-objectives-and-the-light) | The stage, the objectives and the light | P1.09a | 1,170 | — | G1 |
+| [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09b | 1,350 | — | G1 |
 | [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
 | [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10, P1.11 | 1,920 | — | G1, G1c, G2 |
 | [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12 | 1,980 | — | G1 |
@@ -71,7 +72,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 32 phases since P1.04 to P1.08 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 33 phases since P1.04 to P1.09 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -742,7 +743,7 @@ Each phase has:
 
 ---
 
-## P1.09: The HAL
+## P1.09a: The camera
 
 | | |
 |---|---|
@@ -750,28 +751,58 @@ Each phase has:
 | Depends on | P1.03 |
 | ADRs | 0013 the hardware abstraction layer |
 | Gates | G1 |
-| First estimate | code 900 · tests 500 · examples 80 · docs-as-code 60 = **1,540** |
+| Second estimate | code 550 (events and errors 100; the `Camera` trait, its capabilities and configuration 250; the fake camera 200) · tests 500 (the camera's contract suite 200; unit tests 300) · examples 60 · docs-as-code 20 · glue 20 = **1,150** (1,495 at ×1.3). The agent split P1.09 (second estimate about 2,190, 2,850 at ×1.3) on 2026-11-27, under the owner's standing approval, into P1.09a and P1.09b |
 
-**Goal.** One interface for each kind of device, which a real driver, a virtual device, a fake, or a remote bridge can each implement.
+**Goal.** One interface for cameras, which a real driver, a virtual camera, a fake, or a remote bridge can each implement.
 
 **Scope.**
 
 - **`Camera`:** capabilities (modes with size, rates and bit depths; binning; ROI; exposure and gain ranges; triggers); configure; start and stop streaming into a `FrameSink`; snap; errors as events.
+- **Ready for a bridge** (the owner's fallback, R1): no borrowed buffers cross the interface; frames come from a pool the driver owns; configurations serialise.
+- **Blocking methods** on `Send + Sync` traits, since drivers block; the API layer calls them off its async threads.
+- **The fake camera:** a test pattern at a set rate, with faults on demand.
+- **The camera's contract suite:** tests any `Camera` must pass, run against the fake now, and against the virtual and real cameras later.
+
+**Out of scope.** The stage, the objectives and the light (P1.09b); the simulator (P1.10–P1.12); drivers (M5).
+
+**Try it.** `hal-fakes`: drives the fake camera, and prints its frames and events.
+
+**Done when.**
+
+- The fake camera passes the contract suite, and a fake broken on purpose fails it.
+- ADR-0013 records the HAL.
+
+**Tests.** The contract suite; faults; configurations round-tripping. **Broken on purpose:** a fake camera that streams on after it is stopped, which the suite must catch.
+
+---
+
+## P1.09b: The stage, the objectives and the light
+
+| | |
+|---|---|
+| Crates | `tetera-hal` |
+| Depends on | P1.09a |
+| ADRs | — |
+| Gates | G1 |
+| Estimate | code 550 (the `Stage` trait and its capabilities 200; the fake stage 200; the objectives and their catalogue 90; illumination 60) · tests 500 · examples 80 · docs-as-code 20 · glue 20 = **1,170**, from P1.09's split; its own second estimate comes before its code |
+
+**Goal.** One interface for the stage, and the objectives and the light described.
+
+**Scope.**
+
 - **`Stage`:** capabilities (axes, travel, speeds, homing); move to and by; jog and stop jogging; stop; home; position with its timestamp; state changes.
 - **`ObjectiveMount`:** the catalogue from `configs/objectives.toml` (the four Mitutoyo objectives: 5× NA 0.14, 10× NA 0.28, 20× NA 0.42, 50× NA 0.55, with working distances); which one is fitted, set by the user.
 - **`Illumination`:** channels, on and off, intensity, colour temperature; a manual implementation.
-- **Ready for a bridge** (the owner's fallback, R1): no borrowed buffers cross an interface; frames come from a pool the driver owns; configurations serialise.
-- **Blocking methods** on `Send + Sync` traits, since drivers block; the API layer calls them off its async threads.
-- **Fakes:** a camera with a test pattern at a set rate, and a stage with instant or timed moves, each with faults on demand.
-- **Contract suites:** tests any `Camera` or `Stage` must pass, run against the fakes now, and against the virtual and real devices later.
+- **The fake stage:** instant or timed moves, with faults on demand.
+- **The stage's contract suite,** run against the fake now, and the virtual and real stages later.
 
 **Out of scope.** The simulator (P1.10–P1.12); drivers (M5).
 
-**Try it.** `hal-fakes`: drives the fake camera and stage and prints their events.
+**Try it.** `hal-fakes` drives the fake stage too, and prints its events.
 
-**Done when.** The fakes pass the contract suites, and a fake broken on purpose fails them.
+**Done when.** The fake stage passes the contract suite, and a fake broken on purpose fails it.
 
-**Tests.** The contract suites; faults; configurations round-tripping. **Broken on purpose:** a fake that reports a move finished before it is, which the stage suite must catch.
+**Tests.** The stage's contract suite; faults; the catalogue; configurations round-tripping. **Broken on purpose:** a fake that reports a move finished before it is, which the stage suite must catch.
 
 **Open questions.** Q24 (the objectives), Q25 (the light).
 
@@ -782,7 +813,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-sim` (new, L2) |
-| Depends on | P1.09 |
+| Depends on | P1.09b |
 | ADRs | 0014 the simulated clock |
 | Gates | G1 |
 | First estimate | code 800 · tests 450 · examples 80 · docs-as-code 20 = **1,350** |
