@@ -21,9 +21,9 @@ cargo run --release -p tetera-imaging --example demosaic
 
 | | CPU, 16 threads | CUDA kernel | PSNR |
 |---|---|---|---|
-| Superpixel | 5.7 ms | 0.20 ms | |
-| Bilinear | 47 ms | 0.56 ms | 31.0 dB |
-| Malvar-He-Cutler | 94 ms | 0.75 ms | 36.1 dB |
+| Superpixel | 5.0 ms | 0.20 ms | |
+| Bilinear | 44 ms | 0.55 ms | 31.0 dB |
+| Malvar-He-Cutler | 93 ms | 0.74 ms | 36.1 dB |
 
 It writes the pattern and both results to `target/demosaic` as 16-bit PPM files, each cropped to at most 960 × 640 from its centre. `-- --out DIR` writes them elsewhere, and `-- --smoke` takes a 640 × 480 frame, whole, once.
 
