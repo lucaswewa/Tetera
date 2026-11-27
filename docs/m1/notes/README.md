@@ -8,7 +8,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.01 | Workspace and gates | Done | [P1.01](P1.01-workspace-and-gates.md) |
 | P1.02 | Core types and logging | Done | [P1.02](P1.02-core-types-and-logging.md) |
 | P1.03 | The frame model | Done | [P1.03](P1.03-the-frame-model.md) |
-| P1.04a | Compute backends | In review | [P1.04a](P1.04a-compute-backends.md) |
+| P1.04a | Compute backends | Done | [P1.04a](P1.04a-compute-backends.md) |
 | P1.04b | Kernels and the twin harness | Not started | — |
 | P1.05 | Bayer, demosaic, resize and JPEG | Not started | — |
 | P1.06 | Dark, flat, colour, and the fused kernel | Not started | — |
