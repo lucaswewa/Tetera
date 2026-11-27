@@ -45,3 +45,16 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
   - `Once they come back, a frame is lent at once.`
 - [ ] Watch its memory with `/usr/bin/time -v cargo run -q -p tetera-core --example frame_pool` — expect a peak near 640 MB however many frames pass through: the pool doesn't grow.
 - **Result:** see the [notes](notes/P1.03-the-frame-model.md#manual-test).
+
+## P1.04a: Compute backends
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL ([toolchain.md](../setup/toolchain.md#the-cuda-toolkit-from-p104a)).
+- [ ] `cargo run -p tetera-compute --example compute_info --features cuda` — expect:
+  - `Backend: CUDA: CUDA on NVIDIA GeForce RTX 3070 Ti Laptop GPU, device 0`;
+  - compute capability 8.6, 8.0 GiB, and the driver running CUDA up to 13.5;
+  - `works` for pinned memory, cuFFT, NVRTC, nvJPEG and IPC memory handles.
+- [ ] `cargo run -p tetera-compute --example compute_info` — expect `Backend: CPU: this build has no `cuda` feature`, and each feature not tried.
+- [ ] `TETERA_FORCE_CPU=1 cargo run -p tetera-compute --example compute_info --features cuda` — expect `Backend: CPU: TETERA_FORCE_CPU is set`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-compute --features cuda -- --nocapture` — expect every test to pass, the feature table printed, and no test saying `skipped`.
+- [ ] `cargo xtask doctor` — expect `nvcc` and `nvidia-smi` to say `ok`.
+- **Result:** see the [notes](notes/P1.04a-compute-backends.md#manual-test).
