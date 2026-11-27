@@ -238,3 +238,11 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run --release -p tetera-sim --example he-sample -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-sim` — expect 53 tests to pass.
 - **Result:** see the [notes](notes/P1.11a-the-he-sample-on-the-cpu.md#manual-test).
+
+## P1.11b: The H&E sample on the GPU, and its tiles
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU.
+- [ ] `cargo run --release -p tetera-sim --features cuda --example he-sample` — expect each view on the GPU too, about 9 to 19 times as fast as on the CPU, within about 5e-4 OD of it, each written as `-gpu.png` beside the CPU's; then a field of 3 × 3 tiles: 9 made, then 9 found, then moved a column at a time, 3 made each time and, once the cache of 12 is full, 3 let go. Compare a `-gpu.png` with its CPU twin: the same image.
+- [ ] `cargo run --release -p tetera-sim --features cuda --example he-sample -- --smoke` — expect `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-sim --features cuda` — expect 63 tests to pass.
+- **Result:** see the [notes](notes/P1.11b-the-he-sample-on-the-gpu-and-its-tiles.md#manual-test).
