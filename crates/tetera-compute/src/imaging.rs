@@ -1,12 +1,11 @@
-//! Imaging kernels (P1.05a): the Bayer split, the superpixel and demosaicking on a CUDA
-//! backend. Their CPU twins, and the images both work on, are in `tetera-imaging`. The kernels
+//! Imaging kernels: the Bayer split, the superpixel and demosaicking (P1.05a); binning,
+//! resizing and the display transform (P1.05b), on a CUDA backend. Their CPU twins, and the images both work on, are in `tetera-imaging`. The kernels
 //! live here because launching one is unsafe, and this is the crate allowed it (plan §5.3).
 //!
 //! A mosaic is [`MosaicLayout::sites`] 16-bit values, row by row, with no padding. RGB is
 //! interleaved, three values a pixel.
 
 use tetera_core::frame::format::BayerPattern;
-#[cfg(feature = "cuda")]
 use tetera_core::{Error, Result};
 
 /// A demosaicking method.
@@ -61,6 +60,52 @@ impl MosaicLayout {
     }
 }
 
+/// How binning combines a block's sites of one colour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BinMode {
+    /// Their sum, which needs more significant bits.
+    Sum,
+    /// Their mean, rounded halves up, in the mosaic's own bits.
+    Mean,
+}
+
+impl MosaicLayout {
+    /// The layout after binning by `factor`, 1 to 4, keeping the Bayer pattern: each 2 × 2
+    /// tile of the result stands for `factor × factor` tiles, and the tiles left over at the
+    /// right and the bottom are left out. A sum adds the bits it needs, up to 16.
+    pub fn binned(&self, factor: u32, mode: BinMode) -> Result<Self> {
+        if !(1..=4).contains(&factor) {
+            return Err(Error::invalid_argument(format!(
+                "binning takes a factor of 1 to 4, not {factor}"
+            )));
+        }
+        let extra = match mode {
+            BinMode::Mean => 0,
+            // The bits that factor² more values need: ⌈log2(factor²)⌉.
+            BinMode::Sum => 32 - (factor * factor - 1).leading_zeros() as u8,
+        };
+        let bits = self.significant_bits + extra;
+        if bits > 16 {
+            return Err(Error::invalid_argument(format!(
+                "sums of {factor} × {factor} sites of {} bits need {bits}: bin by the mean",
+                self.significant_bits
+            )));
+        }
+        Ok(Self {
+            width: 2 * (self.width / 2 / factor),
+            height: 2 * (self.height / 2 / factor),
+            pattern: self.pattern,
+            significant_bits: bits,
+        })
+    }
+}
+
+/// A resize weight's unit: an axis's weights for one output sum to this.
+pub const WEIGHT_ONE: u16 = 16_384;
+
+/// Entries in one channel's display table: one for every 16-bit value.
+pub const TABLE_SIZE: usize = 65_536;
+
 /// A pattern's first site, as its column and row in an RGGB tile: how the kernels take it.
 pub fn pattern_offset(pattern: BayerPattern) -> (i32, i32) {
     match pattern {
@@ -72,20 +117,25 @@ pub fn pattern_offset(pattern: BayerPattern) -> (i32, i32) {
 }
 
 #[cfg(feature = "cuda")]
-pub use device::{DemosaicOutput, TILE};
+pub use device::{DemosaicOutput, DeviceAxis, DeviceElement, TILE};
 
 #[cfg(feature = "cuda")]
 mod device {
     use super::*;
-    use crate::kernels::{BAYER, DEMOSAIC};
+    use crate::kernels::{BAYER, DEMOSAIC, DISPLAY, RESIZE};
     use crate::{CudaBackend, DeviceBuffer};
     use cudarc::driver::{DeviceRepr, LaunchConfig, PushKernelArg, ValidAsZeroBits};
 
     /// Threads along each side of a block, for two-dimensional kernels.
     pub const TILE: u32 = 16;
 
+    /// What a device buffer of an image may hold.
+    pub trait DeviceElement: DeviceRepr + ValidAsZeroBits + Copy + Unpin {}
+
+    impl<T: DeviceRepr + ValidAsZeroBits + Copy + Unpin> DeviceElement for T {}
+
     /// What a demosaic kernel writes: 16-bit samples, rounded and clamped, or exact floats.
-    pub trait DemosaicOutput: DeviceRepr + ValidAsZeroBits + Copy + Unpin {
+    pub trait DemosaicOutput: DeviceElement {
         /// The kernels' suffix for it.
         const SUFFIX: &'static str;
     }
@@ -246,6 +296,239 @@ mod device {
             Ok(())
         }
     }
+
+    fn int(value: usize, what: &str) -> Result<i32> {
+        i32::try_from(value).map_err(|_| {
+            Error::invalid_argument(format!("{what} of {value} is too large for one launch"))
+        })
+    }
+
+    /// One axis of a resize, on the device: for each of `output` columns (or rows), the first
+    /// of `input` it reads, and `taps` weights. Every window was checked to lie inside the
+    /// input when it was uploaded.
+    #[derive(Debug)]
+    pub struct DeviceAxis {
+        input: u32,
+        output: u32,
+        taps: u32,
+        start: DeviceBuffer<i32>,
+        weights: DeviceBuffer<u16>,
+    }
+
+    impl DeviceAxis {
+        /// Columns or rows read.
+        pub fn input(&self) -> u32 {
+            self.input
+        }
+
+        /// Columns or rows written.
+        pub fn output(&self) -> u32 {
+            self.output
+        }
+
+        /// Weights for each.
+        pub fn taps(&self) -> u32 {
+            self.taps
+        }
+    }
+
+    impl CudaBackend {
+        /// The mosaic binned by `factor`, keeping its Bayer layout, into `out`, which holds
+        /// the binned layout's sites. It gives that layout.
+        pub fn bayer_bin(
+            &self,
+            input: &DeviceBuffer<u16>,
+            layout: &MosaicLayout,
+            factor: u32,
+            mode: BinMode,
+            out: &mut DeviceBuffer<u16>,
+        ) -> Result<MosaicLayout> {
+            let binned = layout.binned(factor, mode)?;
+            let (w, _) = checked(input.len(), layout, out.len(), binned.sites())?;
+            if binned.sites() == 0 {
+                return Ok(binned);
+            }
+            let kernel = self.module(&BAYER)?.function("bayer_bin_u16")?;
+            let (k, mean) = (factor as i32, i32::from(mode == BinMode::Mean));
+            let (ow, oh) = (binned.width as i32, binned.height as i32);
+            let mut launch = self.stream().launch_builder(&kernel);
+            launch
+                .arg(out.slice_mut())
+                .arg(input.slice())
+                .arg(&w)
+                .arg(&k)
+                .arg(&mean)
+                .arg(&ow)
+                .arg(&oh);
+            // SAFETY: the kernel takes (unsigned short* out, const unsigned short* in, int
+            // width, int factor, int mean, int out_width, int out_height), matched here in
+            // order and type. A thread writes its one site, y × out_width + x for x < out_width
+            // and y < out_height, inside `out`, checked to hold out_width × out_height. It
+            // reads columns up to 2 × (out_width / 2) × factor − 1, which is less than width,
+            // since out_width / 2 = width / 2 / factor; rows likewise. So it reads inside
+            // `input`, checked to hold width × height.
+            unsafe { launch.launch(grid(binned.width, binned.height)) }
+                .map_err(|e| launch_failed("bayer_bin_u16", e))?;
+            Ok(binned)
+        }
+
+        /// One axis of a resize, uploaded once it is checked: `start` holds an entry per
+        /// output, `weights` holds `taps` per output, and each window lies inside the input.
+        pub fn upload_axis(
+            &self,
+            input: u32,
+            output: u32,
+            taps: u32,
+            start: &[i32],
+            weights: &[u16],
+        ) -> Result<DeviceAxis> {
+            if taps == 0 || taps > input {
+                return Err(Error::invalid_argument(format!(
+                    "{taps} taps can't read from {input} inputs"
+                )));
+            }
+            if start.len() != output as usize || weights.len() != output as usize * taps as usize {
+                return Err(Error::invalid_argument(format!(
+                    "an axis of {output} outputs and {taps} taps needs {output} starts and {} weights, not {} and {}",
+                    output as usize * taps as usize,
+                    start.len(),
+                    weights.len()
+                )));
+            }
+            let last = i64::from(input) - i64::from(taps);
+            if let Some((i, &s)) = start
+                .iter()
+                .enumerate()
+                .find(|&(_, &s)| s < 0 || i64::from(s) > last)
+            {
+                return Err(Error::invalid_argument(format!(
+                    "output {i}'s window starts at {s}, outside 0..={last}"
+                )));
+            }
+            Ok(DeviceAxis {
+                input,
+                output,
+                taps,
+                start: self.upload(start)?,
+                weights: self.upload(weights)?,
+            })
+        }
+
+        /// `input`, `x.input() × y.input()` pixels of `channels` interleaved values, resized to
+        /// `x.output() × y.output()` into `out`.
+        pub fn resize(
+            &self,
+            input: &DeviceBuffer<u16>,
+            channels: u8,
+            x: &DeviceAxis,
+            y: &DeviceAxis,
+            out: &mut DeviceBuffer<u16>,
+        ) -> Result<()> {
+            let c = usize::from(channels);
+            let (inputs, outputs) = (
+                x.input as usize * y.input as usize * c,
+                x.output as usize * y.output as usize * c,
+            );
+            if channels == 0 || input.len() != inputs || out.len() != outputs {
+                return Err(Error::invalid_argument(format!(
+                    "a resize from {} × {} to {} × {} of {channels} channels needs {inputs} values in and {outputs} out, not {} and {}",
+                    x.input,
+                    y.input,
+                    x.output,
+                    y.output,
+                    input.len(),
+                    out.len()
+                )));
+            }
+            if outputs == 0 {
+                return Ok(());
+            }
+            let (in_width, ow, oh) = (
+                int(x.input as usize, "a width")?,
+                x.output as i32,
+                y.output as i32,
+            );
+            let (channels, x_taps, y_taps) = (i32::from(channels), x.taps as i32, y.taps as i32);
+            int(inputs.max(outputs), "an image")?;
+            let kernel = self.module(&RESIZE)?.function("resize_u16")?;
+            let mut launch = self.stream().launch_builder(&kernel);
+            launch
+                .arg(out.slice_mut())
+                .arg(input.slice())
+                .arg(&in_width)
+                .arg(&channels)
+                .arg(&ow)
+                .arg(&oh)
+                .arg(x.start.slice())
+                .arg(x.weights.slice())
+                .arg(&x_taps)
+                .arg(y.start.slice())
+                .arg(y.weights.slice())
+                .arg(&y_taps);
+            // SAFETY: the kernel takes (unsigned short* out, const unsigned short* in, int
+            // in_width, int channels, int out_width, int out_height, const int* x_start, const
+            // unsigned short* x_weights, int x_taps, const int* y_start, const unsigned short*
+            // y_weights, int y_taps), matched here in order and type. A thread writes its
+            // pixel's `channels` values inside `out`, checked to hold out_width × out_height ×
+            // channels. It reads x_start[x] and y_start[y], and x_taps (y_taps) weights from
+            // x × x_taps (y × y_taps), inside the tables, whose lengths `upload_axis` checked.
+            // It reads input columns x_start[x]..x_start[x] + x_taps and rows likewise, which
+            // `upload_axis` checked lie inside the axes' inputs, whose product × channels
+            // `input` was checked to hold.
+            unsafe { launch.launch(grid(x.output, y.output)) }
+                .map_err(|e| launch_failed("resize_u16", e))?;
+            Ok(())
+        }
+
+        /// The display transform: `input`, interleaved values of `channels`, each looked up in
+        /// its channel's table of `tables`, [`TABLE_SIZE`] entries a channel, into `out`.
+        pub fn display(
+            &self,
+            input: &DeviceBuffer<u16>,
+            channels: u8,
+            tables: &DeviceBuffer<u8>,
+            out: &mut DeviceBuffer<u8>,
+        ) -> Result<()> {
+            let c = usize::from(channels);
+            if channels == 0
+                || !input.len().is_multiple_of(c)
+                || out.len() != input.len()
+                || tables.len() != c * TABLE_SIZE
+            {
+                return Err(Error::invalid_argument(format!(
+                    "a display transform of {channels} channels needs whole pixels, an output as long as its input, and {} table entries; it has {} values in, {} out and {} entries",
+                    c * TABLE_SIZE,
+                    input.len(),
+                    out.len(),
+                    tables.len()
+                )));
+            }
+            if input.is_empty() {
+                return Ok(());
+            }
+            let kernel = self.module(&DISPLAY)?.function("display_u16_u8")?;
+            let (values, channels) = (input.len() as i64, i32::from(channels));
+            let config = LaunchConfig {
+                grid_dim: ((input.len() as u64).div_ceil(256) as u32, 1, 1),
+                block_dim: (256, 1, 1),
+                shared_mem_bytes: 0,
+            };
+            let mut launch = self.stream().launch_builder(&kernel);
+            launch
+                .arg(out.slice_mut())
+                .arg(input.slice())
+                .arg(&values)
+                .arg(&channels)
+                .arg(tables.slice());
+            // SAFETY: the kernel takes (unsigned char* out, const unsigned short* in, long long
+            // values, int channels, const unsigned char* tables), matched here in order and
+            // type. Thread i < values reads in[i] and writes out[i], inside both, which hold
+            // `values` each (checked). It reads tables[(i % channels) × 65536 + in[i]], below
+            // channels × 65536, the tables' checked length, since in[i] is below 65536.
+            unsafe { launch.launch(config) }.map_err(|e| launch_failed("display_u16_u8", e))?;
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -311,6 +594,70 @@ mod tests {
             .max(),
             1,
             "read as 1 bit"
+        );
+    }
+
+    #[test]
+    fn binning_keeps_the_pattern_and_counts_the_bits_a_sum_needs() {
+        let layout = MosaicLayout {
+            width: 21,
+            height: 13,
+            pattern: BayerPattern::Gbrg,
+            significant_bits: 12,
+        };
+        let two = layout.binned(2, BinMode::Sum).unwrap();
+        // 10 tiles across, 6 down; binned by 2, 5 and 3: 10 × 6 sites.
+        assert_eq!(
+            (two.width, two.height, two.pattern, two.significant_bits),
+            (10, 6, BayerPattern::Gbrg, 14)
+        );
+        let three = layout.binned(3, BinMode::Sum).unwrap();
+        assert_eq!(
+            (three.width, three.height, three.significant_bits),
+            (6, 4, 16)
+        );
+        assert_eq!(layout.binned(4, BinMode::Sum).unwrap().significant_bits, 16);
+        assert_eq!(
+            layout.binned(4, BinMode::Mean).unwrap().significant_bits,
+            12
+        );
+        assert_eq!(
+            layout.binned(1, BinMode::Sum).unwrap(),
+            MosaicLayout {
+                width: 20,
+                height: 12,
+                ..layout
+            }
+        );
+        let fourteen = MosaicLayout {
+            significant_bits: 14,
+            ..layout
+        };
+        let err = fourteen.binned(3, BinMode::Sum).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "sums of 3 × 3 sites of 14 bits need 18: bin by the mean"
+        );
+        assert_eq!(
+            fourteen.binned(2, BinMode::Sum).unwrap().significant_bits,
+            16
+        );
+        for factor in [0, 5] {
+            let err = layout.binned(factor, BinMode::Mean).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                format!("binning takes a factor of 1 to 4, not {factor}")
+            );
+        }
+        let small = MosaicLayout {
+            width: 5,
+            height: 3,
+            ..layout
+        };
+        assert_eq!(
+            small.binned(2, BinMode::Mean).unwrap().sites(),
+            0,
+            "no whole block"
         );
     }
 
@@ -413,6 +760,185 @@ mod tests {
         }
 
         #[test]
+        fn binning_sums_or_averages_each_colour_within_its_block() {
+            let gpu = crate::cuda_or_skip!();
+            // 8 × 4, numbered row by row: binned by 2, one block of 2 × 2 tiles a side.
+            let input = gpu.upload(&(0..32).collect::<Vec<u16>>()).unwrap();
+            let layout = layout(8, 4, BayerPattern::Rggb);
+            let mut out = gpu.zeros::<u16>(8).unwrap();
+            let binned = gpu
+                .bayer_bin(&input, &layout, 2, BinMode::Sum, &mut out)
+                .unwrap();
+            assert_eq!(
+                (binned.width, binned.height, binned.significant_bits),
+                (4, 2, 14)
+            );
+            // Output (0, 0), red: sites (0, 0), (2, 0), (0, 2), (2, 2) = 0 + 2 + 16 + 18.
+            assert_eq!(
+                gpu.download(&out).unwrap(),
+                [36, 40, 52, 56, 68, 72, 84, 88]
+            );
+            gpu.bayer_bin(&input, &layout, 2, BinMode::Mean, &mut out)
+                .unwrap();
+            assert_eq!(gpu.download(&out).unwrap(), [9, 10, 13, 14, 17, 18, 21, 22]);
+            // 4 × 4 by 2: one tile; 1 × 4 by 1: no tiles, nothing launched.
+            let mut nothing = gpu.zeros::<u16>(0).unwrap();
+            let narrow = gpu.upload(&[1u16, 2, 3, 4]).unwrap();
+            gpu.bayer_bin(
+                &narrow,
+                &MosaicLayout {
+                    width: 1,
+                    height: 4,
+                    ..layout
+                },
+                1,
+                BinMode::Sum,
+                &mut nothing,
+            )
+            .unwrap();
+            let mut short = gpu.zeros::<u16>(7).unwrap();
+            let err = gpu
+                .bayer_bin(&input, &layout, 2, BinMode::Sum, &mut short)
+                .unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "the output holds 7 values, not the 8 it needs"
+            );
+            assert!(
+                gpu.bayer_bin(&input, &layout, 5, BinMode::Sum, &mut out)
+                    .is_err()
+            );
+        }
+
+        #[test]
+        fn a_resize_weighs_its_window_and_rounds_once() {
+            let gpu = crate::cuda_or_skip!();
+            // 4 × 1 of two channels to 2 × 1: each output averages two inputs, half each.
+            let input = gpu
+                .upload(&[10u16, 100, 20, 200, 31, 300, 41, 400])
+                .unwrap();
+            let x = gpu
+                .upload_axis(4, 2, 2, &[0, 2], &[8_192, 8_192, 8_192, 8_192])
+                .unwrap();
+            let y = gpu.upload_axis(1, 1, 1, &[0], &[16_384]).unwrap();
+            assert_eq!((x.input(), x.output(), x.taps()), (4, 2, 2));
+            let mut out = gpu.zeros::<u16>(4).unwrap();
+            gpu.resize(&input, 2, &x, &y, &mut out).unwrap();
+            // (10 + 20) / 2 = 15 and (31 + 41) / 2 = 36, exactly.
+            assert_eq!(gpu.download(&out).unwrap(), [15, 150, 36, 350]);
+            // 2 × 2 to 1 × 1: both rows are read, a quarter each: 25.
+            let square = gpu.upload(&[10u16, 20, 30, 40]).unwrap();
+            let half = gpu.upload_axis(2, 1, 2, &[0], &[8_192, 8_192]).unwrap();
+            let mut mean = gpu.zeros::<u16>(1).unwrap();
+            gpu.resize(&square, 1, &half, &half, &mut mean).unwrap();
+            assert_eq!(gpu.download(&mean).unwrap(), [25]);
+            // 2 × 2 to 2 × 2, each output its own input: two rows out.
+            let copy = gpu
+                .upload_axis(2, 2, 1, &[0, 1], &[16_384, 16_384])
+                .unwrap();
+            let mut same = gpu.zeros::<u16>(4).unwrap();
+            gpu.resize(&square, 1, &copy, &copy, &mut same).unwrap();
+            assert_eq!(gpu.download(&same).unwrap(), [10, 20, 30, 40]);
+            // Four inputs of a quarter each: 1 to 4 average 2.5, which rounds up.
+            let ramp = gpu.upload(&[1u16, 2, 3, 4]).unwrap();
+            let x4 = gpu.upload_axis(4, 1, 4, &[0], &[4_096; 4]).unwrap();
+            let mut one = gpu.zeros::<u16>(1).unwrap();
+            gpu.resize(&ramp, 1, &x4, &y, &mut one).unwrap();
+            assert_eq!(gpu.download(&one).unwrap(), [3]);
+        }
+
+        #[test]
+        fn axes_and_resizes_that_dont_fit_are_refused() {
+            let gpu = crate::cuda_or_skip!();
+            let err = gpu.upload_axis(3, 2, 2, &[0, 2], &[1; 4]).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "output 1's window starts at 2, outside 0..=1"
+            );
+            assert!(gpu.upload_axis(3, 2, 2, &[-1, 0], &[1; 4]).is_err());
+            let err = gpu.upload_axis(3, 2, 4, &[0, 0], &[1; 8]).unwrap_err();
+            assert_eq!(err.to_string(), "4 taps can't read from 3 inputs");
+            assert!(gpu.upload_axis(3, 2, 0, &[0, 0], &[]).is_err());
+            let err = gpu.upload_axis(3, 2, 2, &[0], &[1; 4]).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "an axis of 2 outputs and 2 taps needs 2 starts and 4 weights, not 1 and 4"
+            );
+            assert!(gpu.upload_axis(3, 2, 2, &[0, 1], &[1; 3]).is_err());
+            assert!(
+                gpu.upload_axis(3, 2, 2, &[0, 1], &[1; 4]).is_ok(),
+                "the last window may end at the edge"
+            );
+            assert!(
+                gpu.upload_axis(5, 1, 2, &[3], &[1; 2]).is_ok(),
+                "up to input − taps"
+            );
+            let x = gpu.upload_axis(2, 1, 2, &[0], &[8_192; 2]).unwrap();
+            let y = gpu.upload_axis(1, 1, 1, &[0], &[16_384]).unwrap();
+            let input = gpu.upload(&[1u16; 6]).unwrap();
+            let mut out = gpu.zeros::<u16>(3).unwrap();
+            gpu.resize(&input, 3, &x, &y, &mut out).unwrap();
+            assert_eq!(gpu.download(&out).unwrap(), [1, 1, 1]);
+            let err = gpu.resize(&input, 2, &x, &y, &mut out).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "a resize from 2 × 1 to 1 × 1 of 2 channels needs 4 values in and 2 out, not 6 and 3"
+            );
+            assert!(gpu.resize(&input, 0, &x, &y, &mut out).is_err());
+            let nothing = gpu.upload::<u16>(&[]).unwrap();
+            let mut none = gpu.zeros::<u16>(0).unwrap();
+            assert!(
+                gpu.resize(&nothing, 0, &x, &y, &mut none).is_err(),
+                "no channels, even with nothing to do"
+            );
+            let mut long = gpu.zeros::<u16>(4).unwrap();
+            assert!(gpu.resize(&input, 3, &x, &y, &mut long).is_err());
+            let empty_axis = gpu.upload_axis(2, 0, 1, &[], &[]).unwrap();
+            let mut none = gpu.zeros::<u16>(0).unwrap();
+            gpu.resize(&input, 3, &empty_axis, &y, &mut none).unwrap();
+        }
+
+        #[test]
+        fn the_display_transform_looks_each_channel_up_in_its_own_table() {
+            let gpu = crate::cuda_or_skip!();
+            let mut tables = vec![0u8; 2 * TABLE_SIZE];
+            tables[7] = 70;
+            tables[TABLE_SIZE + 7] = 170;
+            tables[TABLE_SIZE - 1] = 1;
+            tables[2 * TABLE_SIZE - 1] = 2;
+            let tables = gpu.upload(&tables).unwrap();
+            let input = gpu.upload(&[7u16, 7, u16::MAX, u16::MAX, 0, 0]).unwrap();
+            let mut out = gpu.zeros::<u8>(6).unwrap();
+            gpu.display(&input, 2, &tables, &mut out).unwrap();
+            assert_eq!(gpu.download(&out).unwrap(), [70, 170, 1, 2, 0, 0]);
+            let err = gpu.display(&input, 4, &tables, &mut out).unwrap_err();
+            assert!(
+                err.to_string()
+                    .starts_with("a display transform of 4 channels needs"),
+                "{err}"
+            );
+            assert!(gpu.display(&input, 0, &tables, &mut out).is_err());
+            let (nothing, no_tables) = (
+                gpu.upload::<u16>(&[]).unwrap(),
+                gpu.upload::<u8>(&[]).unwrap(),
+            );
+            let mut none = gpu.zeros::<u8>(0).unwrap();
+            assert!(
+                gpu.display(&nothing, 0, &no_tables, &mut none).is_err(),
+                "no channels, even with nothing to do"
+            );
+            assert!(
+                gpu.display(&input, 3, &tables, &mut out).is_err(),
+                "3 tables needed"
+            );
+            let mut short = gpu.zeros::<u8>(5).unwrap();
+            assert!(gpu.display(&input, 2, &tables, &mut short).is_err());
+            let empty = gpu.upload::<u16>(&[]).unwrap();
+            let mut none = gpu.zeros::<u8>(0).unwrap();
+            gpu.display(&empty, 2, &tables, &mut none).unwrap();
+        }
+
+        #[test]
         fn mismatched_and_undersized_mosaics_are_refused() {
             let gpu = crate::cuda_or_skip!();
             let bilinear = Demosaic::Bilinear;
@@ -493,6 +1019,11 @@ mod tests {
             let tall = layout(1, u32::MAX, BayerPattern::Rggb);
             assert!(gpu.bayer_superpixel(&narrow, &tall, &mut out).is_err());
             let mut planes = gpu.zeros::<u16>(3).unwrap();
+            assert!(
+                gpu.bayer_bin(&narrow, &tall, 2, BinMode::Mean, &mut planes)
+                    .is_err(),
+                "too large"
+            );
             assert!(gpu.bayer_split(&narrow, &two_by_four, &mut planes).is_err());
             assert!(
                 gpu.bayer_superpixel(&narrow, &two_by_four, &mut planes)

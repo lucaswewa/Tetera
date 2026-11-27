@@ -33,11 +33,25 @@ pub const SCALE: KernelSource = KernelSource {
     fatbin: generated::SCALE_FATBIN,
 };
 
-/// `kernels/bayer.cu`: the Bayer split and the superpixel.
+/// `kernels/bayer.cu`: the Bayer split, the superpixel and binning.
 pub const BAYER: KernelSource = KernelSource {
     name: "bayer",
     source: generated::BAYER_SOURCE,
     fatbin: generated::BAYER_FATBIN,
+};
+
+/// `kernels/resize.cu`: resizing by weight tables.
+pub const RESIZE: KernelSource = KernelSource {
+    name: "resize",
+    source: generated::RESIZE_SOURCE,
+    fatbin: generated::RESIZE_FATBIN,
+};
+
+/// `kernels/display.cu`: the display transform, by lookup tables.
+pub const DISPLAY: KernelSource = KernelSource {
+    name: "display",
+    source: generated::DISPLAY_SOURCE,
+    fatbin: generated::DISPLAY_FATBIN,
 };
 
 /// `kernels/demosaic.cu`: bilinear and Malvar-He-Cutler demosaicking.

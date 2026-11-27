@@ -24,7 +24,19 @@ allow = [
 confidence-threshold = 0.8
 # Allowed licences that no dependency uses yet aren't worth a warning.
 unused-allowed-license = "allow"
-exceptions = []
+exceptions = [
+    # libjpeg-turbo, which turbojpeg-sys builds into Tetera, is under the IJG licence too:
+    # permissive, asking for an acknowledgement in the documentation. The owner approved it
+    # on 2026-11-27 for P1.05b's JPEG (THIRD_PARTY_NOTICES.md).
+    { allow = ["IJG"], crate = "turbojpeg-sys" },
+]
+
+# turbojpeg-sys declares only its own Rust code's licence; the C library it builds adds
+# libjpeg-turbo's three (licenses/libjpeg-turbo/LICENSE.md).
+[[licenses.clarify]]
+crate = "turbojpeg-sys"
+expression = "(MIT OR Unlicense) AND IJG AND BSD-3-Clause AND Zlib"
+license-files = []
 
 [bans]
 multiple-versions = "warn"

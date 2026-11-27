@@ -101,6 +101,9 @@ fn checks(root: &Path) -> Vec<Check> {
     out.push(tool("clippy", "cargo", &["clippy", "--version"], Need::Now));
     out.push(tool("clang", "clang", &["--version"], Need::Now));
     out.push(tool("mold", "mold", &["--version"], Need::Now));
+    // libjpeg-turbo is built from source, with its SIMD code (P1.05b).
+    out.push(tool("cmake", "cmake", &["--version"], Need::Now));
+    out.push(tool("nasm", "nasm", &["-v"], Need::Now));
     out.push(tool(
         "cargo-deny",
         "cargo",

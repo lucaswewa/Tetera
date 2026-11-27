@@ -44,7 +44,7 @@ Each phase has:
 | [P1.04a](#p104a-compute-backends) | Compute backends | P1.03 | 1,340 | — | G1, G1c |
 | [P1.04b](#p104b-kernels-and-the-twin-harness) | Kernels and the twin harness | P1.04a | 1,310 | — | G1, G1c |
 | [P1.05a](#p105a-bayer-and-demosaic) | Bayer and demosaic | P1.04b | 1,860 | — | G1, G1c |
-| [P1.05b](#p105b-binning-resize-display-transform-and-jpeg) | Binning, resize, display transform and JPEG | P1.05a | 1,370 | — | G1, G1c |
+| [P1.05b](#p105b-binning-resize-display-transform-and-jpeg) | Binning, resize, display transform and JPEG | P1.05a | 1,880 | — | G1, G1c |
 | [P1.06](#p106-dark-flat-colour-and-the-fused-kernel) | Dark, flat, colour, and the fused kernel | P1.05b | 1,600 | — | G1, G1c |
 | [P1.07](#p107-denoise-and-deconvolution) | Denoise and deconvolution | P1.05b | 1,670 | Yes | G1, G1c |
 | [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06, P1.07 | 1,880 | — | G1, G1c |
@@ -393,7 +393,7 @@ Each phase has:
 | Depends on | P1.05a |
 | ADRs | — |
 | Gates | G1, G1c |
-| Estimate | code 780 · tests 450 · examples 100 · docs-as-code 25 · glue 15 = **1,370**, from P1.05's split; its own second estimate comes before its code |
+| Second estimate | code 845 · tests 850 · examples 110 · docs-as-code 45 · glue 30 = **1,880**, against 1,370 from P1.05's split |
 
 **Goal.** Turn a frame into a preview a browser can show, on either backend.
 

@@ -233,7 +233,7 @@ pub use device::{DeviceImage, DeviceMosaic};
 #[cfg(feature = "cuda")]
 mod device {
     use super::*;
-    use tetera_compute::imaging::DemosaicOutput;
+    use tetera_compute::imaging::DeviceElement;
     use tetera_compute::{CudaBackend, DeviceBuffer};
 
     /// A Bayer mosaic on a device.
@@ -250,6 +250,12 @@ mod device {
                 layout: mosaic.layout,
                 buffer: gpu.upload(&mosaic.sites)?,
             })
+        }
+
+        /// A mosaic of `layout` already on the device, in `buffer`.
+        pub(crate) fn from_parts(layout: MosaicLayout, buffer: DeviceBuffer<u16>) -> Self {
+            debug_assert_eq!(buffer.len(), layout.sites());
+            Self { layout, buffer }
         }
 
         /// It, copied back to the host.
@@ -277,7 +283,7 @@ mod device {
         buffer: DeviceBuffer<T>,
     }
 
-    impl<T: DemosaicOutput> DeviceImage<T> {
+    impl<T: DeviceElement> DeviceImage<T> {
         /// A zeroed image on `gpu`.
         pub fn zeros(gpu: &CudaBackend, width: u32, height: u32, channels: u8) -> Result<Self> {
             let len = width as usize * height as usize * usize::from(channels);

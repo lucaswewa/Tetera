@@ -74,12 +74,14 @@ Everything Tetera's build needs, on the Windows host and in WSL2. Each step was 
 
    ```bash
    sudo apt update && sudo apt full-upgrade -y
-   sudo apt install -y build-essential pkg-config cmake clang lld mold git curl unzip \
+   sudo apt install -y build-essential pkg-config cmake nasm clang lld mold git curl unzip \
      ca-certificates libudev-dev jq sqlite3 python3-venv gh
    git config --global user.name "<your name>"
    git config --global user.email "<your email>"
    git config --global core.autocrlf input
    ```
+
+   `cmake` and `nasm` build libjpeg-turbo, with its SIMD code, for the live view's JPEG (from P1.05b).
 
 2. **Rust, through rustup.** The repository's `rust-toolchain.toml` pins 1.98.1, which rustup installs on the first `cargo` command there:
 
