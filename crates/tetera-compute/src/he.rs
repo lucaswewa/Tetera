@@ -180,15 +180,15 @@ mod tests {
     #[test]
     fn a_grid_holds_one_more_cell_around_its_region() {
         let region = HeRegion {
-            origin: (95.0, -12.0),
+            origin: (95.0, 13.0),
             width: 10,
             height: 4,
             pixel: 3.0,
             points: 1,
             depth: None,
         };
-        // x from 95 to 125: cells 9 to 12, and one more each side; y from -12 to 0: -2 to 0.
-        assert_eq!(grid(10.0, &region), ((8, -3), 6, 5));
-        assert_eq!(grid(7.0, &region), ((12, -3), 7, 5));
+        // x from 95 to 125: cells 9 to 12, and one more each side; y from 13 to 25: 1 to 2.
+        assert_eq!(grid(10.0, &region), ((8, 0), 6, 4));
+        assert_eq!(grid(7.0, &region), ((12, 0), 7, 5));
     }
 }
