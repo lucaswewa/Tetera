@@ -201,6 +201,18 @@ pub enum Value {
     F32(Image<f32>),
     /// An encoded image, its bytes.
     Encoded(Encoding, Vec<u8>),
+    /// A raw frame on the GPU.
+    #[cfg(feature = "cuda")]
+    DeviceRaw(OnDevice<tetera_imaging::DeviceMosaic>),
+    /// An image of 8-bit samples on the GPU.
+    #[cfg(feature = "cuda")]
+    DeviceU8(OnDevice<tetera_imaging::DeviceImage<u8>>),
+    /// An image of 16-bit samples on the GPU.
+    #[cfg(feature = "cuda")]
+    DeviceU16(OnDevice<tetera_imaging::DeviceImage<u16>>),
+    /// An image of floats on the GPU.
+    #[cfg(feature = "cuda")]
+    DeviceF32(OnDevice<tetera_imaging::DeviceImage<f32>>),
     /// One number.
     Scalar(f64),
     /// Named numbers.
@@ -216,8 +228,123 @@ impl Value {
             Self::U16(i) => PortType::image(i.channels(), SampleType::U16),
             Self::F32(i) => PortType::image(i.channels(), SampleType::F32),
             Self::Encoded(format, _) => PortType::Encoded { format: *format },
+            #[cfg(feature = "cuda")]
+            Self::DeviceRaw(_) => PortType::Raw,
+            #[cfg(feature = "cuda")]
+            Self::DeviceU8(i) => PortType::image(i.channels(), SampleType::U8),
+            #[cfg(feature = "cuda")]
+            Self::DeviceU16(i) => PortType::image(i.channels(), SampleType::U16),
+            #[cfg(feature = "cuda")]
+            Self::DeviceF32(i) => PortType::image(i.channels(), SampleType::F32),
             Self::Scalar(_) => PortType::Scalar,
             Self::Table(_) => PortType::Table,
+        }
+    }
+}
+
+#[cfg(feature = "cuda")]
+pub use device::OnDevice;
+
+#[cfg(feature = "cuda")]
+mod device {
+    use super::Value;
+    use std::sync::Arc;
+    use tetera_compute::CudaBackend;
+    use tetera_core::Result;
+    use tetera_imaging::{DeviceImage, DeviceMosaic};
+
+    /// A value on the GPU, shared between its readers. Two are equal when they are the same
+    /// buffer, so a node can tell its input is the one it saw last time without reading it.
+    #[derive(Debug)]
+    pub struct OnDevice<T>(Arc<T>);
+
+    impl<T> OnDevice<T> {
+        /// `value`, to share.
+        pub fn new(value: T) -> Self {
+            Self(Arc::new(value))
+        }
+    }
+
+    impl<T> Clone for OnDevice<T> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+
+    impl<T> PartialEq for OnDevice<T> {
+        fn eq(&self, other: &Self) -> bool {
+            Arc::ptr_eq(&self.0, &other.0)
+        }
+    }
+
+    impl<T> std::ops::Deref for OnDevice<T> {
+        type Target = T;
+
+        fn deref(&self) -> &T {
+            &self.0
+        }
+    }
+
+    impl Value {
+        /// Whether it is on the GPU.
+        pub fn on_device(&self) -> bool {
+            matches!(
+                self,
+                Self::DeviceRaw(_) | Self::DeviceU8(_) | Self::DeviceU16(_) | Self::DeviceF32(_)
+            )
+        }
+
+        /// It copied to the GPU, with the bytes copied, if it is a frame or an image on the
+        /// host; numbers, tables and encoded images stay on the host.
+        pub fn upload(&self, gpu: &CudaBackend) -> Result<Option<(Value, u64)>> {
+            let bytes = |n: usize, size: usize| (n * size) as u64;
+            Ok(Some(match self {
+                Self::Raw(m) => (
+                    Self::DeviceRaw(OnDevice::new(DeviceMosaic::upload(gpu, m)?)),
+                    bytes(m.sites().len(), 2),
+                ),
+                Self::U8(i) => (
+                    Self::DeviceU8(OnDevice::new(DeviceImage::upload(gpu, i)?)),
+                    bytes(i.data().len(), 1),
+                ),
+                Self::U16(i) => (
+                    Self::DeviceU16(OnDevice::new(DeviceImage::upload(gpu, i)?)),
+                    bytes(i.data().len(), 2),
+                ),
+                Self::F32(i) => (
+                    Self::DeviceF32(OnDevice::new(DeviceImage::upload(gpu, i)?)),
+                    bytes(i.data().len(), 4),
+                ),
+                _ => return Ok(None),
+            }))
+        }
+
+        /// It copied to the host, with the bytes copied, if it is on the GPU.
+        pub fn download(&self, gpu: &CudaBackend) -> Result<Option<(Value, u64)>> {
+            let bytes = |n: usize, size: usize| (n * size) as u64;
+            Ok(Some(match self {
+                Self::DeviceRaw(m) => {
+                    let host = m.download(gpu)?;
+                    let n = bytes(host.sites().len(), 2);
+                    (Self::Raw(host), n)
+                }
+                Self::DeviceU8(i) => {
+                    let host = i.download(gpu)?;
+                    let n = bytes(host.data().len(), 1);
+                    (Self::U8(host), n)
+                }
+                Self::DeviceU16(i) => {
+                    let host = i.download(gpu)?;
+                    let n = bytes(host.data().len(), 2);
+                    (Self::U16(host), n)
+                }
+                Self::DeviceF32(i) => {
+                    let host = i.download(gpu)?;
+                    let n = bytes(host.data().len(), 4);
+                    (Self::F32(host), n)
+                }
+                _ => return Ok(None),
+            }))
         }
     }
 }

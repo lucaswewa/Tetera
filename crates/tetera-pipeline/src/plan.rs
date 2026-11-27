@@ -1,10 +1,12 @@
 //! A recipe checked against the registry, its nodes prepared and put in the order they run,
 //! and that order run on values.
 
-use crate::node::{Context, Descriptor, Step};
-use crate::port::{PortType, Value};
+use crate::fuse::Fusion;
+use crate::node::{Descriptor, Step};
+use crate::port::PortType;
 use crate::recipe::Recipe;
 use crate::registry::Registry;
+use crate::run::{Copies, Slot};
 use std::collections::BTreeMap;
 use std::fmt;
 use tetera_core::{Error, Result};
@@ -26,7 +28,7 @@ impl fmt::Display for Problem {
 
 /// Where a value comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Source {
+pub(crate) enum Source {
     /// The recipe's input of that index, by name.
     Input(usize),
     /// A step's output: the step's index in the order, and the output's.
@@ -34,22 +36,35 @@ enum Source {
 }
 
 /// A node of the recipe, prepared, in the order steps run.
-struct Planned {
-    id: String,
-    descriptor: Descriptor,
-    step: Box<dyn Step>,
-    sources: Vec<Source>,
-    outputs: Vec<PortType>,
+pub(crate) struct Planned {
+    pub(crate) id: String,
+    pub(crate) descriptor: Descriptor,
+    /// Its parameters, as the recipe gave them.
+    pub(crate) params: serde_json::Value,
+    pub(crate) step: Box<dyn Step>,
+    pub(crate) sources: Vec<Source>,
+    pub(crate) outputs: Vec<PortType>,
 }
 
 /// A recipe checked and ready to run: each node prepared, in an order where every node runs
 /// after those that feed it.
 pub struct Plan {
-    name: String,
-    inputs: Vec<(String, PortType)>,
-    steps: Vec<Planned>,
+    pub(crate) name: String,
+    pub(crate) inputs: Vec<(String, PortType)>,
+    pub(crate) steps: Vec<Planned>,
     /// Each output's name, and the step and output it comes from.
-    outputs: Vec<(String, usize, usize)>,
+    pub(crate) outputs: Vec<(String, usize, usize)>,
+    /// The inputs held from run to run.
+    pub(crate) held: Vec<Option<Slot>>,
+    /// The outputs of the steps held inputs alone feed, kept from run to run.
+    pub(crate) constants: Vec<Option<Vec<Slot>>>,
+    /// The live chain, found for the fused kernel.
+    pub(crate) fusion: Option<Fusion>,
+    /// Whether the fused kernel runs in the chain's place, on the GPU.
+    pub(crate) fusion_on: bool,
+    /// Whether the last run had the GPU.
+    pub(crate) last_backend: Option<bool>,
+    pub(crate) copies: Copies,
 }
 
 impl fmt::Debug for Plan {
@@ -332,7 +347,7 @@ impl Plan {
         let position: BTreeMap<usize, usize> =
             order.iter().enumerate().map(|(p, &i)| (i, p)).collect();
         let mut checked: Vec<Option<Checked>> = checked;
-        let steps = order
+        let steps: Vec<Planned> = order
             .iter()
             .map(|&i| {
                 let c = checked[i].take().expect("every node checked");
@@ -346,14 +361,22 @@ impl Plan {
                 Planned {
                     id: recipe.nodes[i].id.clone(),
                     descriptor: c.descriptor,
+                    params: recipe.nodes[i].params.clone(),
                     step: c.step,
                     sources,
                     outputs: types[i].clone().expect("every type known"),
                 }
             })
             .collect();
+        let fusion = crate::fuse::find(&steps, &outputs_planned(&outputs, &position));
         Ok(Self {
             name: recipe.name.clone(),
+            held: vec![None; inputs.len()],
+            constants: (0..steps.len()).map(|_| None).collect(),
+            fusion,
+            fusion_on: true,
+            last_backend: None,
+            copies: Copies::default(),
             inputs,
             steps,
             outputs: outputs
@@ -378,75 +401,34 @@ impl Plan {
         self.inputs.iter().map(|(n, t)| (n.as_str(), t))
     }
 
-    /// The recipe run on `inputs`, one for each of its own, by name: its outputs, by name.
-    pub fn run(
-        &mut self,
-        context: &Context,
-        mut inputs: BTreeMap<String, Value>,
-    ) -> Result<BTreeMap<String, Value>> {
-        let mut given = Vec::with_capacity(self.inputs.len());
-        for (name, ty) in &self.inputs {
-            let value = inputs.remove(name).ok_or_else(|| {
-                Error::invalid_argument(format!(
-                    "recipe `{}` takes input `{name}`, which wasn't given",
-                    self.name
-                ))
-            })?;
-            if value.port_type() != *ty {
-                return Err(Error::invalid_argument(format!(
-                    "recipe `{}` takes {ty} as input `{name}`, not {}",
-                    self.name,
-                    value.port_type()
-                )));
-            }
-            given.push(value);
+    /// The ids of the nodes the fused kernel takes the place of on the GPU, in order; none
+    /// when the recipe has no live chain the kernel can run.
+    pub fn fused(&self) -> Vec<&str> {
+        self.fusion
+            .as_ref()
+            .map(|f| f.chain.iter().map(|&i| self.steps[i].id.as_str()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Whether the fused kernel runs in the live chain's place on the GPU, which it does unless
+    /// told not to.
+    pub fn set_fusion(&mut self, on: bool) {
+        if self.fusion_on != on {
+            self.fusion_on = on;
+            self.constants.iter_mut().for_each(|c| *c = None);
         }
-        if let Some(name) = inputs.keys().next() {
-            return Err(Error::invalid_argument(format!(
-                "recipe `{}` has no input `{name}`",
-                self.name
-            )));
-        }
-        let mut values: Vec<Vec<Value>> = Vec::with_capacity(self.steps.len());
-        for planned in &mut self.steps {
-            let args: Vec<&Value> = planned
-                .sources
-                .iter()
-                .map(|s| match *s {
-                    Source::Input(k) => &given[k],
-                    Source::Output(step, o) => &values[step][o],
-                })
-                .collect();
-            let outputs = planned.step.run(context, &args)?;
-            let types: Vec<PortType> = outputs.iter().map(Value::port_type).collect();
-            if types != planned.outputs {
-                return Err(Error::internal(format!(
-                    "node `{}` ({}) gave {} instead of {}",
-                    planned.id,
-                    planned.descriptor.id,
-                    listed_types(&types),
-                    listed_types(&planned.outputs)
-                )));
-            }
-            values.push(outputs);
-        }
-        Ok(self
-            .outputs
-            .iter()
-            .map(|(name, step, o)| (name.clone(), values[*step][*o].clone()))
-            .collect())
     }
 }
 
-fn listed_types(types: &[PortType]) -> String {
-    if types.is_empty() {
-        return "nothing".to_string();
-    }
-    types
+/// The recipe's outputs as steps' indices in the order.
+fn outputs_planned(
+    outputs: &[(String, (usize, usize))],
+    position: &BTreeMap<usize, usize>,
+) -> Vec<(usize, usize)> {
+    outputs
         .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
+        .map(|(_, (from, o))| (position[from], *o))
+        .collect()
 }
 
 /// A reference resolved: a recipe input's index, or a node's (by its index in the recipe) and
@@ -460,8 +442,8 @@ enum Resolved {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::{Descriptor, NoParameters, Node, parameters};
-    use crate::port::{PortSpec, SampleType, Table};
+    use crate::node::{Context, Descriptor, NoParameters, Node, parameters};
+    use crate::port::{PortSpec, SampleType, Table, Value};
     use std::sync::{Arc, Mutex};
     use tetera_compute::Compute;
     use tetera_imaging::Image;

@@ -20,6 +20,26 @@ use tetera_imaging::{
     BinMode, Colour, ColourCorrection, Curve, Demosaic, DisplayTransform, FlatField, Image,
     JpegEncoder, Levels, Mosaic,
 };
+#[cfg(feature = "cuda")]
+use {
+    crate::port::OnDevice,
+    tetera_compute::CudaBackend,
+    tetera_imaging::bayer::{bin_device, superpixel_device},
+    tetera_imaging::colour::{DeviceColour, colour_device},
+    tetera_imaging::correct::{apply_flat_device, subtract_dark_device},
+    tetera_imaging::demosaic::demosaic_device,
+    tetera_imaging::display::{DeviceDisplay, display_device},
+    tetera_imaging::resize::{DeviceResize, resize_device},
+};
+
+/// The GPU, for a step given values there.
+#[cfg(feature = "cuda")]
+fn gpu<'a>(context: &'a Context) -> Result<&'a CudaBackend> {
+    context
+        .compute
+        .cuda()
+        .ok_or_else(|| Error::internal("values on the GPU, and no GPU to run on"))
+}
 
 /// The raw path's nodes, for the registry.
 pub fn nodes() -> Vec<Arc<dyn Node>> {
@@ -177,6 +197,11 @@ fn bin() -> Arc<dyn Node> {
             BinModeParameter::Mean => BinMode::Mean,
         };
         step(move |ctx, inputs| {
+            #[cfg(feature = "cuda")]
+            if let Value::DeviceRaw(m) = inputs[0] {
+                let binned = bin_device(gpu(ctx)?, m, p.factor, mode)?;
+                return Ok(vec![Value::DeviceRaw(OnDevice::new(binned))]);
+            }
             let binned = bin_mosaic(ctx.compute, mosaic(inputs[0])?, p.factor, mode)?;
             Ok(vec![Value::Raw(binned)])
         })
@@ -231,6 +256,11 @@ fn superpixel() -> Arc<dyn Node> {
     node(d, |params| {
         let _: NoParameters = parameters(params)?;
         step(|ctx, inputs| {
+            #[cfg(feature = "cuda")]
+            if let Value::DeviceRaw(m) = inputs[0] {
+                let rgb = superpixel_device(gpu(ctx)?, m)?;
+                return Ok(vec![Value::DeviceU16(OnDevice::new(rgb))]);
+            }
             Ok(vec![Value::U16(superpixel_of(
                 ctx.compute,
                 mosaic(inputs[0])?,
@@ -250,6 +280,15 @@ pub enum DemosaicParameter {
     MalvarHeCutler,
 }
 
+impl From<DemosaicParameter> for Demosaic {
+    fn from(p: DemosaicParameter) -> Self {
+        match p {
+            DemosaicParameter::Bilinear => Demosaic::Bilinear,
+            DemosaicParameter::MalvarHeCutler => Demosaic::MalvarHeCutler,
+        }
+    }
+}
+
 /// `tetera.demosaic`'s parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -266,11 +305,13 @@ fn demosaic() -> Arc<dyn Node> {
         .parameters::<DemosaicParameters>();
     node(d, |params| {
         let p: DemosaicParameters = parameters(params)?;
-        let method = match p.method {
-            DemosaicParameter::Bilinear => Demosaic::Bilinear,
-            DemosaicParameter::MalvarHeCutler => Demosaic::MalvarHeCutler,
-        };
+        let method = Demosaic::from(p.method);
         step(move |ctx, inputs| {
+            #[cfg(feature = "cuda")]
+            if let Value::DeviceRaw(m) = inputs[0] {
+                let rgb = demosaic_device::<u16>(gpu(ctx)?, m, method)?;
+                return Ok(vec![Value::DeviceU16(OnDevice::new(rgb))]);
+            }
             let rgb = demosaic_mosaic::<u16>(ctx.compute, mosaic(inputs[0])?, method)?;
             Ok(vec![Value::U16(rgb)])
         })
@@ -289,6 +330,11 @@ fn dark() -> Arc<dyn Node> {
     node(d, |params| {
         let _: NoParameters = parameters(params)?;
         step(|ctx, inputs| {
+            #[cfg(feature = "cuda")]
+            if let (Value::DeviceRaw(m), Value::DeviceRaw(d)) = (inputs[0], inputs[1]) {
+                let out = subtract_dark_device(gpu(ctx)?, m, d.buffer())?;
+                return Ok(vec![Value::DeviceRaw(OnDevice::new(out))]);
+            }
             let out = subtract_dark(ctx.compute, mosaic(inputs[0])?, mosaic(inputs[1])?)?;
             Ok(vec![Value::Raw(out)])
         })
@@ -306,9 +352,26 @@ fn flat() -> Arc<dyn Node> {
     .output(raw("raw", "It, flat-fielded."));
     node(d, |params| {
         let _: NoParameters = parameters(params)?;
-        // The field is made once for each master flat, not for each frame.
+        // The field is made once for each master flat, not for each frame: on the GPU, for
+        // each master there, known by its buffer.
         let mut field: Option<(Mosaic, FlatField)> = None;
+        #[cfg(feature = "cuda")]
+        let mut gains: Option<(
+            OnDevice<tetera_imaging::DeviceMosaic>,
+            tetera_compute::DeviceBuffer<u16>,
+        )> = None;
         step(move |ctx, inputs| {
+            #[cfg(feature = "cuda")]
+            if let (Value::DeviceRaw(frame), Value::DeviceRaw(master)) = (inputs[0], inputs[1]) {
+                let gpu = gpu(ctx)?;
+                if gains.as_ref().is_none_or(|(m, _)| m != master) {
+                    let field = FlatField::new(&master.download(gpu)?)?;
+                    gains = Some((master.clone(), gpu.upload(field.gains())?));
+                }
+                let (_, g) = gains.as_ref().expect("made above");
+                let out = apply_flat_device(gpu, frame, g)?;
+                return Ok(vec![Value::DeviceRaw(OnDevice::new(out))]);
+            }
             let (frame, master) = (mosaic(inputs[0])?, mosaic(inputs[1])?);
             if field.as_ref().is_none_or(|(m, _)| m != master) {
                 field = Some((master.clone(), FlatField::new(master)?));
@@ -346,7 +409,23 @@ fn resize() -> Arc<dyn Node> {
                 p.width, p.height
             )));
         }
+        // On the GPU, the tables for one size in, kept while that size comes.
+        #[cfg(feature = "cuda")]
+        let mut tables: Option<((u32, u32), DeviceResize)> = None;
         step(move |ctx, inputs| {
+            #[cfg(feature = "cuda")]
+            if let Value::DeviceU16(i) = inputs[0] {
+                let gpu = gpu(ctx)?;
+                let size = (i.width(), i.height());
+                if tables.as_ref().is_none_or(|(s, _)| *s != size) {
+                    let plan = tetera_imaging::Resize::new(size.0, size.1, p.width, p.height)?;
+                    tables = Some((size, DeviceResize::upload(gpu, &plan)?));
+                }
+                let (_, t) = tables.as_ref().expect("made above");
+                return Ok(vec![Value::DeviceU16(OnDevice::new(resize_device(
+                    gpu, i, t,
+                )?))]);
+            }
             let out = resize_image(ctx.compute, image16(inputs[0])?, p.width, p.height)?;
             Ok(vec![Value::U16(out)])
         })
@@ -436,7 +515,18 @@ fn colour() -> Arc<dyn Node> {
             matrix: p.matrix,
         };
         let colour = Colour::new(&correction, p.levels.map(Levels::from), p.curve.into())?;
+        #[cfg(feature = "cuda")]
+        let mut tables: Option<DeviceColour> = None;
         step(move |ctx, inputs| {
+            #[cfg(feature = "cuda")]
+            if let Value::DeviceU16(i) = inputs[0] {
+                let gpu = gpu(ctx)?;
+                if tables.is_none() {
+                    tables = Some(DeviceColour::upload(gpu, &colour)?);
+                }
+                let out = colour_device(gpu, i, tables.as_ref().expect("made above"))?;
+                return Ok(vec![Value::DeviceU8(OnDevice::new(out))]);
+            }
             Ok(vec![Value::U8(apply_colour(
                 ctx.compute,
                 image16(inputs[0])?,
@@ -472,9 +562,16 @@ fn display() -> Arc<dyn Node> {
         let curve = Curve::from(p.curve);
         // Checks the levels and curve now; the tables are made for an image's channels.
         let mut transform = DisplayTransform::new(&levels, curve)?;
+        #[cfg(feature = "cuda")]
+        let mut tables: Option<DeviceDisplay> = None;
         step(move |ctx, inputs| {
-            let image = image16(inputs[0])?;
-            let channels = image.channels();
+            let PortType::Image {
+                channels: Some(channels),
+                sample: Some(SampleType::U16),
+            } = inputs[0].port_type()
+            else {
+                return Err(given("an image of u16", inputs[0]));
+            };
             if levels.len() != 1 && levels.len() != usize::from(channels) {
                 return Err(invalid(format!(
                     "the display transform has levels for {} channels, and the image has {channels}",
@@ -485,10 +582,23 @@ fn display() -> Arc<dyn Node> {
             // for each image's channels.
             if transform.channels() != channels {
                 transform = DisplayTransform::uniform(channels, levels[0], curve)?;
+                #[cfg(feature = "cuda")]
+                {
+                    tables = None;
+                }
+            }
+            #[cfg(feature = "cuda")]
+            if let Value::DeviceU16(i) = inputs[0] {
+                let gpu = gpu(ctx)?;
+                if tables.is_none() {
+                    tables = Some(DeviceDisplay::upload(gpu, &transform)?);
+                }
+                let out = display_device(gpu, i, tables.as_ref().expect("made above"))?;
+                return Ok(vec![Value::DeviceU8(OnDevice::new(out))]);
             }
             Ok(vec![Value::U8(apply_display(
                 ctx.compute,
-                image,
+                image16(inputs[0])?,
                 &transform,
             )?)])
         })

@@ -13,7 +13,10 @@ Tetera's pipeline engine, L3 (plan §6.7, [ADR-0012](../../docs/adr/0012-the-pip
   - the denoise and deconvolution nodes join in P1.08d.
 - **[`recipes/live-chain.json`](recipes/live-chain.json)** is the live chain, node by node: dark, flat, demosaic, resize, colour and JPEG. It gives exactly the preview `Isp::run` gives.
 
-With the `cuda` feature, the nodes run on the GPU when `Compute` chose it. Each still copies its data to the GPU and back; keeping it there between nodes, and fusing the live chain, is P1.08c's.
+**On the GPU** (P1.08c), with the `cuda` feature and `Compute` choosing it:
+- **Values stay where their readers are.** A node that runs on the GPU takes its frames and images there, and gives its own there. A value goes to or from the host only where a step on the other side reads it, once, however many steps read it there. `Plan::copies` counts each run's copies. A value is freed after its last reader.
+- **Held inputs:** `Plan::hold` keeps an input, such as a master dark, from run to run. The steps it alone feeds run once and keep their outputs, unless a node is stateful, so a master flat's dark subtraction and its flat field are worked once.
+- **The fusion pass** finds the live chain, `[bin →] [dark →] [flat →] demosaic → resize → colour`, each step feeding only the next. On the GPU it runs P1.06b's fused kernel in the chain's place, and gives exactly what the chain gives. `Plan::fused` names the nodes it replaces; `Plan::set_fusion(false)` turns it off.
 
 ## How to try it
 
@@ -21,6 +24,6 @@ With the `cuda` feature, the nodes run on the GPU when `Compute` chose it. Each 
 cargo run --release -p tetera-pipeline --example recipe --features cuda
 ```
 
-`recipe` lists the registry, refuses [`recipes/broken.json`](recipes/broken.json) with each of its six problems, then runs [`recipes/crop-and-measure.json`](recipes/crop-and-measure.json) on a full-frame test pattern, in about 5 ms. Then it runs the live chain's recipe on a 20 MP raw frame from a synthetic sensor, to a 1920 × 1280 preview and a JPEG, on each backend. Each preview is checked to be the ISP's own, and the JPEG goes to `target/recipe/preview.jpg`. On this PC, about 190 ms on the CPU and 230 ms on CUDA, where each node copies its data to the GPU and back.
+`recipe` lists the registry, refuses [`recipes/broken.json`](recipes/broken.json) with each of its six problems, then runs [`recipes/crop-and-measure.json`](recipes/crop-and-measure.json) on a full-frame test pattern, in about 5 ms. Then it runs the live chain's recipe on a 20 MP raw frame from a synthetic sensor, to a 1920 × 1280 preview and a JPEG, the dark and the flat held. It runs on the CPU, on CUDA node by node, and on CUDA fused, and checks each preview is the ISP's own. The JPEG goes to `target/recipe/preview.jpg`. On this PC, a run takes about 130 ms on the CPU, 33 ms on CUDA node by node, and 30 ms fused, each run on CUDA copying the frame up and the preview down, 47 MB. A run's time includes copying the frame from the host, uploading it, and the JPEG.
 
 `-- PATH.json` checks another recipe; `-- --schema` prints the recipe schema; `-- --catalogue` prints every node's descriptor; and `-- --smoke` takes a 640 × 480 frame.

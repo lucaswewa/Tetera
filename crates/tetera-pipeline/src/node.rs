@@ -37,6 +37,9 @@ pub struct Descriptor {
     pub backends: Backends,
     /// Whether the fusion pass may fold it into a fused kernel.
     pub fusable: bool,
+    /// Whether its step keeps state from one run to the next, so it runs every time even on
+    /// held inputs.
+    pub stateful: bool,
 }
 
 /// The parameters of a node that takes none.
@@ -59,6 +62,7 @@ impl Descriptor {
                 cuda: false,
             },
             fusable: false,
+            stateful: false,
         }
     }
 
@@ -74,9 +78,22 @@ impl Descriptor {
         self
     }
 
-    /// The same, on CUDA as well as the CPU.
+    /// The same, on CUDA as well as the CPU: its step takes frames and images on the GPU and
+    /// gives its own there.
     pub fn on_cuda(mut self) -> Self {
         self.backends.cuda = true;
+        self
+    }
+
+    /// The same, fusable: the fusion pass may fold it into a fused kernel.
+    pub fn fusable(mut self) -> Self {
+        self.fusable = true;
+        self
+    }
+
+    /// The same, stateful: its step keeps state from one run to the next.
+    pub fn stateful(mut self) -> Self {
+        self.stateful = true;
         self
     }
 
