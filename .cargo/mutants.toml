@@ -72,4 +72,12 @@ exclude_re = [
     "replace \\+ with - in Grid<T>::around",
     # A last layer of no thickness adds nothing.
     "replace < with <= in point",
+    # Half precision: the fields `|` joins share no bit, so `^` joins them the same; and at
+    # exactly the smallest normal half, the subnormal path gives the same bits.
+    "replace \\| with \\^ in (to_f32|from_f32)",
+    "replace < with <= in from_f32",
+    # The H&E kernels' buffers: one allocated too small is written out of bounds, which no
+    # test can see without a sanitizer. compute-sanitizer's memcheck runs the GPU tests clean
+    # (P1.11b's notes).
+    "replace \\* with (\\+|/) in device::CudaBackend::he_(cells|render)",
 ]

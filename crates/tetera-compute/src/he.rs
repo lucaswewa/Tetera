@@ -183,12 +183,12 @@ mod tests {
             origin: (95.0, -12.0),
             width: 10,
             height: 4,
-            pixel: 2.0,
+            pixel: 3.0,
             points: 1,
             depth: None,
         };
-        // x from 95 to 115: cells 9 to 11, and one more each side; y from -12 to -4: -2 to -1.
-        assert_eq!(grid(10.0, &region), ((8, -3), 5, 4));
-        assert_eq!(grid(7.0, &region), ((12, -3), 6, 4));
+        // x from 95 to 125: cells 9 to 12, and one more each side; y from -12 to 0: -2 to 0.
+        assert_eq!(grid(10.0, &region), ((8, -3), 6, 5));
+        assert_eq!(grid(7.0, &region), ((12, -3), 7, 5));
     }
 }

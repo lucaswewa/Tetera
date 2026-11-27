@@ -171,6 +171,10 @@ mod tests {
     /// the value on 99.99 % of values, and none beyond 0.05 OD. The worst difference, and
     /// the count beyond the first bound.
     fn within(cpu: &Rendered, gpu: &Rendered) -> (f32, usize, bool) {
+        assert_eq!(
+            (cpu.width, cpu.height, cpu.stains.len()),
+            (gpu.width, gpu.height, gpu.stains.len())
+        );
         let mut worst = 0.0f32;
         let mut beyond = 0;
         for (c, g) in cpu.stains.iter().zip(&gpu.stains) {
@@ -219,6 +223,24 @@ mod tests {
                 "tissue in {region:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_tile_is_256_kib_on_the_gpu() {
+        assert_eq!(TILE_BYTES, 262_144);
+        assert_eq!(
+            stains(&[0x3c00, 0x3800, 0, 0x4000]),
+            [
+                Stains {
+                    haematoxylin: 1.0,
+                    eosin: 0.5
+                },
+                Stains {
+                    haematoxylin: 0.0,
+                    eosin: 2.0
+                }
+            ]
+        );
     }
 
     #[test]

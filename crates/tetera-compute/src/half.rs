@@ -12,7 +12,8 @@ pub fn to_f32(bits: u16) -> f32 {
         // A subnormal half is a normal float: mantissa × 2⁻²⁴.
         (0, m) => (m as f32 * (1.0 / 16_777_216.0)).to_bits(),
         (31, 0) => 0x7f80_0000,
-        (31, m) => 0x7fc0_0000 | (m << 13),
+        // A NaN, its payload of no matter for a stain.
+        (31, _) => 0x7fc0_0000,
         (e, m) => ((e + 112) << 23) | (m << 13),
     };
     f32::from_bits(sign | magnitude)

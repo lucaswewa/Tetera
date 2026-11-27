@@ -15,7 +15,7 @@ pub const FINEST: f64 = 0.04;
 pub const COARSEST: u8 = 15;
 
 /// Which depths a tile sums.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TileDepth {
     /// The whole section.
     Whole,
@@ -24,7 +24,7 @@ pub enum TileDepth {
 }
 
 /// A tile's key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TileKey {
     /// Its level of detail: level ℓ's pixel is 0.04 × 2^ℓ µm.
     pub level: u8,
@@ -132,7 +132,8 @@ impl<V: Clone> TileCache<V> {
             let oldest = *self
                 .tiles
                 .iter()
-                .min_by_key(|(_, (_, used))| *used)
+                // The least recently used; of a tie, which can't happen, the least key.
+                .min_by_key(|(key, (_, used))| (*used, **key))
                 .map(|(key, _)| key)
                 .expect("a full cache holds a tile");
             self.tiles.remove(&oldest);
