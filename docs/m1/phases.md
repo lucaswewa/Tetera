@@ -58,7 +58,7 @@ Each phase has:
 | [P1.09a](#p109a-the-camera) | The camera | P1.03 | 1,150 | — | G1 |
 | [P1.09b](#p109b-the-stage-the-objectives-and-the-light) | The stage, the objectives and the light | P1.09a | 1,490 | — | G1 |
 | [P1.10a](#p110a-the-simulated-clock-and-motion-profiles) | The simulated clock and motion profiles | P1.09b | 1,080 | — | G1 |
-| [P1.10b](#p110b-the-virtual-stage) | The virtual stage | P1.10a | 1,430 | — | G1 |
+| [P1.10b](#p110b-the-virtual-stage) | The virtual stage | P1.10a | 1,480 | — | G1 |
 | [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
 | [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10b, P1.11 | 1,920 | — | G1, G1c, G2 |
 | [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12 | 1,980 | — | G1 |
@@ -851,7 +851,7 @@ Each phase has:
 | Depends on | P1.10a |
 | ADRs | — |
 | Gates | G1 |
-| Estimate | code 650 (states and commands 250; homing and faults 150; reports and the track 150; its thread 100) · tests 650 · examples 100 · docs-as-code 20 · glue 10 = **1,430**, from P1.10's split; its own second estimate comes before its code |
+| Second estimate | code 670 (its configuration 80; the plan of legs and grblHAL's states 150; moves, jogs, holds, homing and faults 200; reports, the track and events 120; its thread 40; the `Stage` trait 80) · tests 650 (the contract suite at 1×, 10× and from an alarm; a move's duration in stepped time; the same track twice; each state's transitions; each fault; a jog cancelled mid-move; reports' latency) · examples 120 · docs-as-code 20 · glue 20 = **1,480** (1,924 at ×1.3) |
 
 **Goal.** A stage that moves the way the real one does, in time that tests can control.
 
