@@ -14,6 +14,7 @@ cuda = ["tetera-compute/cuda"]
 
 [dependencies]
 rayon.workspace = true
+rustfft.workspace = true
 tetera-compute.workspace = true
 tetera-core.workspace = true
 turbojpeg.workspace = true

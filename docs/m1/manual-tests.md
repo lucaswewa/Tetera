@@ -127,3 +127,14 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-imaging --example denoise -- --smoke` — expect `-` for CUDA and `smoke: ok`.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda denoise` — expect every test to pass.
 - **Result:** see the [notes](notes/P1.07a-denoise.md#manual-test).
+
+## P1.07b: PSFs and Richardson–Lucy
+
+- **Prerequisites:** the phase's branch; `cmake` and `nasm` in WSL. No GPU is needed.
+- [ ] `cargo run --release -p tetera-imaging --example deconvolve` — expect:
+  - the RMS error against the specimen falling over the first iterations, plain and with total variation, then the plain one rising again;
+  - a least error below the image's, for each, and for the 3D stack;
+  - `specimen.jpg`, `image.jpg` and `deconvolved.jpg` in `target/deconvolve`, the last with sharper beads and discs than the image.
+- [ ] `cargo run -p tetera-imaging --example deconvolve -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-imaging -- psf:: deconvolve::` — expect every test to pass.
+- **Result:** see the [notes](notes/P1.07b-psfs-and-richardson-lucy.md#manual-test).

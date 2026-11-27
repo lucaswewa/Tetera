@@ -24,12 +24,18 @@
 //! - [`denoise`]: temporal averaging over a window of frames, reset when the stage moves, and
 //!   the bilateral filter.
 //!
+//! From P1.07b:
+//! - [`psf`]: point spread functions, theoretical from the optics, 2D and 3D, or measured;
+//! - [`deconvolve`]: Richardson–Lucy, 2D and 3D, with total variation if asked for, on the
+//!   CPU.
+//!
 //! Each operation runs on whichever backend a [`Compute`](tetera_compute::Compute) chose;
 //! `_cpu` runs its twin, and `_device` leaves data on the GPU.
 
 pub mod bayer;
 pub mod colour;
 pub mod correct;
+pub mod deconvolve;
 pub mod demosaic;
 pub mod denoise;
 pub mod display;
@@ -37,11 +43,13 @@ pub mod image;
 pub mod isp;
 pub mod jpeg;
 pub mod pattern;
+pub mod psf;
 pub mod resize;
 
 pub use bayer::BinMode;
 pub use colour::{Colour, ColourCorrection};
 pub use correct::{DarkLibrary, FlatField, MasterDark};
+pub use deconvolve::{RichardsonLucy, Volume};
 pub use demosaic::{Demosaic, Sample};
 pub use denoise::{Bilateral, TemporalMean};
 pub use display::{Curve, DisplayTransform, Levels};
@@ -50,4 +58,5 @@ pub use image::{BayerPlanes, Image, Mosaic, MosaicLayout};
 pub use image::{DeviceImage, DeviceMosaic};
 pub use isp::{Isp, IspParams, PreviewDifference, Reduce, compare_previews};
 pub use jpeg::JpegEncoder;
+pub use psf::{Optics, Psf};
 pub use resize::Resize;
