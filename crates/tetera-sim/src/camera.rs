@@ -968,7 +968,14 @@ mod tests {
 
     #[test]
     fn frames_come_at_the_modes_interval_on_the_clock() {
-        for (id, bits, exposure_ms) in [(0u32, 12u8, 5.0f64), (1, 8, 2.0), (2, 12, 100.0)] {
+        // The spec's rates, as OScope measured them; the third exposure is longer than the
+        // mode's readout, so it sets the interval.
+        for (id, bits, exposure_ms, fps) in [
+            (0u32, 12u8, 5.0f64, 7.24),
+            (0, 8, 5.0, 14.49),
+            (1, 8, 2.0, 53.14),
+            (2, 12, 100.0, 33.87),
+        ] {
             let camera = camera(scene(Rate::Stepped, Some("20x")), None);
             set(&camera, |c| {
                 c.mode = id;
@@ -976,10 +983,14 @@ mod tests {
                 c.exposure = Duration::from_secs_f64(exposure_ms / 1e3);
             });
             let timing = camera.timing().unwrap();
-            let readout = mode(id).unwrap().interval(bits);
-            assert_eq!(timing.interval, readout.max(timing.exposure));
+            let readout: f64 = 1.0 / fps;
+            assert!(
+                (timing.interval.as_secs_f64() - readout.max(exposure_ms / 1e3)).abs() < 1e-8,
+                "mode {id} at {bits} bits: {:?}",
+                timing.interval
+            );
             let rows = SMALL.height / mode(id).unwrap().binning;
-            assert_eq!(timing.line_time, readout / rows);
+            assert!((timing.line_time.as_secs_f64() * f64::from(rows) - readout).abs() < 1e-6);
             let got = stream_stepped(&camera, 4);
             for pair in got.windows(2) {
                 let (a, b) = (pair[0].meta(), pair[1].meta());
