@@ -2,6 +2,8 @@
 //! checks that panic with what went wrong. Each implementation's tests run the suite: the
 //! fakes now, the virtual devices (P1.10–P1.12) and the drivers (M5) later.
 
+pub mod stage;
+
 /// The camera's contract.
 pub mod camera {
     use crate::camera::{Camera, CameraConfig, CameraEvent, FrameSink, Trigger};

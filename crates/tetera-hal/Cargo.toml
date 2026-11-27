@@ -13,6 +13,7 @@ schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tetera-core.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true
