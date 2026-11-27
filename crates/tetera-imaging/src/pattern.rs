@@ -7,6 +7,30 @@ use std::f64::consts::{PI, TAU};
 use tetera_core::frame::format::{BayerPattern, Channel};
 use tetera_core::{Error, Result};
 
+/// `values` with Gaussian noise of standard deviation `sigma` added, rounded and clamped to
+/// `0..=max`: the same `seed`, the same noise. A xorshift generator and the Box–Muller
+/// transform, so tests need no dependency.
+pub fn noisy(values: &[u16], sigma: f64, max: u16, seed: u64) -> Vec<u16> {
+    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    let mut uniform = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        // 53 bits in (0, 1]: never 0, so the logarithm is defined.
+        ((state >> 11) as f64 + 1.0) / (1u64 << 53) as f64
+    };
+    values
+        .iter()
+        .map(|&v| {
+            let gauss = (-2.0 * uniform().ln()).sqrt() * (TAU * uniform()).cos();
+            sigma
+                .mul_add(gauss, f64::from(v))
+                .round()
+                .clamp(0.0, f64::from(max)) as u16
+        })
+        .collect()
+}
+
 /// A synthetic sensor: what a linear image becomes as a raw mosaic, with the faults the ISP
 /// corrects. Noise-free, so tests know the answer.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -331,6 +355,33 @@ mod tests {
         assert_eq!(
             sensor.expose(&grey).unwrap_err().to_string(),
             "a sensor records RGB, not 1 channels"
+        );
+    }
+
+    #[test]
+    fn noise_has_its_standard_deviation_and_repeats_with_its_seed() {
+        let clean = vec![2_000u16; 20_000];
+        let a = noisy(&clean, 50.0, 4_095, 1);
+        assert_eq!(a, noisy(&clean, 50.0, 4_095, 1), "the same seed");
+        assert_ne!(a, noisy(&clean, 50.0, 4_095, 2), "another seed");
+        let mean = a.iter().map(|&v| f64::from(v)).sum::<f64>() / a.len() as f64;
+        let sd = (a
+            .iter()
+            .map(|&v| (f64::from(v) - mean).powi(2))
+            .sum::<f64>()
+            / a.len() as f64)
+            .sqrt();
+        assert!(
+            (mean - 2_000.0).abs() < 1.5 && (sd - 50.0).abs() < 1.5,
+            "mean {mean:.2}, σ {sd:.2}"
+        );
+        let clamped = noisy(&[0, 4_095], 1_000.0, 4_095, 3);
+        assert!(clamped.iter().all(|&v| v <= 4_095));
+        assert_eq!(noisy(&[7, 8], 0.0, 4_095, 4), [7, 8], "no noise");
+        // Pinned: tests and examples quote PSNRs of this noise.
+        assert_eq!(
+            noisy(&[2_000; 6], 50.0, 4_095, 1),
+            [1978, 2023, 1921, 2030, 1975, 2053]
         );
     }
 

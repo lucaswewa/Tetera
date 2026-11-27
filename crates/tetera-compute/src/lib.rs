@@ -13,6 +13,7 @@ pub mod budget;
 pub mod cpu;
 #[cfg(feature = "cuda")]
 pub mod cuda;
+pub mod denoise;
 pub mod features;
 pub mod fused;
 pub mod imaging;

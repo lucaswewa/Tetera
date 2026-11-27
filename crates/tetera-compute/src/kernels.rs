@@ -54,6 +54,13 @@ pub const DISPLAY: KernelSource = KernelSource {
     fatbin: generated::DISPLAY_FATBIN,
 };
 
+/// `kernels/denoise.cu`: temporal averaging and the bilateral filter.
+pub const DENOISE: KernelSource = KernelSource {
+    name: "denoise",
+    source: generated::DENOISE_SOURCE,
+    fatbin: generated::DENOISE_FATBIN,
+};
+
 /// `kernels/fused.cu`: the fused ISP, one pass from a raw frame to a preview.
 pub const FUSED: KernelSource = KernelSource {
     name: "fused",
