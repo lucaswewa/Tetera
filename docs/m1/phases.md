@@ -54,7 +54,7 @@ Each phase has:
 | [P1.08b](#p108b-the-raw-paths-nodes) | The raw path's nodes | P1.08a | 1,390 | — | G1, G1c |
 | [P1.08c](#p108c-gpu-residency-and-fusion) | GPU residency and fusion | P1.08b | 1,440 | — | G1, G1c |
 | [P1.08d](#p108d-denoise-and-deconvolution-nodes-and-live-runs) | Denoise and deconvolution nodes, and live runs | P1.08c | 900 | — | G1, G1c |
-| [P1.08e](#p108e-batch-runs-and-tiling) | Batch runs and tiling | P1.08d | 740 | — | G1, G1c |
+| [P1.08e](#p108e-batch-runs-and-tiling) | Batch runs and tiling | P1.08d | 780 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
 | [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09 | 1,350 | — | G1 |
 | [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
@@ -721,7 +721,7 @@ Each phase has:
 | Depends on | P1.08d |
 | ADRs | — |
 | Gates | G1, G1c |
-| Estimate | code 330 (batch runs over a list of inputs 80; tiles with halos, each node's reach declared, 250) · tests 330 · examples 60 · docs-as-code 15 · glue 5 = **740**, from P1.08's split; its own second estimate comes before its code |
+| Second estimate | code 340 (batch runs 40; each step's reach, from its parameters, 60; the halo over the recipe's paths 40; cutting values into tiles and stitching them back 120; the tiled run 80) · tests 340 · examples 80 (a folder of frames written and read back) · docs-as-code 15 · glue 5 = **780** (1,014 at ×1.3), against 740 from P1.08's split |
 
 **Goal.** Run a recipe over many inputs, and over images too large to take whole.
 
