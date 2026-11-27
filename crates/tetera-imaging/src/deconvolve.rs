@@ -955,6 +955,18 @@ mod tests {
     }
 
     #[test]
+    fn the_floor_and_epsilon_scale_with_the_largest_value() {
+        let image = volume(3, 1, 1, |x, _, _| [10.0, 4_000.0, 0.0][x as usize]);
+        assert_eq!(limits(&image), (1e-12 * 4_000.0, 1e-6 * 4_000.0));
+        let dark = volume(2, 2, 1, |_, _, _| 0.0);
+        assert_eq!(
+            limits(&dark),
+            (0.0, f32::MIN_POSITIVE),
+            "epsilon stays above 0"
+        );
+    }
+
+    #[test]
     fn total_variation_is_one_where_the_estimate_is_flat_and_held_at_a_tenth() {
         let flat = vec![5.0; 4 * 3 * 2];
         let mut out = vec![0.0; flat.len()];
@@ -1294,6 +1306,10 @@ mod cuda_tests {
             let on_cpu = richardson_lucy_cpu(&cpu, &image, &psf, &settings).unwrap();
             let mut run = DeviceDeconvolution::new(&gpu, &image, &psf, lambda).unwrap();
             let start = run.flux().unwrap();
+            let cpu_start = Deconvolution::new(&cpu, &image, &psf, lambda)
+                .unwrap()
+                .image_flux();
+            assert_eq!(start, cpu_start, "the same padded image, summed alike");
             for _ in 0..20 {
                 run.step().unwrap();
             }

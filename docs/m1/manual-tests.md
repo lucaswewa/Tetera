@@ -138,3 +138,14 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-imaging --example deconvolve -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-imaging -- psf:: deconvolve::` — expect every test to pass.
 - **Result:** see the [notes](notes/P1.07b-psfs-and-richardson-lucy.md#manual-test).
+
+## P1.07c: Richardson–Lucy on the GPU
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3, with cuFFT, `cmake` and `nasm` in WSL.
+- [ ] `cargo run --release -p tetera-imaging --example deconvolve --features cuda` — expect:
+  - P1.07b's table on the CPU;
+  - then the 2D and 3D cases on CUDA, each faster than on the CPU, with a relative RMS difference far below 1e-3, and no error, since the example checks the spec's tolerance;
+  - then 20 iterations at 5,472 × 3,648 timed on CUDA.
+- [ ] `cargo run -p tetera-imaging --example deconvolve -- --smoke` — expect `CUDA: not in this build` and `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda deconvolve` and the same for `tetera-compute` — expect every test to pass.
+- **Result:** see the [notes](notes/P1.07c-richardson-lucy-on-the-gpu.md#manual-test).

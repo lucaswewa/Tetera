@@ -175,24 +175,19 @@ mod device {
     }
 
     impl CudaBackend {
-        /// A plan for complex FFTs over a volume of `size`, x fastest. An axis of 1 is left
-        /// out, its transform being itself.
+        /// A plan for complex FFTs over a volume of `size`, x fastest. A 3D plan serves every
+        /// volume: cuFFT takes axes of 1, and an image planned as 1 deep runs as fast as with
+        /// a 2D plan.
         pub fn fft_plan(&self, size: [usize; 3]) -> Result<DeviceFft> {
             library_loads(&["libcufft.so.12", "libcufft.so"])
                 .map_err(|e| Error::hardware(format!("cuFFT: {e}")))?;
             let count = size.iter().product();
+            let [nx, ny, nz] = sizes(&size)?[..] else {
+                unreachable!("three sizes")
+            };
             // cuFFT takes the slowest axis first.
-            let axes: Vec<usize> = size.iter().rev().copied().filter(|&n| n > 1).collect();
-            let dims = sizes(&axes)?;
-            let (kind, stream) = (cufftType::CUFFT_C2C, self.stream().clone());
-            let plan = match dims[..] {
-                [] => CudaFft::plan_1d(1, kind, 1, stream),
-                [n] => CudaFft::plan_1d(n, kind, 1, stream),
-                [a, b] => CudaFft::plan_2d(a, b, kind, stream),
-                [a, b, c] => CudaFft::plan_3d(a, b, c, kind, stream),
-                _ => unreachable!("a volume has three axes"),
-            }
-            .map_err(|e| Error::hardware(format!("cuFFT's plan for {size:?}: {e:?}")))?;
+            let plan = CudaFft::plan_3d(nz, ny, nx, cufftType::CUFFT_C2C, self.stream().clone())
+                .map_err(|e| Error::hardware(format!("cuFFT's plan for {size:?}: {e:?}")))?;
             Ok(DeviceFft { plan, count })
         }
 
@@ -498,6 +493,8 @@ mod cuda_tests {
         }
         // A wave of one cycle along y lands in the bin of frequency 1 along y.
         let fft = gpu.fft_plan([4, 4, 1]).unwrap();
+        assert_eq!(fft.count(), 16);
+        assert_eq!(format!("{fft:?}"), "DeviceFft { count: 16 }");
         let wave: Vec<Complex> = (0..16)
             .map(|i| {
                 let phase = std::f32::consts::TAU * (i / 4) as f32 / 4.0;
@@ -635,9 +632,16 @@ mod cuda_tests {
             ),
             "total variation takes a volume of some size, at most 65,535 deep, not [0, 2, 1]"
         );
+        assert_eq!(
+            message(
+                gpu.rl_total_variation(&f(65_536), [1, 1, 65_536], 0.1, 1.0, &mut f(65_536))
+                    .unwrap_err()
+            ),
+            "total variation takes a volume of some size, at most 65,535 deep, not [1, 1, 65536]"
+        );
         assert!(
-            gpu.rl_total_variation(&f(65_536), [1, 1, 65_536], 0.1, 1.0, &mut f(65_536))
-                .is_err()
+            gpu.rl_total_variation(&f(65_535), [1, 1, 65_535], 0.1, 1.0, &mut f(65_535))
+                .is_ok()
         );
         // Each length alone is checked, and the right ones pass.
         assert!(gpu.rl_pad(&f(6), &padding, &mut f(n)).is_ok());
