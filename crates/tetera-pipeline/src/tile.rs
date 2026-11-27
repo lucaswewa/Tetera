@@ -96,11 +96,8 @@ impl Plan {
         for y in (0..height).step_by(th as usize) {
             for x in (0..width).step_by(tw as usize) {
                 let core = Rect::new(x, y, tw.min(width - x), th.min(height - y));
-                let x0 = x.saturating_sub(halo);
-                let y0 = y.saturating_sub(halo);
-                let x1 = (core.x + core.width + halo).min(width);
-                let y1 = (core.y + core.height + halo).min(height);
-                let cut_at = Rect::new(x0, y0, x1 - x0, y1 - y0);
+                let cut_at = around(core, halo, width, height);
+                let (x0, y0) = (cut_at.x, cut_at.y);
                 let mut part = BTreeMap::new();
                 for (name, value) in &inputs {
                     let piece = if size(value).is_some() {
@@ -135,6 +132,15 @@ impl Plan {
             .map(|(name, canvas)| Ok((name, canvas.finish()?)))
             .collect()
     }
+}
+
+/// `core` with `halo` pixels around it, within a frame of `width × height`.
+fn around(core: Rect, halo: u32, width: u32, height: u32) -> Rect {
+    let x0 = core.x.saturating_sub(halo);
+    let y0 = core.y.saturating_sub(halo);
+    let x1 = (core.x + core.width + halo).min(width);
+    let y1 = (core.y + core.height + halo).min(height);
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
 }
 
 /// `n` rounded up to even, so a raw frame's tiles keep its Bayer pattern.
@@ -417,6 +423,19 @@ mod tests {
                 "node `mean` (tetera.temporal_mean) keeps state from one run to the next"
             )
         );
+        // A node whose step says nothing of its reach needs the whole image.
+        let stats = plan(
+            r#"{"name": "stats", "inputs": {"image": {"kind": "image", "channels": 1, "sample": "u8"}},
+            "nodes": [{"id": "s", "node": "tetera.statistics", "inputs": {"image": "image"}}],
+            "outputs": {"t": "s.table"}}"#,
+        );
+        assert!(
+            stats
+                .reach()
+                .unwrap_err()
+                .to_string()
+                .ends_with("node `s` (tetera.statistics) needs the whole image")
+        );
         let mut p = plan(&raw_chain("bilinear"));
         let mut inputs = raw_inputs(64, 48);
         let other = raw_inputs(32, 48).remove("dark").unwrap();
@@ -488,6 +507,91 @@ mod tests {
                 .to_string()
                 .contains("no frame or image")
         );
+    }
+
+    #[test]
+    fn a_tile_takes_its_halo_within_the_frame_and_halos_are_even() {
+        assert_eq!(
+            around(Rect::new(10, 20, 30, 40), 4, 100, 100),
+            Rect::new(6, 16, 38, 48)
+        );
+        assert_eq!(
+            around(Rect::new(2, 0, 10, 10), 4, 100, 100),
+            Rect::new(0, 0, 16, 14)
+        );
+        assert_eq!(
+            around(Rect::new(90, 94, 10, 6), 6, 100, 100),
+            Rect::new(84, 88, 16, 12)
+        );
+        assert_eq!(
+            around(Rect::new(0, 0, 8, 8), 0, 8, 8),
+            Rect::new(0, 0, 8, 8)
+        );
+        assert_eq!([0, 1, 4, 5, 6, 7].map(even), [0, 2, 4, 6, 6, 8]);
+    }
+
+    #[test]
+    fn values_cut_into_tiles_and_stitched_come_back_whole() {
+        let layout = tetera_imaging::MosaicLayout {
+            width: 8,
+            height: 6,
+            pattern: tetera_core::frame::format::BayerPattern::Grbg,
+            significant_bits: 12,
+        };
+        let values = [
+            Value::Raw(Mosaic::new(layout, (0..48).collect()).unwrap()),
+            Value::U8(Image::new(8, 6, 3, (0..144).map(|v| v as u8).collect()).unwrap()),
+            Value::U16(Image::new(8, 6, 1, (0..48).map(|v| v * 7).collect()).unwrap()),
+            Value::F32(Image::new(8, 6, 3, (0..144).map(|v| v as f32 / 4.0).collect()).unwrap()),
+        ];
+        for value in values {
+            let mut canvas: Option<Canvas> = None;
+            for y in (0..6).step_by(2) {
+                for x in (0..8).step_by(4) {
+                    let part = cut(&value, Rect::new(x, y, 4, 2)).unwrap();
+                    assert_eq!(size(&part), Some((4, 2)));
+                    let c = canvas.get_or_insert_with(|| Canvas::new(&part, 8, 6).unwrap());
+                    // Each tile's right half, from its cut with a column more on the left.
+                    let wider =
+                        cut(&value, Rect::new(x.saturating_sub(2), y, 4 + x.min(2), 2)).unwrap();
+                    c.paste(&wider, Rect::new(x.min(2), 0, 4, 2), (x, y))
+                        .unwrap();
+                }
+            }
+            assert_eq!(canvas.unwrap().finish().unwrap(), value);
+        }
+        assert!(cut(&Value::Scalar(1.0), Rect::new(0, 0, 1, 1)).is_err());
+        assert_eq!(size(&Value::Scalar(1.0)), None);
+    }
+
+    #[test]
+    fn a_tile_unlike_the_ones_before_it_is_refused() {
+        let rgb =
+            |channels| Image::new(2, 2, channels, vec![0u16; 4 * usize::from(channels)]).unwrap();
+        let mut canvas = Canvas::new(&Value::U16(rgb(3)), 4, 4).unwrap();
+        let whole = Rect::new(0, 0, 2, 2);
+        assert!(canvas.paste(&Value::U16(rgb(1)), whole, (0, 0)).is_err());
+        assert!(canvas.paste(&Value::U16(rgb(3)), whole, (2, 2)).is_ok());
+        let bytes = |channels| {
+            Value::U8(Image::new(2, 2, channels, vec![0u8; 4 * usize::from(channels)]).unwrap())
+        };
+        let mut canvas = Canvas::new(&bytes(3), 4, 4).unwrap();
+        assert!(canvas.paste(&bytes(1), whole, (0, 0)).is_err());
+        assert!(canvas.paste(&bytes(3), whole, (0, 0)).is_ok());
+        let floats = |channels| {
+            Value::F32(Image::new(2, 2, channels, vec![0f32; 4 * usize::from(channels)]).unwrap())
+        };
+        let mut canvas = Canvas::new(&floats(1), 4, 4).unwrap();
+        assert!(canvas.paste(&floats(3), whole, (0, 0)).is_err());
+        assert!(canvas.paste(&floats(1), whole, (0, 0)).is_ok());
+        assert!(
+            canvas
+                .paste(&bytes(1), whole, (0, 0))
+                .unwrap_err()
+                .to_string()
+                .contains("unlike the tiles before it")
+        );
+        assert!(Canvas::new(&Value::Scalar(1.0), 4, 4).is_err());
     }
 
     #[test]
