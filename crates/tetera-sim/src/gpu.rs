@@ -2,10 +2,12 @@
 //! `render`, and the GPU's tiles in their cache, within a VRAM budget.
 
 use crate::he::{HeSample, Stains};
+use crate::optics::{Field, FieldOfView, Grid, Light, blackbody, depth_groups, gaussian};
 use crate::render::{Depth, Region, Rendered};
-use crate::tiles::{CacheStats, TILE, TileCache, TileKey};
+use crate::tiles::{CacheStats, TILE, TileCache, TileDepth, TileKey};
 use std::sync::{Arc, Mutex, PoisonError};
 use tetera_compute::budget::{Budget, Grant};
+use tetera_compute::field::{FieldLight, FieldPlanes, SensorView, TileGrid};
 use tetera_compute::half;
 use tetera_compute::he::{HeParams, HeRegion};
 use tetera_compute::{CudaBackend, DeviceBuffer};
@@ -82,6 +84,7 @@ pub struct HeTiles {
     sample: HeSample,
     budget: Budget,
     cache: Mutex<TileCache<Arc<DeviceTile>>>,
+    planes: Mutex<Option<FieldPlanes>>,
 }
 
 impl std::fmt::Debug for HeTiles {
@@ -102,6 +105,7 @@ impl HeTiles {
             sample,
             budget,
             cache: Mutex::new(cache),
+            planes: Mutex::new(None),
         })
     }
 
@@ -135,6 +139,86 @@ impl HeTiles {
     /// Its VRAM budget.
     pub fn budget(&self) -> &Budget {
         &self.budget
+    }
+
+    /// The field `fov` sees, focused `focus` µm above the section's lower face, under `light`,
+    /// made on the GPU in its planes, kept for the next frame, and handed to `with`. The twin
+    /// of `optics::field`; each depth group's tiles come from the cache, made if they aren't
+    /// held.
+    pub fn field_with<R>(
+        &self,
+        fov: &FieldOfView,
+        light: &Light,
+        focus: f64,
+        with: impl FnOnce(&FieldPlanes) -> Result<R>,
+    ) -> Result<R> {
+        let s = fov.optics.sensor;
+        let groups = depth_groups(&fov.optics, focus, self.sample.section().thickness);
+        let widest = groups.iter().map(|g| g.sigma).fold(0.0, f32::max);
+        let grid = Grid::new(fov, widest);
+        let (tile, columns, rows) = grid.tiles();
+        let tiles = TileGrid {
+            first: grid.first,
+            size: grid.size,
+            pixel: grid.pixel(),
+            tile,
+            tiles: (columns, rows),
+        };
+        let view = SensorView {
+            centre: fov.centre,
+            pixel: fov.optics.pixel(),
+            angle: fov.optics.mounting_angle,
+            width: s.width,
+            height: s.height,
+        };
+        let mut planes = self.planes.lock().unwrap_or_else(PoisonError::into_inner);
+        if planes
+            .as_ref()
+            .is_none_or(|p| (p.width, p.height) != (s.width, s.height))
+        {
+            *planes = None;
+            *planes = Some(self.gpu.field_planes(s.width, s.height)?);
+        }
+        let planes = planes.as_mut().expect("planes made");
+        for (k, group) in groups.iter().enumerate() {
+            let depth = TileDepth::Layers {
+                first: group.first,
+                count: group.count,
+            };
+            let mut held = Vec::with_capacity(columns as usize * rows as usize);
+            for r in 0..rows as i32 {
+                for c in 0..columns as i32 {
+                    held.push(self.tile(TileKey {
+                        level: grid.level,
+                        column: tile.0 + c,
+                        row: tile.1 + r,
+                        depth,
+                    })?);
+                }
+            }
+            let buffers: Vec<&DeviceBuffer<u16>> = held.iter().map(|t| &t.buffer).collect();
+            self.gpu.field_resample(&buffers, &tiles, &view, planes)?;
+            self.gpu
+                .field_blur(planes, &gaussian(group.sigma), k == 0)?;
+        }
+        let lit = FieldLight {
+            intensity: light.intensity,
+            unevenness: light.unevenness,
+            vignetting: fov.optics.vignetting,
+            warmth: blackbody(light.colour_temperature),
+        };
+        self.gpu.field_light(planes, &lit)?;
+        with(planes)
+    }
+
+    /// The field, brought back to the host.
+    pub fn field(&self, fov: &FieldOfView, light: &Light, focus: f64) -> Result<Field> {
+        let rgb = self.field_with(fov, light, focus, |planes| self.gpu.download(&planes.rgb))?;
+        Ok(Field {
+            width: fov.optics.sensor.width,
+            height: fov.optics.sensor.height,
+            rgb: rgb.as_chunks::<3>().0.to_vec(),
+        })
     }
 }
 
@@ -325,5 +409,91 @@ mod tests {
         let ms = gpu.time_ms(|| s.render_on(&gpu, &r).map(drop)).unwrap();
         eprintln!("a 512 × 512 region at 50× on the GPU: {ms:.2} ms");
         assert!(ms > 0.0 && ms < 1_000.0, "{ms} ms");
+    }
+
+    fn tiles_on(gpu: CudaBackend, sample: HeSample, tiles: u64) -> HeTiles {
+        let budgets = VramBudgets::new(4 * 1024 * TILE_BYTES);
+        let budget = budgets.reserve("field", tiles * TILE_BYTES).unwrap();
+        HeTiles::new(Arc::new(gpu), sample, budget).unwrap()
+    }
+
+    #[test]
+    fn the_gpu_field_is_the_cpu_fields_twin() {
+        use crate::optics::{FieldOfView, Light, Optics, Sensor, field};
+        let gpu = tetera_compute::cuda_or_skip!();
+        let tiles = tiles_on(gpu, sample(false), 256);
+        let light = Light::default();
+        for (m, na, angle, focus) in [
+            (5.0, 0.14, 0.0, 2.0),
+            (20.0, 0.42, 0.3, 1.0),
+            (50.0, 0.55, -0.2, 2.5),
+            (50.0, 0.55, 0.0, 8.0),
+        ] {
+            let fov = FieldOfView {
+                centre: (1_000.0, 1_000.0),
+                optics: Optics {
+                    sensor: Sensor {
+                        width: 160,
+                        height: 120,
+                        pixel: 2.4,
+                    },
+                    ..Optics::new(m, na, angle).unwrap()
+                },
+            };
+            let (cpu, on_gpu) = (
+                field(&sample(false), &fov, &light, focus).unwrap(),
+                tiles.field(&fov, &light, focus).unwrap(),
+            );
+            assert_eq!(
+                (on_gpu.width, on_gpu.height, on_gpu.rgb.len()),
+                (cpu.width, cpu.height, cpu.rgb.len())
+            );
+            let worst = cpu
+                .rgb
+                .iter()
+                .zip(&on_gpu.rgb)
+                .flat_map(|(a, b)| (0..3).map(move |c| (a[c] - b[c]).abs()))
+                .fold(0.0, f32::max);
+            eprintln!(
+                "{m}× at {focus} µm: within {:.2e} of the light",
+                worst / light.intensity
+            );
+            assert!(
+                worst <= 3e-3 * light.intensity,
+                "{m}×, focus {focus}: {worst}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_full_field_on_the_gpu_takes_its_time() {
+        use crate::optics::{FieldOfView, Light, Optics};
+        use std::time::Instant;
+        let gpu = tetera_compute::cuda_or_skip!();
+        let tiles = tiles_on(gpu.clone(), sample(false), 4_000);
+        let light = Light::default();
+        for (m, na) in [(5.0, 0.14), (50.0, 0.55)] {
+            let optics = Optics::new(m, na, 0.0).unwrap();
+            let mut times = Vec::new();
+            for (k, dx) in [0.0, 0.0, 20.0].into_iter().enumerate() {
+                let fov = FieldOfView {
+                    centre: (2_000.0 + dx * optics.pixel() * 10.0, 2_000.0),
+                    optics,
+                };
+                let start = Instant::now();
+                tiles.field_with(&fov, &light, 2.0, |_| Ok(())).unwrap();
+                gpu.synchronize().unwrap();
+                times.push(start.elapsed().as_secs_f64() * 1e3);
+                let _ = k;
+            }
+            eprintln!(
+                "a full field at {m}×: {:.0} ms cold, {:.1} ms still, {:.1} ms moved 200 pixels; {:?}",
+                times[0],
+                times[1],
+                times[2],
+                tiles.stats()
+            );
+            assert!(times[1] < times[0], "still is cheaper than cold");
+        }
     }
 }

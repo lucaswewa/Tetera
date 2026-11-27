@@ -82,6 +82,13 @@ pub const ISP: KernelSource = KernelSource {
     fatbin: generated::ISP_FATBIN,
 };
 
+/// `kernels/field.cu`: the field the sensor sees, resampled, blurred and lit (P1.12a).
+pub const FIELD: KernelSource = KernelSource {
+    name: "field",
+    source: generated::FIELD_SOURCE,
+    fatbin: generated::FIELD_FATBIN,
+};
+
 /// `kernels/he.cu`: the H&E sample, its cells and its pixels (P1.11b).
 pub const HE: KernelSource = KernelSource {
     name: "he",
