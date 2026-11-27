@@ -14,7 +14,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.05b | Binning, resize, display transform and JPEG | Done | [P1.05b](P1.05b-binning-resize-display-transform-and-jpeg.md) |
 | P1.06a | Dark, flat and colour | Done | [P1.06a](P1.06a-dark-flat-and-colour.md) |
 | P1.06b | The fused kernel | Done | [P1.06b](P1.06b-the-fused-kernel.md) |
-| P1.07a | Denoise | In progress | [P1.07a](P1.07a-denoise.md) |
+| P1.07a | Denoise | In review | [P1.07a](P1.07a-denoise.md) |
 | P1.07b | PSFs and Richardson–Lucy | Not started | — |
 | P1.07c | Richardson–Lucy on the GPU | Not started | — |
 | P1.08 | The pipeline engine | Not started | — |
