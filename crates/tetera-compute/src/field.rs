@@ -416,6 +416,40 @@ mod tests {
     }
 
     #[test]
+    fn a_grid_may_start_anywhere_in_its_first_tile() {
+        let gpu = crate::cuda_or_skip!();
+        let (tile, zeros) = (ramp(&gpu), gpu.zeros::<u16>(256 * 256 * 2).unwrap());
+        let mut planes = gpu.field_planes(8, 4).unwrap();
+        // Four tiles from (-1, -1), the ramp the last, at (0, 0); the grid from (-56, -30).
+        let grid = TileGrid {
+            first: (-56, -30),
+            size: (200, 200),
+            pixel: 1.0,
+            tile: (-1, -1),
+            tiles: (2, 2),
+        };
+        gpu.field_resample(
+            &[&zeros, &zeros, &zeros, &tile],
+            &grid,
+            &view((128.0, 128.0), 0.0),
+            &mut planes,
+        )
+        .unwrap();
+        let (h, e) = (
+            gpu.download(&planes.h).unwrap(),
+            gpu.download(&planes.e).unwrap(),
+        );
+        for k in 0..32 {
+            let (col, row) = ((k % 8) as f32, (k / 8) as f32);
+            assert_eq!(
+                (h[k], e[k]),
+                ((124.0 + col) / 256.0, (126.0 + row) / 256.0),
+                "{k}"
+            );
+        }
+    }
+
+    #[test]
     fn a_field_resamples_its_tiles_bilinearly_held_at_their_edge() {
         let gpu = crate::cuda_or_skip!();
         let tile = ramp(&gpu);
@@ -511,6 +545,31 @@ mod tests {
                     height: 3,
                     ..view((128.0, 128.0), 0.0)
                 },
+            ),
+            (
+                vec![&tile],
+                one_tile(),
+                SensorView {
+                    samples: 0,
+                    ..view((128.0, 128.0), 0.0)
+                },
+            ),
+            // A grid whose first pixel isn't in its first tile, either way.
+            (
+                vec![&tile],
+                TileGrid {
+                    first: (one_tile().first.0 + 256, one_tile().first.1),
+                    ..one_tile()
+                },
+                view((128.0, 128.0), 0.0),
+            ),
+            (
+                vec![&tile],
+                TileGrid {
+                    first: (one_tile().first.0, one_tile().first.1 - 1),
+                    ..one_tile()
+                },
+                view((128.0, 128.0), 0.0),
             ),
         ] {
             assert!(
