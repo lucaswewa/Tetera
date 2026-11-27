@@ -14,4 +14,11 @@ exclude_re = [
     "in fresh_clone$",
     # The wall clock before 1970: no test machine's clock reads that.
     "delete - in UtcTime::now",
+    # Readers of TETERA_CUDA and TETERA_FORCE_CPU: the mutants run sets the first, and tests
+    # can't safely set environment variables. `env_flag` is tested; the manual test runs
+    # compute_info with TETERA_FORCE_CPU=1.
+    "replace cuda_tests_enabled -> bool",
+    "replace <impl Probe for SystemProbe>::force_cpu -> bool",
+    # Nothing asynchronous is observable before P1.04b's kernels, which lift this.
+    "replace CudaBackend::synchronize -> Result",
 ]

@@ -5,7 +5,7 @@ Everything Tetera's build needs, on the Windows host and in WSL2. Each step was 
 | When | What |
 |---|---|
 | Now | WSL2 with Ubuntu 24.04, `.wslconfig`, the system packages, Rust through rustup, cargo-deny, cargo-mutants, the repository in WSL, VS Code over Remote-WSL |
-| From P1.04 | The CUDA toolkit for WSL-Ubuntu: P1.04 writes its exact commands |
+| From P1.04a | The CUDA toolkit 13.3 for WSL-Ubuntu |
 | From P1.S0 or M5 | usbipd-win, to forward the camera and the stage controller into WSL |
 | From M2 | uv, for Python extensions |
 | From M4 | Node.js 24 LTS, and Playwright's Chromium |
@@ -107,8 +107,40 @@ Everything Tetera's build needs, on the Windows host and in WSL2. Each step was 
 
    It lists each tool with `ok`, `warn` or `MISSING`, and ends `Everything needed now is here.` when nothing needed now is missing. Tools for later phases say when they're needed.
 
+## The CUDA toolkit (from P1.04a)
+
+The Windows driver gives WSL2 its GPU and `libcuda`; the toolkit adds `nvcc`, NVRTC, cuFFT and nvJPEG. Tetera pins **13.3**: the newest NVIDIA's WSL-Ubuntu repository offers (13.3.1, 2026-06-23), within the driver's limit (621.24 runs CUDA up to 13.5). Install only `cuda-toolkit-13-3`: the `cuda` and `cuda-drivers` packages would install a Linux driver, which WSL must not have.
+
+In a WSL shell (`wsl -d Ubuntu-24.04` from PowerShell):
+
+```bash
+cd /tmp
+wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt-get update
+sudo apt-get install -y cuda-toolkit-13-3
+```
+
+It takes a few GB. Then put it on the path for login shells, which the gates use, in `~/.profile`:
+
+```bash
+cat >> ~/.profile <<'SH'
+
+# CUDA 13.3, for Tetera (docs/setup/toolchain.md)
+export PATH=/usr/local/cuda-13.3/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda-13.3/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+SH
+```
+
+Open a new shell, then check:
+
+```bash
+nvcc --version                      # release 13.3
+ls /usr/local/cuda-13.3/lib64 | grep -E '^lib(nvrtc|cufft|nvjpeg)\.so\.'
+cargo xtask doctor                  # nvcc: ok
+```
+
 ## Later
 
-- **The CUDA toolkit (P1.04):** only the `cuda-toolkit-*` package from NVIDIA's WSL-Ubuntu repository; the `cuda` and `cuda-drivers` packages would install a Linux driver.
 - **uv (M2):** `curl -LsSf https://astral.sh/uv/install.sh | sh`.
 - **Node.js 24 LTS (M4):** through nvm, then `npx playwright install --with-deps chromium`.

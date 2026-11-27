@@ -68,7 +68,7 @@ OScope is the owner's previous build of the same instrument software. It ran thr
 
 | OScope's lesson | Source | What Tetera does |
 |---|---|---|
-| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 23 phases each. Extensions get their own two milestones |
+| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 24 phases each. Extensions get their own two milestones |
 | Line budgets (300/600/900) never fit. Estimates in parts, committed before the code, did fit: median 1.04 in M1 | M1 retrospective | **No budgets.** A five-part estimate, committed before the code, with a cap that triggers a question to the owner ([§7](#7-how-phases-work)) |
 | The simulator on the CPU was the live view's bottleneck: about 160 ms a frame, 2 s while jogging. It moved to the GPU late | ADR-0062, performance notes | **The simulator is GPU-first from its first phase**, with the CPU path as reference and fallback |
 | Full replays took about an hour per phase. Change-reach gates cut that | ADR-0038, ADR-0061 | **Tiered gates from day one:** quick, phase, checkpoint, milestone ([§8](#8-local-ci-gates)). Each phase runs only what its change reaches |
@@ -221,7 +221,7 @@ A crate depends only on crates in lower layers, plus the few edges within a laye
 | Layer | Crate | What it holds | From |
 |---|---|---|---|
 | L0 Foundation | `tetera-core` | Units, geometry (rects, 2D affines), the monotonic clock, IDs, frame and metadata types, the buffer pool's interface, errors. No I/O, no async | P1.02 |
-| L1 Compute | `tetera-compute` | CPU and CUDA backends, device buffers, pinned memory, streams, the kernel build, fused kernels *(unsafe)* | P1.04 |
+| L1 Compute | `tetera-compute` | CPU and CUDA backends, device buffers, pinned memory, streams, the kernel build, fused kernels *(unsafe)* | P1.04a |
 | | `tetera-log` | The `tracing` set-up: the ring's layer, rolling JSON files, journald. Added by M1's specs: `tetera-core` does no I/O | P1.02 |
 | | `tetera-shm` | Named shared memory and the frame-ring layout, for Python workers *(unsafe)* | P2.04 |
 | L1 Algorithms | `tetera-imaging` | The stock algorithms, each with a CPU and a CUDA path: Bayer, demosaic, dark, flat, CCM, denoise, deconvolution, resize, encode, focus measures, registration | P1.05 |
@@ -362,7 +362,7 @@ camera ─▶ frame pool (Bayer16) ─▶ frame bus ─┬─▶ recorder (lossl
 |---|---|---|
 | Bayer split | RGGB into R, G1, G2 and B planes | P1.05 |
 | Demosaic | Bilinear, and Malvar–He–Cutler | P1.05 |
-| Raw → JPEG / MJPEG | SIMD JPEG encoding on the CPU; nvJPEG on the GPU if WSL2 has it (checked in P1.04) | P1.05 |
+| Raw → JPEG / MJPEG | SIMD JPEG encoding on the CPU; nvJPEG on the GPU if WSL2 has it (checked in P1.04a) | P1.05 |
 | Dark-field subtraction | Subtract a master dark frame, matched by exposure and gain | P1.06 |
 | Flat-field correction | Divide by a normalised master flat, dark-subtracted | P1.06 |
 | Colour-correction matrix | White-balance gains, then a 3 × 3 matrix to linear sRGB, then gamma | P1.06 |
@@ -581,7 +581,8 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 
 | ID | Phase | Scope | Try it | ADRs |
 |---|---|---|---|---|
-| P1.04 | Compute backends | CPU and CUDA backends, run-time detection, device buffers, PTX build, the twin-test harness. Checks what WSL2's CUDA offers: pinned memory, cuFFT, NVRTC, nvJPEG | `ex-compute-info` | 0009, 0010 |
+| P1.04a | Compute backends | CPU and CUDA backends, run-time detection and the CPU fallback, device buffers and streams, pinned memory; what WSL2's CUDA offers: pinned memory, cuFFT, NVRTC, nvJPEG | `ex-compute-info` | 0009 |
+| P1.04b | Kernels and the twin harness | The PTX build and module loading, the twin-test harness, a scale-and-offset kernel pair, VRAM budgets | `ex-twin-scale` | 0010 |
 | P1.05 | Bayer, demosaic, JPEG | Bayer split, bilinear and Malvar–He–Cutler demosaic, resize, raw → JPEG/MJPEG; CPU and CUDA | `ex-demosaic`: a synthetic Bayer frame to JPEG, on each backend | — |
 | P1.06 | Dark, flat, CCM, and the fused kernel | Dark subtraction, flat field, white balance and CCM, gamma; the fused ISP kernel and its equivalence tests | `ex-isp`: timings fused against unfused, CPU against GPU | 0011 |
 | P1.07 | Denoise and deconvolution *(spec-first)* | Temporal averaging, an edge-preserving spatial filter; theoretical PSF, Richardson–Lucy on cuFFT and the CPU | `ex-deconvolve`, against a blurred ground truth | — |
@@ -685,7 +686,7 @@ Each driver phase is *Done* only after the owner has run its manual test on the 
 | P5.06 | Performance | The raw path at the camera's rate to scratch; preview latency and rate; GPU tuning; memory; several clients; H.264 only if needed | — |
 | P5.07 | Packaging and release 1.0 | A `.deb` and the systemd unit for WSL; a Windows bootstrap (`.wslconfig`, the task, usbipd); a 24-hour soak; the user's guide; the release; the retrospective | 0042 |
 
-**In all:** 60 phases, plus the spike: M1 23, M2 8, M3 10, M4 12, M5 7.
+**In all:** 61 phases, plus the spike: M1 24, M2 8, M3 10, M4 12, M5 7.
 
 **Each phase's status** is in [`m1/notes/README.md`](m1/notes/README.md): *Not started*, *In review* or *Done*.
 
@@ -705,8 +706,8 @@ Numbered across the project. Each is written in the phase named.
 | 0006 | Units, coordinates and the clock | P1.02 |
 | 0007 | Logging | P1.02 |
 | 0008 | The frame model, the buffer pool and the frame bus | P1.03 |
-| 0009 | Compute backends: the CPU reference and CUDA | P1.04 |
-| 0010 | Building and loading CUDA kernels under WSL2 | P1.04 |
+| 0009 | Compute backends: the CPU reference and CUDA, and what WSL2 offers | P1.04a |
+| 0010 | Building and loading CUDA kernels under WSL2 | P1.04b |
 | 0011 | Fused kernels | P1.06 |
 | 0012 | The pipeline model | P1.08 |
 | 0013 | The hardware abstraction layer | P1.09 |
@@ -916,7 +917,7 @@ A first draft. **From P1.01, [`setup/toolchain.md`](setup/toolchain.md) is the g
 | R5 | **CUDA under WSL2 has limits** that native Linux doesn't. NVIDIA's WSL guide lists them | A feature Tetera plans to use may not work, such as pinned memory at size, or IPC to Python workers | P1.04 checks each feature Tetera uses. Python workers get frames through host shared memory, not CUDA IPC |
 | R6 | **Disk:** OScope's phases built 60–70 GB each. WSL's virtual disk grows and doesn't shrink by itself | Full disks break WSL | `doctor` checks before G2 and G3; `sparseVhd`; the distro on D: (§12.1); cleaning between milestones |
 | R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
-| R8 | **Scope:** 60 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
+| R8 | **Scope:** 61 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
 | R9 | **The extension ABI** must stay stable across SDK versions | Old extensions break, or crash the server | A versioned C ABI checked at install; panics caught; tests against the previous SDK version; Python in separate processes |
 | R10 | **Extensions as the only home** of stitching, deep zoom, depth from focus and volumes | The SDK must be rich enough for heavy, GPU-bound nodes | P2.03 gives Rust extensions the GPU; P3.01 is a small extension that proves the path before P3.02 |
 | R11 | **The host's sleep, and WSL's clock drift** | Wrong wall-clock times in metadata | A monotonic clock; UTC mapped at start-up and re-checked; a status warning on drift |
@@ -1092,3 +1093,6 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-26 | **P1.02 measured 3,674 lines against its second estimate of 3,180 (×1.16):** code 2,050, tests 1,349. Ten transitive crates pinned back to releases at least two weeks old ([notes](m1/notes/P1.02-core-types-and-logging.md#size)) |
 | 2026-11-26 | **P1.03's second estimate,** before its code: code 860 (formats and layout 220, binning 40, metadata 120, durations as ms in serde 30, the pool and frames 260, views and bit scaling 130, the allocator 60) · tests 800 · examples 110 · docs-as-code 25 · glue 20 = **1,815**, against a first estimate of 1,220. Under 2,000, so the phase stays whole |
 | 2026-11-27 | **P1.03 measured 1,741 lines against its second estimate of 1,815 (×0.96):** code 988, tests 630 ([notes](m1/notes/P1.03-the-frame-model.md#size)) |
+| 2026-11-27 | **P1.04's second estimate,** before its code: about 2,670 (code 1,355 · tests 1,000 · examples 190 · docs-as-code 85 · glue 40). Over 2,000: **the owner split it** into P1.04a (backends, detection, buffers, pinned memory, the WSL2 feature check) and P1.04b (the kernel build, the twin harness, VRAM budgets). 61 phases, M1 24 |
+| 2026-11-27 | **P1.04a's second estimate:** code 760 (backends and selection 180, detection 150, buffers and streams 200, pinned memory 110, the WSL2 feature check 120) · tests 400 · examples 100 · docs-as-code 60 · glue 20 = **1,340**. CUDA toolkit 13.3.1 (2026-06-23), the newest in NVIDIA's WSL-Ubuntu repository; `cudarc` 0.19.10 (2026-09-24); `rayon` 1.12.0 (2026-04-14) |
+| 2026-11-27 | **P1.04a measured 1,349 lines against its second estimate of 1,340 (×1.01).** All five WSL2 CUDA features work on this PC; the gate's G1c now lints, tests and smokes CUDA code with its feature on ([notes](m1/notes/P1.04a-compute-backends.md)) |

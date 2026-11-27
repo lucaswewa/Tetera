@@ -268,7 +268,7 @@ pub fn plan(opts: &Options, reach: &Reach, packages: &[PackageInfo]) -> Vec<Step
         ));
     }
 
-    steps.push(cuda_step(opts, &reached));
+    steps.extend(cuda_steps(opts, &reached));
     steps.push(Step::new(
         "python",
         "the Python SDK's tests",
@@ -356,33 +356,74 @@ fn unit_tests(p: &PackageInfo) -> Step {
     Step::new(name, format!("`{}` changed", p.name), cargo(&args))
 }
 
-fn cuda_step(opts: &Options, reached: &[&PackageInfo]) -> Step {
-    let with_cuda: Vec<&str> = reached
-        .iter()
-        .filter(|p| p.cuda)
-        .map(|p| p.name.as_str())
-        .collect();
+/// G1c: for the reached crates with a `cuda` feature, clippy, the tests and each example's
+/// smoke run with the feature on, the tests and examples with `TETERA_CUDA=1`. Without the
+/// feature, a crate's CUDA code isn't compiled, so the other steps never see it.
+fn cuda_steps(opts: &Options, reached: &[&PackageInfo]) -> Vec<Step> {
+    let with_cuda: Vec<&PackageInfo> = reached.iter().copied().filter(|p| p.cuda).collect();
     if with_cuda.is_empty() {
         let reason = if opts.cuda {
             "--cuda was given, but no reached package has a `cuda` feature"
         } else {
             "no reached package has a `cuda` feature"
         };
-        return Step::new("cuda", "the CUDA twins", Action::Skip(reason.to_string()));
+        return vec![Step::new(
+            "cuda",
+            "the CUDA twins",
+            Action::Skip(reason.to_string()),
+        )];
     }
-    let mut args = vec!["test", "--locked", "--features", "cuda"];
-    for name in &with_cuda {
-        args.extend(["-p", name]);
+    let names: Vec<&str> = with_cuda.iter().map(|p| p.name.as_str()).collect();
+    let why = format!("reached with a `cuda` feature: {}", names.join(", "));
+    let features: Vec<String> = names.iter().map(|n| format!("{n}/cuda")).collect();
+    let select: Vec<&str> = names
+        .iter()
+        .zip(&features)
+        .flat_map(|(name, feature)| ["-p", *name, "--features", feature.as_str()])
+        .collect();
+    let on_gpu = |mut action: Action| {
+        if let Action::Cargo { env, .. } = &mut action {
+            env.push(("TETERA_CUDA".to_string(), "1".to_string()));
+        }
+        action
+    };
+
+    let mut clippy = vec!["clippy", "--locked", "--all-targets"];
+    clippy.extend(&select);
+    clippy.extend(["--", "-D", "warnings"]);
+    let mut test = vec!["test", "--locked"];
+    test.extend(&select);
+    let mut steps = vec![
+        Step::new("cuda clippy", why.clone(), cargo(&clippy)),
+        Step::new("cuda tests", why, on_gpu(cargo(&test))),
+    ];
+    for p in &with_cuda {
+        let feature = format!("{}/cuda", p.name);
+        for example in &p.examples {
+            let args = [
+                "run",
+                "--locked",
+                "-p",
+                &p.name,
+                "--features",
+                &feature,
+                "--example",
+                example,
+                "--",
+                "--smoke",
+            ];
+            let mut action = on_gpu(cargo(&args));
+            if let Action::Cargo { limit_secs, .. } = &mut action {
+                *limit_secs = Some(SMOKE_LIMIT_SECS);
+            }
+            steps.push(Step::new(
+                format!("cuda smoke {}/{example}", p.name),
+                format!("an example of `{}`, with CUDA", p.name),
+                action,
+            ));
+        }
     }
-    let mut action = cargo(&args);
-    if let Action::Cargo { env, .. } = &mut action {
-        env.push(("TETERA_CUDA".to_string(), "1".to_string()));
-    }
-    Step::new(
-        "cuda",
-        format!("reached with a `cuda` feature: {}", with_cuda.join(", ")),
-        action,
-    )
+    steps
 }
 
 fn selection(whole: bool, reached: &[&PackageInfo]) -> Vec<String> {
@@ -421,7 +462,7 @@ mod tests {
     fn workspace() -> Vec<PackageInfo> {
         vec![
             info("tetera-core", &["hello"], false),
-            info("tetera-compute", &[], true),
+            info("tetera-compute", &["info"], true),
             info("xtask", &[], false),
         ]
     }
@@ -484,10 +525,13 @@ mod tests {
                 "clippy",
                 "tests",
                 "smoke tetera-core/hello",
+                "smoke tetera-compute/info",
                 "docs",
                 "deny",
                 "stress",
-                "cuda",
+                "cuda clippy",
+                "cuda tests",
+                "cuda smoke tetera-compute/info",
                 "python"
             ]
         );
@@ -512,7 +556,7 @@ mod tests {
                 limit_secs: Some(SMOKE_LIMIT_SECS),
             }
         );
-        let Action::Cargo { env, .. } = &steps[5].action else {
+        let Action::Cargo { env, .. } = &steps[6].action else {
             panic!()
         };
         assert_eq!(
@@ -520,17 +564,51 @@ mod tests {
             &[("RUSTDOCFLAGS".to_string(), "-D warnings".to_string())]
         );
         assert_eq!(
-            steps[7].action,
+            steps[8].action,
             Action::Stress {
                 packages: vec!["tetera-core".into(), "tetera-compute".into()],
                 repeats: 3
             }
         );
-        let Action::Cargo { args, env, .. } = &steps[8].action else {
-            panic!("{:?}", steps[8])
+        let Action::Cargo { args, env, .. } = &steps[9].action else {
+            panic!("{:?}", steps[9])
         };
-        assert!(args.contains(&"cuda".to_string()) && args.contains(&"tetera-compute".to_string()));
+        assert!(
+            args.windows(4)
+                .any(|w| w == ["-p", "tetera-compute", "--features", "tetera-compute/cuda"]),
+            "{args:?}"
+        );
+        assert_eq!(args.last().map(String::as_str), Some("warnings"));
+        assert!(env.is_empty(), "clippy needs no GPU");
+        let Action::Cargo { args, env, .. } = &steps[10].action else {
+            panic!("{:?}", steps[10])
+        };
+        assert_eq!(args[0], "test");
         assert_eq!(env, &[("TETERA_CUDA".to_string(), "1".to_string())]);
+        let Action::Cargo {
+            args,
+            env,
+            limit_secs,
+        } = &steps[11].action
+        else {
+            panic!("{:?}", steps[11])
+        };
+        assert_eq!(
+            args,
+            &[
+                "run",
+                "--locked",
+                "-p",
+                "tetera-compute",
+                "--features",
+                "tetera-compute/cuda",
+                "--example",
+                "info",
+                "--",
+                "--smoke"
+            ]
+        );
+        assert_eq!((env.len(), *limit_secs), (1, Some(SMOKE_LIMIT_SECS)));
     }
 
     #[test]
@@ -562,9 +640,12 @@ mod tests {
                 "clippy",
                 "tests",
                 "smoke tetera-core/hello",
+                "smoke tetera-compute/info",
                 "docs",
                 "deny",
-                "cuda",
+                "cuda clippy",
+                "cuda tests",
+                "cuda smoke tetera-compute/info",
                 "python",
                 "mutants"
             ]
@@ -573,12 +654,12 @@ mod tests {
             panic!()
         };
         assert_eq!(args, &["test", "--locked", "--workspace"]);
-        assert!(matches!(steps[9].action, Action::Skip(_)));
+        assert!(matches!(steps[12].action, Action::Skip(_)));
 
         opts.mutants_diff = Some(PathBuf::from("/tmp/change.diff"));
         let steps = plan(&opts, &reach(&[]), &workspace());
         assert_eq!(
-            steps[9].action,
+            steps[12].action,
             cargo(&[
                 "mutants",
                 "--in-diff",
