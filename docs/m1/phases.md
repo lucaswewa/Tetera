@@ -932,7 +932,7 @@ Each phase has:
 | ADRs | — (0015) |
 | Gates | G1, G1c |
 | Spec-first | Yes: P1.11a's spec states its tolerance and tiles |
-| Estimate | code 750 (the model's CUDA kernel 450; tiles, levels of detail and half precision 150; the cache within a VRAM budget 150) · tests 400 · examples 120 · docs-as-code 40 · glue 30 = **1,340**, from P1.11's split; its own second estimate comes before its code |
+| Second estimate | code 800 (the model's CUDA kernels, its cells and its pixels, 450; launching them, and half precision, 100; tiles, levels of detail and the cache within a VRAM budget 250) · tests 400 (the twins 150; the cache, testable without a GPU, 150; tiles and determinism 100) · examples 80 · docs-as-code 30 · glue 30 = **1,340** (1,742 at ×1.3). The kernels and their launch live in `tetera-compute`, the one crate allowed unsafe code; `tetera-sim` wraps them |
 
 **Goal.** The same slide made on the GPU as fast as the camera needs it.
 

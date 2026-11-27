@@ -27,7 +27,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.10a | The simulated clock and motion profiles | Done | [P1.10a](P1.10a-the-simulated-clock-and-motion-profiles.md) |
 | P1.10b | The virtual stage | Done | [P1.10b](P1.10b-the-virtual-stage.md) |
 | P1.11a | The H&E sample, on the CPU | Done | [P1.11a](P1.11a-the-he-sample-on-the-cpu.md) |
-| P1.11b | The H&E sample on the GPU, and its tiles | Not started | — |
+| P1.11b | The H&E sample on the GPU, and its tiles | In progress | [P1.11b](P1.11b-the-he-sample-on-the-gpu-and-its-tiles.md) |
 | P1.12 | Optics, light and the virtual camera | Not started | — |
 | P1.13 | The server and the device Things | Not started | — |
 | P1.14a | The frame bus and the preview pipeline | Not started | — |
