@@ -805,6 +805,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "tetera-core",
+ "tetera-hal",
 ]
 
 [[package]]
