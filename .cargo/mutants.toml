@@ -32,4 +32,7 @@ exclude_re = [
     # The noise generator's uniform draw adds 1 to stay above zero for the logarithm: it
     # matters only for a draw of exactly zero, which no seed gives.
     "replace \\+ with (-|\\*) in noisy",
+    # How many values a parallel task takes in deconvolution: it changes only how fast it runs.
+    "replace per_task -> usize with 1",
+    "replace / with (\\*|%) in per_task",
 ]

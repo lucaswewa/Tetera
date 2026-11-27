@@ -57,20 +57,28 @@ pub fn bessel_j1(x: f64) -> f64 {
                         + t * (0.000_743_48 + t * (0.000_798_24 + t * -0.000_291_66)))));
         f * theta.cos() / ax.sqrt()
     };
-    if x < 0.0 { -value } else { value }
+    if x.is_sign_negative() { -value } else { value }
 }
 
 /// The Airy pattern's intensity at optical radius v, `[2 J₁(v) / v]²`, 1 at the centre.
 pub fn airy(v: f64) -> f64 {
-    if v.abs() < 1e-8 {
+    // J₁(v) is v times a polynomial, so the ratio is exact everywhere but at 0 itself.
+    if v == 0.0 {
         return 1.0;
     }
     (2.0 * bessel_j1(v) / v).powi(2)
 }
 
 /// The scalar paraxial intensity through focus, at optical coordinates u (axial) and v
-/// (lateral): `|2 ∫₀¹ J₀(vρ) exp(−i u ρ²/2) ρ dρ|²`, 1 at the focus, by Simpson's rule.
+/// (lateral): `|2 ∫₀¹ J₀(vρ) exp(−i u ρ²/2) ρ dρ|²`, 1 at the focus.
 pub fn defocused(u: f64, v: f64) -> f64 {
+    let (re, im) = amplitude(u, v);
+    re * re + im * im
+}
+
+/// The amplitude whose square `defocused` is, `2 ∫₀¹ J₀(vρ) exp(−i u ρ²/2) ρ dρ`, as its real
+/// and imaginary parts, by Simpson's rule over 400 intervals.
+fn amplitude(u: f64, v: f64) -> (f64, f64) {
     const N: usize = 400;
     let h = 1.0 / N as f64;
     let (mut re, mut im) = (0.0, 0.0);
@@ -89,7 +97,7 @@ pub fn defocused(u: f64, v: f64) -> f64 {
         im += amplitude * phase.sin();
     }
     let scale = 2.0 * h / 3.0;
-    (scale * re).powi(2) + (scale * im).powi(2)
+    (scale * re, scale * im)
 }
 
 /// The objective and the camera, as a PSF sees them.
@@ -226,7 +234,8 @@ impl Psf {
                             };
                         }
                     }
-                    values.push((sum / (SUB * SUB) as f64) as f32);
+                    // The sum serves for the mean: the PSF is normalised below.
+                    values.push(sum as f32);
                 }
             }
         }
@@ -242,10 +251,13 @@ impl Psf {
         }
         let (header_len, start) = match bytes[6] {
             1 => (usize::from(u16::from_le_bytes([bytes[8], bytes[9]])), 10),
-            2 | 3 if bytes.len() >= 12 => (
-                u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize,
-                12,
-            ),
+            2 | 3 => {
+                let len = bytes.get(8..12).ok_or_else(|| bad("a short header"))?;
+                (
+                    u32::from_le_bytes(len.try_into().expect("four bytes")) as usize,
+                    12,
+                )
+            }
             v => return Err(bad(&format!("version {v}"))),
         };
         let header = bytes
@@ -374,9 +386,10 @@ impl Profile {
         }
     }
 
+    /// The profile at `v`, which `new`'s reach covers for every point of the PSF.
     fn at(&self, v: f64) -> f64 {
         let x = v / self.step;
-        let i = (x.floor() as usize).min(self.samples.len() - 2);
+        let i = x.floor() as usize;
         let t = x - i as f64;
         self.samples[i] * (1.0 - t) + self.samples[i + 1] * t
     }
@@ -456,6 +469,73 @@ mod tests {
             defocused(-3.0, 2.0),
             "symmetric through focus"
         );
+    }
+
+    #[test]
+    fn the_pupil_integral_has_its_closed_form_on_the_axis_and_in_focus() {
+        // On the axis it is ∫₀¹ exp(−i u t / 2) dt: with a = u / 2, (sin a + i (cos a − 1)) / a.
+        for u in [1.0, 5.0, -3.0] {
+            let (re, im) = amplitude(u, 0.0);
+            let a = u / 2.0;
+            assert!((re - a.sin() / a).abs() < 1e-6, "u = {u}: {re}");
+            assert!((im - (a.cos() - 1.0) / a).abs() < 1e-6, "u = {u}: {im}");
+        }
+        let (re, im) = amplitude(0.0, 2.0);
+        assert!(
+            (re - bessel_j1(2.0)).abs() < 1e-7 && im == 0.0,
+            "2 J₁(v) / v at v = 2"
+        );
+    }
+
+    #[test]
+    fn a_profile_interpolates_the_integral_between_its_samples() {
+        let p = Profile::new(&optics(0.5), 3.0, 10);
+        for k in [0usize, 7, 40, 101] {
+            let v = (k as f64 + 0.5) * p.step;
+            assert!(
+                (p.at(v) - defocused(3.0, v)).abs() < 2e-4,
+                "between samples {k} and {}",
+                k + 1
+            );
+        }
+        assert!((p.at(5.0 * p.step) - p.samples[5]).abs() < 1e-12);
+        assert!((p.at(5.25 * p.step) - (0.75 * p.samples[5] + 0.25 * p.samples[6])).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_fine_psf_follows_the_airy_pattern_and_falls_through_focus_as_theory_says() {
+        // At 0.05 µm a pixel, a pixel spans 0.29 in v, so its mean is near the pattern at its
+        // centre.
+        let o = Optics {
+            pixel_um: 0.05,
+            ..optics(0.5)
+        };
+        let flat = Psf::widefield_2d(&o).unwrap();
+        let c = flat.size().0 / 2;
+        let per_pixel = TAU * 0.5 * 0.05 / 0.55;
+        for k in 0..14 {
+            let got = f64::from(flat.at(c + k, c, 0) / flat.at(c, c, 0));
+            let expected = airy(f64::from(k) * per_pixel);
+            assert!(
+                (got - expected).abs() < 0.01,
+                "{k} pixels out: {got} against {expected}"
+            );
+        }
+        // On the axis, [sin(u/4) / (u/4)]², u = 2π NA² z / (n λ).
+        let stack = Psf::widefield_3d(&o, 0.5, 7).unwrap();
+        for k in 0..7 {
+            let u = TAU * 0.25 * (f64::from(k) - 3.0) * 0.5 / 0.55;
+            let expected = if k == 3 {
+                1.0
+            } else {
+                ((u / 4.0).sin() / (u / 4.0)).powi(2)
+            };
+            let got = f64::from(stack.at(c, c, k) / stack.at(c, c, 3));
+            assert!(
+                (got - expected).abs() < 0.01,
+                "plane {k}: {got} against {expected}"
+            );
+        }
     }
 
     #[test]
@@ -629,6 +709,19 @@ mod tests {
         assert!(err(&edited(&bytes, "<f4", "<i4")).contains("values of type"));
         assert!(err(&edited(&flat.to_npy(), "False", "True ")).contains("Fortran"));
         assert!(err(&edited(&bytes, "'shape'", "'shope'")).contains("no 'shape'"));
+        // Version 2 has a four-byte header length.
+        let header = "{'descr': '<f4', 'fortran_order': False, 'shape': (1, 1), }";
+        let mut v2 = b"\x93NUMPY\x02\x00".to_vec();
+        v2.extend_from_slice(&(header.len() as u32).to_le_bytes());
+        v2.extend_from_slice(header.as_bytes());
+        v2.extend_from_slice(&2.0f32.to_le_bytes());
+        assert_eq!(Psf::from_npy(&v2).unwrap().values(), [1.0]);
+        assert_eq!(err(&v2[..11]), "not a PSF's .npy file: a short header");
+        assert_eq!(err(&bytes[..9]), "not a PSF's .npy file: no NumPy magic");
+        assert_eq!(
+            err(b"\x93NUMPY\x01\x00\x00\x00"),
+            "not a PSF's .npy file: no 'descr'"
+        );
         let mut v9 = bytes.clone();
         v9[6] = 9;
         assert!(err(&v9).contains("version 9"));

@@ -579,6 +579,7 @@ Each phase has:
 - 20 iterations of 2D Richardson–Lucy at 20 MP on the GPU are timed and recorded.
 
 **Tests.** The twins over random PSFs and images, 2D and 3D. **Broken on purpose:** the correction step's mirrored PSF.
+
 ---
 
 ## P1.08: The pipeline engine

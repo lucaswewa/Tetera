@@ -13,7 +13,12 @@ use tetera_core::{Error, Result};
 
 /// The values a parallel task takes at least: below it, waking threads costs more than they
 /// save.
-const GRAIN: usize = 1 << 15;
+const GRAIN: usize = 32_768;
+
+/// How many items of `len` values a parallel task takes: `GRAIN` values' worth, at least one.
+fn per_task(len: usize) -> usize {
+    (GRAIN / len).max(1)
+}
 
 /// A volume of values, `width × height × depth`, x fastest, each finite and none negative. An
 /// image is a volume of depth 1.
@@ -274,10 +279,9 @@ fn total_variation(u: &[f32], size: [usize; 3], lambda: f32, epsilon: f32, out: 
         let norm = (gx * gx + gy * gy + gz * gz).sqrt().max(epsilon);
         [gx / norm, gy / norm, gz / norm]
     };
-    let rows = (GRAIN / nx).max(1);
     out.par_chunks_mut(nx)
         .enumerate()
-        .with_min_len(rows)
+        .with_min_len(per_task(nx))
         .for_each(|(row, line)| {
             let (y, z) = (row % ny, row / ny);
             for (x, o) in line.iter_mut().enumerate() {
@@ -353,10 +357,9 @@ impl Convolver {
     fn pad(&self, image: &Volume) -> Vec<f32> {
         let ([w, h, d], [pw, ph, _], [ox, oy, oz]) = (self.size, self.padded, self.offset);
         let mut out = vec![0.0; self.padded.iter().product()];
-        let rows = (GRAIN / pw).max(1);
         out.par_chunks_mut(pw)
             .enumerate()
-            .with_min_len(rows)
+            .with_min_len(per_task(pw))
             .for_each(|(row, line)| {
                 let y = reflect((row % ph) as i64 - oy as i64, h);
                 let z = reflect((row / ph) as i64 - oz as i64, d);
@@ -476,8 +479,7 @@ fn rows(data: &mut [Complex32], fft: &Arc<dyn Fft<f32>>) {
     if n == 1 {
         return;
     }
-    let per_task = (GRAIN / n).max(1) * n;
-    data.par_chunks_mut(per_task).for_each_init(
+    data.par_chunks_mut(per_task(n) * n).for_each_init(
         || vec![Complex32::default(); fft.get_inplace_scratch_len()],
         |scratch, chunk| fft.process_with_scratch(chunk, scratch),
     );
@@ -501,7 +503,7 @@ fn along(
     columns[..blocks * size]
         .par_chunks_mut(rows_in_block)
         .enumerate()
-        .with_min_len((GRAIN / rows_in_block).max(1))
+        .with_min_len(per_task(rows_in_block))
         .for_each(|(i, column)| {
             let start = i / cols * size + i % cols;
             for (r, v) in column.iter_mut().enumerate() {
@@ -513,7 +515,7 @@ fn along(
     // Row j is block j / rows_in_block's row j % rows_in_block.
     data.par_chunks_mut(cols)
         .enumerate()
-        .with_min_len((GRAIN / cols).max(1))
+        .with_min_len(per_task(cols))
         .for_each(|(j, row)| {
             let start = j / rows_in_block * size + j % rows_in_block;
             for (c, v) in row.iter_mut().enumerate() {
@@ -729,6 +731,13 @@ mod tests {
             &out.values()[..4]
         );
         let dark = volume(16, 16, 1, |_, _, _| 0.0);
+        let backend = cpu();
+        let mut run = Deconvolution::new(&backend, &dark, &psf_2d(), 0.0).unwrap();
+        run.step();
+        assert!(
+            run.work.iter().all(|v| v.is_finite()),
+            "where nothing is blurred in, the ratio is 1, not 0 / 0"
+        );
         let out = richardson_lucy_cpu(&cpu(), &dark, &psf_2d(), &RichardsonLucy::new(3)).unwrap();
         assert!(
             out.values().iter().all(|&v| v == 0.0),
