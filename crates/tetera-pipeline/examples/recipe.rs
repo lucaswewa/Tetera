@@ -36,8 +36,12 @@ fn sensor() -> Sensor {
 /// against the ISP's own preview.
 fn live_chain(registry: &Registry, width: u32, height: u32) -> Result<()> {
     let recipe = Recipe::from_json(CHAIN)?;
-    let mut plan = Plan::new(&recipe, registry)?;
+    let plan = Plan::new(&recipe, registry)?;
     println!("\n`{}`: {}", plan.name(), plan.order().join(" → "));
+    println!(
+        "  on the GPU, the fused kernel takes the place of {}",
+        plan.fused().join(", ")
+    );
     let s = sensor();
     let raw = s.expose(&test_pattern(width, height, 12))?;
     let even = Image::new(
@@ -47,11 +51,7 @@ fn live_chain(registry: &Registry, width: u32, height: u32) -> Result<()> {
         [3_000u16; 3].repeat((width * height) as usize),
     )?;
     let (dark, flat) = (s.dark(width, height)?, s.expose(&even)?);
-    let inputs = BTreeMap::from([
-        ("raw".to_string(), Value::Raw(raw.clone())),
-        ("dark".to_string(), Value::Raw(dark.clone())),
-        ("flat".to_string(), Value::Raw(flat.clone())),
-    ]);
+    let frame = BTreeMap::from([("raw".to_string(), Value::Raw(raw.clone()))]);
     let cpu = Compute::cpu_only()?;
     let isp = Isp::new(
         IspParams {
@@ -66,29 +66,46 @@ fn live_chain(registry: &Registry, width: u32, height: u32) -> Result<()> {
         *raw.layout(),
     )?;
     let expected = Value::U8(isp.run(&cpu, &raw)?);
-    let mut backends = vec![("CPU", cpu)];
     let detected = Compute::detect()?;
-    if detected.kind() != tetera_compute::BackendKind::Cpu {
-        backends.push(("CUDA", detected));
+    let gpu = detected.kind() != tetera_compute::BackendKind::Cpu;
+    let mut runs = vec![("CPU, node by node", &cpu, false)];
+    if gpu {
+        runs.push(("CUDA, node by node", &detected, false));
+        runs.push(("CUDA, fused", &detected, true));
     }
+    println!(
+        "  the dark and the flat held, so each run takes a frame; the best of 3, after a first:"
+    );
     let mut jpeg = Vec::new();
-    for (label, compute) in &backends {
+    for (label, compute, fuse) in runs {
+        let mut plan = Plan::new(&recipe, registry)?;
+        plan.set_fusion(fuse);
+        plan.hold("dark", Value::Raw(dark.clone()))?;
+        plan.hold("flat", Value::Raw(flat.clone()))?;
         let mut best = f64::INFINITY;
         let mut outputs = BTreeMap::new();
-        for _ in 0..3 {
+        for pass in 0..4 {
             let start = Instant::now();
-            outputs = plan.run(&Context { compute }, inputs.clone())?;
-            best = best.min(start.elapsed().as_secs_f64() * 1e3);
+            outputs = plan.run(&Context { compute }, frame.clone())?;
+            if pass > 0 {
+                best = best.min(start.elapsed().as_secs_f64() * 1e3);
+            }
         }
         if outputs["preview"] != expected {
             return Err(Error::internal(format!(
-                "on the {label}, the recipe's preview isn't the ISP's"
+                "{label}: the recipe's preview isn't the ISP's"
             )));
         }
         if let Some(Value::Encoded(_, bytes)) = outputs.get("jpeg") {
             jpeg.clone_from(bytes);
         }
-        println!("  {label:<5} {best:>8.1} ms, the best of 3; the preview the ISP's own, exactly");
+        let c = plan.copies();
+        println!(
+            "  {label:<19} {best:>7.1} ms; {} up and {} down, {:.1} MB; the preview the ISP's own, exactly",
+            c.uploads,
+            c.downloads,
+            c.bytes as f64 / 1e6
+        );
     }
     let dir = std::path::Path::new("target/recipe");
     std::fs::create_dir_all(dir)

@@ -52,7 +52,7 @@ Each phase has:
 | [P1.07c](#p107c-richardsonlucy-on-the-gpu) | Richardson–Lucy on the GPU | P1.07b | 1,430 | — | G1, G1c |
 | [P1.08a](#p108a-the-pipeline-model) | The pipeline model | P1.07c | 1,510 | — | G1 |
 | [P1.08b](#p108b-the-raw-paths-nodes) | The raw path's nodes | P1.08a | 1,390 | — | G1, G1c |
-| [P1.08c](#p108c-gpu-residency-and-fusion) | GPU residency and fusion | P1.08b | 1,490 | — | G1, G1c |
+| [P1.08c](#p108c-gpu-residency-and-fusion) | GPU residency and fusion | P1.08b | 1,440 | — | G1, G1c |
 | [P1.08d](#p108d-denoise-and-deconvolution-nodes-and-live-runs) | Denoise and deconvolution nodes, and live runs | P1.08c | 900 | — | G1, G1c |
 | [P1.08e](#p108e-batch-runs-and-tiling) | Batch runs and tiling | P1.08d | 740 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
@@ -660,7 +660,7 @@ Each phase has:
 | Depends on | P1.08b |
 | ADRs | — |
 | Gates | G1, G1c |
-| Estimate | code 700 (values on the device and the copies counted 150; the nodes' device paths 300; the executor's residency 100; the fusion pass 150) · tests 700 · examples 60 · docs-as-code 20 · glue 10 = **1,490** (1,940 at ×1.3), from P1.08's split; its own second estimate comes before its code |
+| Second estimate | code 670 (values on the device, and the copies counted, 150; the raw path's device paths, eight short ones since `tetera-imaging` has each `_device` function, 120; the executor's residency, freeing each value after its last reader, 180; the fusion pass and its fused step 220) · tests 670 · examples 70 · docs-as-code 20 · glue 10 = **1,440** (1,870 at ×1.3), against 1,490 from P1.08's split |
 
 **Goal.** Run recipes on the GPU without needless copies, and with the fused kernel where it fits.
 

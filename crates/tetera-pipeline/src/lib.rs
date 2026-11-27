@@ -15,13 +15,21 @@
 //! - [`port`] carries encoded images too, JPEG first;
 //! - [`stock`]: the raw path's nodes, from binning to JPEG, each on the backend chosen; and
 //!   the live chain as a recipe, `recipes/live-chain.json`.
+//!
+//! From P1.08c:
+//! - [`run`]: values kept on the GPU between the steps there, copied across only at the
+//!   boundaries, counted, and freed after their last reader; held inputs, and the steps they
+//!   alone feed run once;
+//! - the fusion pass, which runs the fused ISP kernel in the live chain's place on the GPU.
 
+mod fuse;
 pub mod glue;
 pub mod node;
 pub mod plan;
 pub mod port;
 pub mod recipe;
 pub mod registry;
+pub mod run;
 pub mod stock;
 
 pub use node::{Backends, Context, Descriptor, Node, Step};
@@ -29,3 +37,4 @@ pub use plan::{Plan, Problem};
 pub use port::{Encoding, PortSpec, PortType, SampleType, Table, Value};
 pub use recipe::{NodeUse, Recipe};
 pub use registry::Registry;
+pub use run::Copies;

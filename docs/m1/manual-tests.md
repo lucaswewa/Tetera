@@ -171,3 +171,14 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-pipeline --example recipe -- --smoke` — expect the live chain on the CPU alone and `smoke: ok`.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-pipeline --features cuda` — expect every test to pass.
 - **Result:** see the [notes](notes/P1.08b-the-raw-paths-nodes.md#manual-test).
+
+## P1.08c: GPU residency and fusion
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3, `cmake` and `nasm` in WSL.
+- [ ] `cargo run --release -p tetera-pipeline --example recipe --features cuda` — expect, for the live chain:
+  - the fused kernel taking the place of `less_dark`, `even`, `rgb`, `small` and `colour`;
+  - three timed rows, the CPU, CUDA node by node and CUDA fused, CUDA well under the CPU and fused a little under node by node;
+  - on CUDA, 1 up and 1 down a run, about 47 MB, and each preview the ISP's own, with no error.
+- [ ] `cargo run -p tetera-pipeline --example recipe -- --smoke` — expect the CPU row alone and `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-pipeline --features cuda` — expect every test to pass.
+- **Result:** see the [notes](notes/P1.08c-gpu-residency-and-fusion.md#manual-test).
