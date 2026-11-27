@@ -37,6 +37,7 @@ pub mod motion;
 pub mod noise;
 pub mod optics;
 pub mod render;
+pub mod sensor;
 pub mod stage;
 pub mod tiles;
 

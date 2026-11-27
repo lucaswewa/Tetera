@@ -31,7 +31,7 @@ extern "C" __global__ void field_resample(
     const unsigned long long* tiles, int c0, int r0, int columns,
     long long gi0, long long gj0, int gw, int gh, double level_pixel,
     double centre_x, double centre_y, double pixel, double cos_a, double sin_a,
-    int width, int height)
+    int width, int height, double vx, double vy, double line_time, double exposure, int samples)
 {
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -42,23 +42,27 @@ extern "C" __global__ void field_resample(
     double v = ((double)row + 0.5 - (double)height / 2.0) * pixel;
     double x = centre_x + u * cos_a - v * sin_a;
     double y = centre_y + u * sin_a + v * cos_a;
-    double fx = (x / level_pixel - (double)gi0) - 0.5;
-    double fy = (y / level_pixel - (double)gj0) - 0.5;
-    double ix = floor(fx), iy = floor(fy);
-    float tx = (float)(fx - ix), ty = (float)(fy - iy);
-    long long i = (long long)ix, j = (long long)iy;
-    float out[2];
-    for (int s = 0; s < 2; s++) {
-        float a = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i, j, s);
-        float b = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i + 1, j, s);
-        float c = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i, j + 1, s);
-        float d = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i + 1, j + 1, s);
-        float top = a + tx * (b - a);
-        float bottom = c + tx * (d - c);
-        out[s] = top + ty * (bottom - top);
+    // Along the row's path during its exposure: the rolling shutter and the motion.
+    float sum[2] = {0.0f, 0.0f};
+    for (int k = 0; k < samples; k++) {
+        double t = (double)row * line_time + ((double)k + 0.5) / (double)samples * exposure;
+        double fx = ((x + vx * t) / level_pixel - (double)gi0) - 0.5;
+        double fy = ((y + vy * t) / level_pixel - (double)gj0) - 0.5;
+        double ix = floor(fx), iy = floor(fy);
+        float tx = (float)(fx - ix), ty = (float)(fy - iy);
+        long long i = (long long)ix, j = (long long)iy;
+        for (int s = 0; s < 2; s++) {
+            float a = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i, j, s);
+            float b = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i + 1, j, s);
+            float c = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i, j + 1, s);
+            float d = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i + 1, j + 1, s);
+            float top = a + tx * (b - a);
+            float bottom = c + tx * (d - c);
+            sum[s] += top + ty * (bottom - top);
+        }
     }
-    out_h[row * width + col] = out[0];
-    out_e[row * width + col] = out[1];
+    out_h[row * width + col] = sum[0] / (float)samples;
+    out_e[row * width + col] = sum[1] / (float)samples;
 }
 
 // A blur along rows: out = in ⊛ weights, held at the edges.

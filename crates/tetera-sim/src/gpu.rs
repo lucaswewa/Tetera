@@ -2,7 +2,7 @@
 //! `render`, and the GPU's tiles in their cache, within a VRAM budget.
 
 use crate::he::{HeSample, Stains};
-use crate::optics::{Field, FieldOfView, Grid, Light, blackbody, depth_groups, gaussian};
+use crate::optics::{Field, FieldOfView, Grid, Light, Motion, blackbody, depth_groups, gaussian};
 use crate::render::{Depth, Region, Rendered};
 use crate::tiles::{CacheStats, TILE, TileCache, TileDepth, TileKey};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -152,10 +152,22 @@ impl HeTiles {
         focus: f64,
         with: impl FnOnce(&FieldPlanes) -> Result<R>,
     ) -> Result<R> {
+        self.field_moving_with(fov, &Motion::STILL, light, focus, with)
+    }
+
+    /// The same, the stage moving as `motion` says: the twin of `optics::field_moving`.
+    pub fn field_moving_with<R>(
+        &self,
+        fov: &FieldOfView,
+        motion: &Motion,
+        light: &Light,
+        focus: f64,
+        with: impl FnOnce(&FieldPlanes) -> Result<R>,
+    ) -> Result<R> {
         let s = fov.optics.sensor;
         let groups = depth_groups(&fov.optics, focus, self.sample.section().thickness);
         let widest = groups.iter().map(|g| g.sigma).fold(0.0, f32::max);
-        let grid = Grid::new(fov, widest);
+        let grid = Grid::new(fov, widest, motion.extent(s.height));
         let (tile, columns, rows) = grid.tiles();
         let tiles = TileGrid {
             first: grid.first,
@@ -170,6 +182,10 @@ impl HeTiles {
             angle: fov.optics.mounting_angle,
             width: s.width,
             height: s.height,
+            velocity: motion.velocity,
+            exposure: motion.exposure,
+            line_time: motion.line_time,
+            samples: motion.samples(fov.optics.pixel()),
         };
         let mut planes = self.planes.lock().unwrap_or_else(PoisonError::into_inner);
         if planes

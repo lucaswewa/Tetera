@@ -241,6 +241,47 @@ pub fn vignette(u: f32, v: f32, vignetting: f32) -> f32 {
     1.0 - vignetting * (u * u + v * v) / 2.0
 }
 
+/// The stage's motion during a frame: its velocity, how long each row exposes, and the
+/// rolling shutter's line time, row r starting r line times after row 0. The field's centre
+/// is where the stage was as row 0 began.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Motion {
+    /// µm a second, each way.
+    pub velocity: (f64, f64),
+    /// Each row's exposure, s.
+    pub exposure: f64,
+    /// From one row's start to the next's, s.
+    pub line_time: f64,
+}
+
+impl Motion {
+    /// Still.
+    pub const STILL: Motion = Motion {
+        velocity: (0.0, 0.0),
+        exposure: 0.0,
+        line_time: 0.0,
+    };
+
+    /// How far row `row`'s `k`th of `n` samples has moved, µm: at its share of the row's
+    /// exposure.
+    pub fn offset(&self, row: f64, k: u32, n: u32) -> (f64, f64) {
+        let t = row * self.line_time + (f64::from(k) + 0.5) / f64::from(n) * self.exposure;
+        (self.velocity.0 * t, self.velocity.1 * t)
+    }
+
+    /// How many samples a pixel averages along its path: one for each `pixel` µm the stage
+    /// moves during an exposure, from 1 to 16.
+    pub fn samples(&self, pixel: f64) -> u32 {
+        let travel = self.velocity.0.hypot(self.velocity.1) * self.exposure / pixel;
+        (travel.ceil() as u32).clamp(1, 16)
+    }
+
+    /// How far the field moves over a frame of `rows`, µm.
+    pub fn extent(&self, rows: u32) -> f64 {
+        self.velocity.0.hypot(self.velocity.1) * (f64::from(rows) * self.line_time + self.exposure)
+    }
+}
+
 /// The field: each sensor pixel's irradiance in red, green and blue, photoelectrons a ms at
 /// quantum efficiency 1, row by row.
 #[derive(Debug, Clone, PartialEq)]
@@ -276,11 +317,11 @@ pub struct Grid {
 }
 
 impl Grid {
-    /// The grid for `fov`, its widest blur `sigma` sensor pixels.
-    pub fn new(fov: &FieldOfView, sigma: f32) -> Self {
+    /// The grid for `fov`, its widest blur `sigma` sensor pixels, moving `moved` µm over a frame.
+    pub fn new(fov: &FieldOfView, sigma: f32, moved: f64) -> Self {
         let level = TileKey::level_for(fov.optics.pixel());
         let p = FINEST * f64::from(1u32 << level);
-        let margin = (f64::from(sigma) * 3.0 + 2.0) * fov.optics.pixel() + 2.0 * p;
+        let margin = (f64::from(sigma) * 3.0 + 2.0) * fov.optics.pixel() + 2.0 * p + moved;
         let (x0, y0, x1, y1) = fov.bounds(margin);
         let first = ((x0 / p).floor() as i64, (y0 / p).floor() as i64);
         let last = ((x1 / p).ceil() as i64, (y1 / p).ceil() as i64);
@@ -381,15 +422,28 @@ fn lit(
     })
 }
 
-/// The field on the CPU, the reference for the GPU's: `sample` seen by `fov`, focused `focus`
-/// µm above the section's lower face, under `light`. Each depth group is rendered on the
-/// grid at its level, resampled into the sensor's pixels, and blurred; the groups' stains
-/// are summed, and lit.
+/// The field on the CPU, still: `sample` seen by `fov`, focused `focus` µm above the
+/// section's lower face, under `light`.
 pub fn field(sample: &HeSample, fov: &FieldOfView, light: &Light, focus: f64) -> Result<Field> {
+    field_moving(sample, fov, &Motion::STILL, light, focus)
+}
+
+/// The field on the CPU, the reference for the GPU's, the stage moving as `motion` says. Each
+/// depth group is rendered on the grid at its level and resampled into the sensor's pixels,
+/// each pixel averaging its row's path during its exposure; then blurred. The groups' stains
+/// are summed, and lit.
+pub fn field_moving(
+    sample: &HeSample,
+    fov: &FieldOfView,
+    motion: &Motion,
+    light: &Light,
+    focus: f64,
+) -> Result<Field> {
     let s = fov.optics.sensor;
     let groups = depth_groups(&fov.optics, focus, sample.section().thickness);
     let widest = groups.iter().map(|g| g.sigma).fold(0.0, f32::max);
-    let grid = Grid::new(fov, widest);
+    let grid = Grid::new(fov, widest, motion.extent(s.height));
+    let samples = motion.samples(fov.optics.pixel());
     let p = grid.pixel();
     let n = s.width as usize * s.height as usize;
     let mut total = vec![Stains::default(); n];
@@ -410,13 +464,23 @@ pub fn field(sample: &HeSample, fov: &FieldOfView, light: &Light, focus: f64) ->
             .map(|k| {
                 let (col, row) = ((k % s.width as usize) as f64, (k / s.width as usize) as f64);
                 let (x, y) = fov.position(col, row);
-                bilinear(
-                    &rendered.stains,
-                    grid.size.0,
-                    grid.size.1,
-                    x / p - grid.first.0 as f64,
-                    y / p - grid.first.1 as f64,
-                )
+                let mut sum = Stains::default();
+                for j in 0..samples {
+                    let (dx, dy) = motion.offset(row, j, samples);
+                    let at = bilinear(
+                        &rendered.stains,
+                        grid.size.0,
+                        grid.size.1,
+                        (x + dx) / p - grid.first.0 as f64,
+                        (y + dy) / p - grid.first.1 as f64,
+                    );
+                    sum.haematoxylin += at.haematoxylin;
+                    sum.eosin += at.eosin;
+                }
+                Stains {
+                    haematoxylin: sum.haematoxylin / samples as f32,
+                    eosin: sum.eosin / samples as f32,
+                }
             })
             .collect();
         let blurred = blur(&resampled, s.width, s.height, &gaussian(group.sigma));
@@ -724,7 +788,7 @@ mod tests {
             centre: (-300.0, 4_000.0),
             optics: small(20.0, 0.42, 0.2),
         };
-        let grid = Grid::new(&fov, 4.0);
+        let grid = Grid::new(&fov, 4.0, 0.0);
         assert_eq!(grid.level, 1);
         let p = grid.pixel();
         let (x0, y0, x1, y1) = fov.bounds(0.0);

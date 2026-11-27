@@ -15,6 +15,14 @@ pub struct SensorView {
     pub width: u32,
     /// Its height, pixels.
     pub height: u32,
+    /// The stage's velocity during the frame, µm a second.
+    pub velocity: (f64, f64),
+    /// Each row's exposure, s.
+    pub exposure: f64,
+    /// The rolling shutter's line time, s.
+    pub line_time: f64,
+    /// Samples a pixel averages along its path, 1 or more.
+    pub samples: u32,
 }
 
 /// The grid of level pixels a field resamples from, and the tiles that hold it.
@@ -143,6 +151,7 @@ mod device {
             planes.check()?;
             let expected = grid.tiles.0 as usize * grid.tiles.1 as usize;
             if tiles.len() != expected
+                || view.samples == 0
                 || tiles.iter().any(|t| t.len() != 256 * 256 * 2)
                 || (view.width, view.height) != (planes.width, planes.height)
             {
@@ -162,6 +171,7 @@ mod device {
             let (columns, gw, gh) = (grid.tiles.0 as i32, grid.size.0 as i32, grid.size.1 as i32);
             let (width, height) = (view.width as i32, view.height as i32);
             let (sin, cos) = view.angle.sin_cos();
+            let samples = view.samples as i32;
             let mut launch = stream.launch_builder(&function);
             launch
                 .arg(planes.h.slice_mut())
@@ -181,11 +191,17 @@ mod device {
                 .arg(&cos)
                 .arg(&sin)
                 .arg(&width)
-                .arg(&height);
+                .arg(&height)
+                .arg(&view.velocity.0)
+                .arg(&view.velocity.1)
+                .arg(&view.line_time)
+                .arg(&view.exposure)
+                .arg(&samples);
             // SAFETY: `field_resample` takes (float* out_h, float* out_e, const unsigned long
             // long* tiles, int c0, int r0, int columns, long long gi0, long long gj0, int gw,
             // int gh, double level_pixel, double centre_x, double centre_y, double pixel,
-            // double cos, double sin, int width, int height), matched here in order and type.
+            // double cos, double sin, int width, int height, double vx, double vy, double
+            // line_time, double exposure, int samples), matched here in order and type.
             // Thread (col, row) < (width, height) writes out_h and out_e at row · width + col,
             // inside the planes, which are width · height (checked above). It reads level
             // pixels held within the grid's gw × gh, which the grid's tiles cover (checked
@@ -349,6 +365,10 @@ mod tests {
             angle,
             width: 8,
             height: 4,
+            velocity: (0.0, 0.0),
+            exposure: 0.0,
+            line_time: 0.0,
+            samples: 1,
         }
     }
 
