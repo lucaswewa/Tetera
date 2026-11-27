@@ -34,7 +34,7 @@ use {
 
 /// The GPU, for a step given values there.
 #[cfg(feature = "cuda")]
-fn gpu<'a>(context: &'a Context) -> Result<&'a CudaBackend> {
+pub(crate) fn gpu<'a>(context: &'a Context) -> Result<&'a CudaBackend> {
     context
         .compute
         .cuda()
@@ -58,9 +58,22 @@ pub fn nodes() -> Vec<Arc<dyn Node>> {
 }
 
 /// A stock node: its descriptor, and how its parameters make its step.
-struct Stock {
+pub(crate) struct Stock {
     descriptor: Descriptor,
     prepare: fn(&serde_json::Value) -> Result<Box<dyn Step>>,
+}
+
+impl Stock {
+    /// A node of `descriptor`, its steps made by `prepare`.
+    pub(crate) fn new(
+        descriptor: Descriptor,
+        prepare: fn(&serde_json::Value) -> Result<Box<dyn Step>>,
+    ) -> Self {
+        Self {
+            descriptor,
+            prepare,
+        }
+    }
 }
 
 impl Node for Stock {
@@ -85,14 +98,14 @@ where
     }
 }
 
-fn step(
+pub(crate) fn step(
     f: impl FnMut(&Context, &[&Value]) -> Result<Vec<Value>> + Send + 'static,
 ) -> Result<Box<dyn Step>> {
     Ok(Box::new(FnStep(f)))
 }
 
 /// A stock node, on either backend.
-fn node(
+pub(crate) fn node(
     descriptor: Descriptor,
     prepare: fn(&serde_json::Value) -> Result<Box<dyn Step>>,
 ) -> Arc<dyn Node> {
@@ -110,7 +123,7 @@ const RGB8: PortType = PortType::Image {
     channels: Some(3),
     sample: Some(SampleType::U8),
 };
-const ANY16: PortType = PortType::Image {
+pub(crate) const ANY16: PortType = PortType::Image {
     channels: None,
     sample: Some(SampleType::U16),
 };
@@ -119,23 +132,23 @@ const ANY8: PortType = PortType::Image {
     sample: Some(SampleType::U8),
 };
 
-fn raw(name: &'static str, summary: &'static str) -> PortSpec {
+pub(crate) fn raw(name: &'static str, summary: &'static str) -> PortSpec {
     PortSpec::new(name, PortType::Raw, summary)
 }
 
-fn invalid(message: String) -> Error {
+pub(crate) fn invalid(message: String) -> Error {
     Error::invalid_argument(message)
 }
 
 /// What validation promised an input would be, or a bug's error.
-fn given(expected: &str, value: &Value) -> Error {
+pub(crate) fn given(expected: &str, value: &Value) -> Error {
     Error::internal(format!(
         "expected {expected}, was given {}",
         value.port_type()
     ))
 }
 
-fn mosaic(value: &Value) -> Result<&Mosaic> {
+pub(crate) fn mosaic(value: &Value) -> Result<&Mosaic> {
     match value {
         Value::Raw(m) => Ok(m),
         other => Err(given("a raw frame", other)),

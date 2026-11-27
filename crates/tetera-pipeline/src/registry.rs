@@ -31,10 +31,11 @@ impl Registry {
     /// Tetera's own nodes.
     pub fn stock() -> Self {
         let mut registry = Self::new();
-        for node in crate::glue::nodes()
+        let all = crate::glue::nodes()
             .into_iter()
             .chain(crate::stock::nodes())
-        {
+            .chain(crate::restore::nodes());
+        for node in all {
             registry
                 .register(node)
                 .expect("the stock nodes are sound and distinct");
@@ -128,11 +129,12 @@ mod tests {
     }
 
     #[test]
-    fn the_stock_registry_holds_the_glue_and_raw_path_nodes() {
+    fn the_stock_registry_holds_every_stock_node() {
         let registry = Registry::stock();
         let ids: Vec<(&str, u32)> = registry.descriptors().map(|d| (d.id, d.version)).collect();
         let expected = [
             "tetera.bayer_split",
+            "tetera.bilateral",
             "tetera.bin",
             "tetera.colour",
             "tetera.crop",
@@ -142,8 +144,10 @@ mod tests {
             "tetera.flat",
             "tetera.jpeg",
             "tetera.resize",
+            "tetera.richardson_lucy",
             "tetera.statistics",
             "tetera.superpixel",
+            "tetera.temporal_mean",
         ];
         assert_eq!(ids, expected.map(|id| (id, 1)));
         let catalogue = registry.catalogue();
@@ -171,8 +175,13 @@ mod tests {
             "libjpeg-turbo is on the CPU"
         );
         assert_eq!(entry("tetera.crop")["backends"]["cuda"], false);
+        assert_eq!(entry("tetera.temporal_mean")["stateful"], true);
+        assert_eq!(entry("tetera.bilateral")["stateful"], false);
         let debug = format!("{registry:?}");
-        assert!(debug.starts_with("Registry { nodes: [\"tetera.bayer_split 1\", \"tetera.bin 1\""));
+        assert!(
+            debug
+                .starts_with("Registry { nodes: [\"tetera.bayer_split 1\", \"tetera.bilateral 1\"")
+        );
         assert_eq!(Registry::new().descriptors().count(), 0);
     }
 

@@ -690,7 +690,7 @@ Each phase has:
 | Depends on | P1.08c |
 | ADRs | — |
 | Gates | G1, G1c |
-| Estimate | code 400 (temporal averaging, the bilateral filter and Richardson–Lucy as nodes 200; live runs 200) · tests 400 · examples 80 · docs-as-code 15 · glue 5 = **900**, from P1.08b's re-split; its own second estimate comes before its code |
+| Second estimate | code 400 (three nodes 210: temporal averaging, stateful, its window on either backend; the bilateral filter, on either; Richardson–Lucy, its PSF made once from the optics; live runs 190: a thread, one frame waiting at most, the latest kept) · tests 400 · examples 80 · docs-as-code 15 · glue 5 = **900** (1,170 at ×1.3), as P1.08b's re-split estimated |
 
 **Goal.** The rest of the stock nodes, and recipes run on a live stream.
 

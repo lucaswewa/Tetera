@@ -182,3 +182,11 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-pipeline --example recipe -- --smoke` — expect the CPU row alone and `smoke: ok`.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-pipeline --features cuda` — expect every test to pass.
 - **Result:** see the [notes](notes/P1.08c-gpu-residency-and-fusion.md#manual-test).
+
+## P1.08d: Denoise and deconvolution nodes, and live runs
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3, `cmake` and `nasm` in WSL.
+- [ ] `cargo run --release -p tetera-pipeline --example recipe --features cuda` — expect, last, a live run of 29 frames at 14.5 fps on each backend: on CUDA, node by node and fused, every frame run at 14.5 fps; on the CPU, about half giving way to a later one; no errors.
+- [ ] `cargo run -p tetera-pipeline --example recipe -- --smoke` — expect the live run on the CPU alone and `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-pipeline --features cuda` — expect every test to pass.
+- **Result:** see the [notes](notes/P1.08d-denoise-and-deconvolution-nodes-and-live-runs.md#manual-test).
