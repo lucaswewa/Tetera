@@ -22,20 +22,29 @@
 //!   budget;
 //! - `gpu`, with the `cuda` feature: the sample rendered on the GPU, the twin of `render`,
 //!   and its tiles there in half precision, within a VRAM budget.
+//!
+//! From P1.12a:
+//! - [`optics`]: the field the sensor sees, its field of view, depth groups, blur,
+//!   vignetting and light, on the CPU; on the GPU from the tiles, with `cuda`;
+//! - [`light`]: [`VirtualIllumination`], the simulated light.
 
 pub mod clock;
 #[cfg(feature = "cuda")]
 pub mod gpu;
 pub mod he;
+pub mod light;
 pub mod motion;
 pub mod noise;
+pub mod optics;
 pub mod render;
 pub mod stage;
 pub mod tiles;
 
 pub use clock::{Rate, SimClock};
 pub use he::{HeSample, Nucleus, RedCell, SectionConfig, Stains};
+pub use light::VirtualIllumination;
 pub use motion::{AxisLimits, Profile};
+pub use optics::{Field, FieldOfView, Light, Optics};
 pub use render::{Depth, Region, Rendered, render};
 pub use stage::{
     GrblState, Report, VirtualAxis, VirtualStage, VirtualStageConfig, VirtualStageFault,

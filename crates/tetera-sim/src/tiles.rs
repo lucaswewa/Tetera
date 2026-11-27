@@ -19,8 +19,13 @@ pub const COARSEST: u8 = 15;
 pub enum TileDepth {
     /// The whole section.
     Whole,
-    /// One layer, from `k` × 0.5 µm above the section's lower face.
-    Layer(u8),
+    /// `count` layers of 0.5 µm from the `first`, above the section's lower face.
+    Layers {
+        /// The first.
+        first: u8,
+        /// How many.
+        count: u8,
+    },
 }
 
 /// A tile's key.
@@ -47,7 +52,10 @@ impl TileKey {
         let side = f64::from(TILE) * self.pixel();
         let depth = match self.depth {
             TileDepth::Whole => Depth::Whole,
-            TileDepth::Layer(k) => Depth::Range(f32::from(k) * LAYER, f32::from(k + 1) * LAYER),
+            TileDepth::Layers { first, count } => Depth::Range(
+                f32::from(first) * LAYER,
+                (f32::from(first) + f32::from(count)) * LAYER,
+            ),
         };
         Region {
             origin: (f64::from(self.column) * side, f64::from(self.row) * side),
@@ -179,13 +187,13 @@ mod tests {
             level: 3,
             column: 2,
             row: -1,
-            depth: TileDepth::Layer(5),
+            depth: TileDepth::Layers { first: 5, count: 3 },
         };
         assert!((k.pixel() - 0.32).abs() < 1e-12);
         let r = k.region();
         assert_eq!((r.width, r.height), (256, 256));
         assert!((r.origin.0 - 163.84).abs() < 1e-9 && (r.origin.1 + 81.92).abs() < 1e-9);
-        assert_eq!(r.depth, Depth::Range(2.5, 3.0));
+        assert_eq!(r.depth, Depth::Range(2.5, 4.0));
         assert_eq!(key(0).region().depth, Depth::Whole);
         let coarsest = TileKey { level: 200, ..k };
         assert_eq!(

@@ -16,6 +16,7 @@ pub mod cuda;
 pub mod deconvolve;
 pub mod denoise;
 pub mod features;
+pub mod field;
 pub mod fused;
 pub mod half;
 pub mod he;

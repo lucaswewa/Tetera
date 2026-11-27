@@ -80,4 +80,10 @@ exclude_re = [
     # test can see without a sanitizer. compute-sanitizer's memcheck runs the GPU tests clean
     # (P1.11b's notes).
     "replace \\* with (\\+|/) in device::CudaBackend::he_(cells|render)",
+    # The CPU field's blur: its weights are symmetric, so read the other way round they blur
+    # the same; and one closure makes both passes, so a sign flipped in it flips back.
+    "replace \\+ with - in blur",
+    "replace \\+= with -= in blur",
+    # No blur below a σ of 1e-3 pixels: at exactly 1e-3, a blur of three weights rounds to one.
+    "replace < with <= in gaussian",
 ]
