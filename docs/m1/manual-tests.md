@@ -246,3 +246,11 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run --release -p tetera-sim --features cuda --example he-sample -- --smoke` — expect `smoke: ok`.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-sim --features cuda` — expect 63 tests to pass.
 - **Result:** see the [notes](notes/P1.11b-the-he-sample-on-the-gpu-and-its-tiles.md#manual-test).
+
+## P1.12a: Optics and light: the field the sensor sees
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU.
+- [ ] `cargo run --release -p tetera-sim --features cuda --example virtual-optics` — expect the field at 5×, 20× and 50× with one, two and three depth groups; through focus at 50×, sharpest at 2 µm and a blur at 10; under a cool, uneven light; then the full 5472 × 3648 field on the GPU at each objective, cold, still and moving, still within 40 ms. Look at the PNGs in `target/virtual-optics/`: nuclei soft at 50×, as its NA allows; a warm cast from the uncorrected 3,200 K light.
+- [ ] `cargo run --release -p tetera-sim --example virtual-optics -- --smoke` — expect `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-sim --features cuda` — expect 77 tests to pass.
+- **Result:** see the [notes](notes/P1.12a-optics-and-light-the-field-the-sensor-sees.md#manual-test).
