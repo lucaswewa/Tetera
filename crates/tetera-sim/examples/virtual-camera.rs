@@ -5,7 +5,7 @@
 //! with `--cpu`, a 912 × 608 sensor on the CPU.
 //!
 //! Run it with `cargo run --release -p tetera-sim --features cuda --example virtual-camera`;
-//! `-- --smoke` runs a small sensor on the CPU, briefly.
+//! `-- --smoke` runs a 192 × 128 sensor briefly, on the GPU when there is one.
 
 #[path = "common/png.rs"]
 mod png;
@@ -34,7 +34,7 @@ const LIGHT: f32 = 1_000.0;
 
 fn main() -> Result<()> {
     let smoke = std::env::args().any(|a| a == "--smoke");
-    let cpu = smoke || std::env::args().any(|a| a == "--cpu");
+    let cpu = std::env::args().any(|a| a == "--cpu");
     let out = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/virtual-camera");
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(&out)
@@ -134,17 +134,25 @@ fn backend(cpu: bool, smoke: bool) -> Result<(Backend, Sensor, &'static str)> {
                 gpu: Arc::new(gpu),
                 budget: budgets.reserve("virtual-camera", 3 << 30)?,
             },
-            tetera_sim::optics::MICHROME_20,
+            if smoke {
+                small(smoke)
+            } else {
+                tetera_sim::optics::MICHROME_20
+            },
             "on the GPU",
         ));
     }
     let _ = cpu;
-    let small = Sensor {
+    Ok((Backend::Cpu, small(smoke), "on the CPU"))
+}
+
+/// The CPU's sensor, smaller still for a smoke run.
+fn small(smoke: bool) -> Sensor {
+    Sensor {
         width: if smoke { 192 } else { 912 },
         height: if smoke { 128 } else { 608 },
         pixel: 2.4,
-    };
-    Ok((Backend::Cpu, small, "on the CPU"))
+    }
 }
 
 /// The scene: a real-time clock, the stage over tissue in focus, 20× fitted, the light on.
