@@ -15,3 +15,4 @@ The [plan's §10](../implementation-plan.md#10-planned-adrs) lists the ADRs stil
 | [0007](0007-logging.md) | Logging | Accepted | P1.02 |
 | [0008](0008-the-frame-model-the-buffer-pool-and-the-frame-bus.md) | The frame model, the buffer pool and the frame bus | Accepted | P1.03 |
 | [0009](0009-compute-backends-the-cpu-reference-and-cuda.md) | Compute backends: the CPU reference and CUDA, and what WSL2 offers | Accepted | P1.04a |
+| [0010](0010-building-and-loading-cuda-kernels-under-wsl2.md) | Building and loading CUDA kernels under WSL2 | Accepted | P1.04b |

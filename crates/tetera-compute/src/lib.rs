@@ -5,18 +5,26 @@
 //! and a device is there; the CPU otherwise, or when `TETERA_FORCE_CPU=1`. Either way it says
 //! why. [`features::check_all`] tries what CUDA offers on this machine under WSL2.
 //!
-//! P1.04b adds kernels, the harness that proves the two backends agree, and VRAM budgets.
+//! Every operation in [`ops`] has a CPU twin and, with the `cuda` feature, a CUDA kernel
+//! (ADR-0010): [`twin`] proves the two agree, and [`budget`] shares out the GPU's memory.
 
+pub mod budget;
 pub mod cpu;
 #[cfg(feature = "cuda")]
 pub mod cuda;
 pub mod features;
+#[cfg(feature = "cuda")]
+pub mod kernels;
+pub mod ops;
 pub mod select;
+pub mod twin;
 
+pub use budget::{Budget, Grant, VramBudgets};
 pub use cpu::CpuBackend;
 #[cfg(feature = "cuda")]
 pub use cuda::{CudaBackend, DeviceBuffer, PinnedAllocator};
 pub use select::{BackendKind, DeviceInfo, Probe, Selection, SystemProbe, select};
+pub use twin::{Comparison, Tolerance, compare};
 
 use std::fmt;
 use tetera_core::Result;

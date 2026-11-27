@@ -341,7 +341,7 @@ camera ─▶ frame pool (Bayer16) ─▶ frame bus ─┬─▶ recorder (lossl
 - **Two backends** in `tetera-compute`:
   - `Cpu`, with rayon, and SIMD where it pays;
   - `Cuda`, with `cudarc`. The driver, cuFFT and NVRTC are loaded at run time. Under WSL2 they come from `/usr/lib/wsl/lib`.
-- **Kernels** are CUDA C, compiled to PTX by `build.rs` when the `cuda` feature is on and `nvcc` is found.
+- **Kernels** are CUDA C, compiled by `build.rs` to a fat binary, machine code for each major GPU architecture and PTX for newer ones, when the `cuda` feature is on and `nvcc` is found; without `nvcc`, by NVRTC at run time ([ADR-0010](adr/0010-building-and-loading-cuda-kernels-under-wsl2.md)).
 - **GPU first:** each node runs on CUDA when there is a GPU, and on the CPU otherwise, or when the build has no CUDA.
 - **Every kernel has a CPU twin.** Equivalence tests compare them within a stated tolerance.
 - **Data stays on the GPU** between consecutive CUDA nodes, and is copied back only at the boundaries.

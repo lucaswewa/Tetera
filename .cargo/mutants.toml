@@ -19,6 +19,4 @@ exclude_re = [
     # compute_info with TETERA_FORCE_CPU=1.
     "replace cuda_tests_enabled -> bool",
     "replace <impl Probe for SystemProbe>::force_cpu -> bool",
-    # Nothing asynchronous is observable before P1.04b's kernels, which lift this.
-    "replace CudaBackend::synchronize -> Result",
 ]

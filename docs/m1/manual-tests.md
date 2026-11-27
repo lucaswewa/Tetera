@@ -58,3 +58,17 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-compute --features cuda -- --nocapture` — expect every test to pass, the feature table printed, and no test saying `skipped`.
 - [ ] `cargo xtask doctor` — expect `nvcc` and `nvidia-smi` to say `ok`.
 - **Result:** see the [notes](notes/P1.04a-compute-backends.md#manual-test).
+
+## P1.04b: Kernels and the twin harness
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL ([toolchain.md](../setup/toolchain.md#the-cuda-toolkit-from-p104a)).
+- [ ] `cargo run --release -p tetera-compute --example twin_scale --features cuda` — expect:
+  - `Backend: CUDA: CUDA on NVIDIA GeForce RTX 3070 Ti Laptop GPU, device 0`;
+  - a full frame, 19,961,856 samples, timed on the CPU and in the kernel, `from nvcc's fat binary`;
+  - `Twins:   19961856 values, 0 beyond the tolerance; identical`.
+- [ ] `NVCC=none cargo run --release -p tetera-compute --example twin_scale --features cuda` — expect a build warning that `nvcc wasn't found`, `from NVRTC's PTX`, and the twins still identical.
+- [ ] `cuobjdump --list-elf --list-ptx $(ls -t target/release/build/tetera-compute-*/out/scale.fatbin | head -1)` — expect cubins for `sm_75`, `sm_80`, `sm_90`, `sm_100`, `sm_110` and `sm_120`, and PTX for `sm_120`.
+- [ ] `cargo run -p tetera-compute --example twin_scale -- --smoke` — expect `Backend: CPU: this build has no `cuda` feature`, the CPU's time and mean, and `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-compute --features cuda` — expect every test to pass, with none saying `skipped`.
+- [ ] `cargo test -p tetera-compute budget` — expect the budget tests to pass, among them a request beyond a budget refused as `Busy`.
+- **Result:** see the [notes](notes/P1.04b-kernels-and-the-twin-harness.md#manual-test).
