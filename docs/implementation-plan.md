@@ -68,7 +68,7 @@ OScope is the owner's previous build of the same instrument software. It ran thr
 
 | OScope's lesson | Source | What Tetera does |
 |---|---|---|
-| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 26 phases each. Extensions get their own two milestones |
+| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 28 phases each. Extensions get their own two milestones |
 | Line budgets (300/600/900) never fit. Estimates in parts, committed before the code, did fit: median 1.04 in M1 | M1 retrospective | **No budgets.** A five-part estimate, committed before the code, with a cap that triggers a question to the owner ([§7](#7-how-phases-work)) |
 | The simulator on the CPU was the live view's bottleneck: about 160 ms a frame, 2 s while jogging. It moved to the GPU late | ADR-0062, performance notes | **The simulator is GPU-first from its first phase**, with the CPU path as reference and fallback |
 | Full replays took about an hour per phase. Change-reach gates cut that | ADR-0038, ADR-0061 | **Tiered gates from day one:** quick, phase, checkpoint, milestone ([§8](#8-local-ci-gates)). Each phase runs only what its change reaches |
@@ -366,8 +366,8 @@ camera ─▶ frame pool (Bayer16) ─▶ frame bus ─┬─▶ recorder (lossl
 | Dark-field subtraction | Subtract a master dark frame, matched by exposure and gain | P1.06a |
 | Flat-field correction | Divide by a normalised master flat, dark-subtracted | P1.06a |
 | Colour-correction matrix | White-balance gains, then a 3 × 3 matrix to linear sRGB, then gamma | P1.06a |
-| Denoise | Temporal averaging of N frames; a spatial edge-preserving filter (bilateral, or non-local means) | P1.07 |
-| Deconvolution with a PSF | Richardson–Lucy, FFT-based, with a theoretical widefield PSF from the objective's NA and wavelength, or a measured PSF | P1.07 |
+| Denoise | Temporal averaging of N frames; a spatial edge-preserving filter (bilateral, or non-local means) | P1.07a |
+| Deconvolution with a PSF | Richardson–Lucy, FFT-based, with a theoretical widefield PSF from the objective's NA and wavelength, or a measured PSF | P1.07b, P1.07c |
 | Glue | Crop, bin, resize, display transform (levels, gamma), statistics | P1.05b–P1.08 |
 
 ### 6.8 Hardware abstraction
@@ -523,7 +523,7 @@ GPU-first, with a bit-exact CPU reference on each backend, and the two backends 
 
 **Approval.** The owner reviews and approves every PR before it is merged *(proposed, Q40)*. Nothing is pushed to `main`, and no tag is created, without the owner's word.
 
-**Spec-first phases** open their notes with a behaviour spec and its literature before any code: P1.07, P1.11, P1.16, P1.18, P3.02, P3.06, P3.08 and P3.09.
+**Spec-first phases** open their notes with a behaviour spec and its literature before any code: P1.07a, P1.07b, P1.11, P1.16, P1.18, P3.02, P3.06, P3.08 and P3.09.
 
 **Checkpoints.** Each stage that ends in a checkpoint has a demo script in its last phase's notes, and runs the checkpoint gate (G2).
 
@@ -587,7 +587,9 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 | P1.05b | Binning, resize, display transform and JPEG | Binning, resize, levels and gamma, raw → JPEG/MJPEG; CPU and CUDA | `ex-demosaic`, to JPEG | — |
 | P1.06a | Dark, flat and colour | Dark subtraction, flat field, white balance and CCM, gamma; the unfused chain on each backend | `ex-isp`: each stage's time, CPU against GPU | — |
 | P1.06b | The fused kernel | The fused ISP kernel and its equivalence with the unfused chain | `ex-isp`: fused against unfused | 0011 |
-| P1.07 | Denoise and deconvolution *(spec-first)* | Temporal averaging, an edge-preserving spatial filter; theoretical PSF, Richardson–Lucy on cuFFT and the CPU | `ex-deconvolve`, against a blurred ground truth | — |
+| P1.07a | Denoise *(spec-first)* | Temporal averaging, an edge-preserving spatial filter; CPU and CUDA | `ex-denoise`: PSNR before and after | — |
+| P1.07b | PSFs and Richardson–Lucy *(spec-first)* | Theoretical and measured PSFs; Richardson–Lucy, 2D and 3D, on the CPU | `ex-deconvolve`, against a blurred ground truth | — |
+| P1.07c | Richardson–Lucy on the GPU | Richardson–Lucy on cuFFT, matching the CPU | `ex-deconvolve` on the GPU | — |
 | P1.08 | The pipeline engine | DAG, typed ports, JSON recipes and their schema, the registry, GPU residency, the fusion pass, live and batch runs | `ex-recipe`: a recipe run on a frame, then on a folder | 0012 |
 
 #### Stage 1C: Hardware abstraction and simulation (ends with Checkpoint A)
@@ -688,7 +690,7 @@ Each driver phase is *Done* only after the owner has run its manual test on the 
 | P5.06 | Performance | The raw path at the camera's rate to scratch; preview latency and rate; GPU tuning; memory; several clients; H.264 only if needed | — |
 | P5.07 | Packaging and release 1.0 | A `.deb` and the systemd unit for WSL; a Windows bootstrap (`.wslconfig`, the task, usbipd); a 24-hour soak; the user's guide; the release; the retrospective | 0042 |
 
-**In all:** 63 phases, plus the spike: M1 26, M2 8, M3 10, M4 12, M5 7.
+**In all:** 65 phases, plus the spike: M1 28, M2 8, M3 10, M4 12, M5 7.
 
 **Each phase's status** is in [`m1/notes/README.md`](m1/notes/README.md): *Not started*, *In review* or *Done*.
 
@@ -919,7 +921,7 @@ A first draft. **From P1.01, [`setup/toolchain.md`](setup/toolchain.md) is the g
 | R5 | **CUDA under WSL2 has limits** that native Linux doesn't. NVIDIA's WSL guide lists them | A feature Tetera plans to use may not work, such as pinned memory at size, or IPC to Python workers | P1.04 checks each feature Tetera uses. Python workers get frames through host shared memory, not CUDA IPC |
 | R6 | **Disk:** OScope's phases built 60–70 GB each. WSL's virtual disk grows and doesn't shrink by itself | Full disks break WSL | `doctor` checks before G2 and G3; `sparseVhd`; the distro on D: (§12.1); cleaning between milestones |
 | R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
-| R8 | **Scope:** 63 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
+| R8 | **Scope:** 65 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
 | R9 | **The extension ABI** must stay stable across SDK versions | Old extensions break, or crash the server | A versioned C ABI checked at install; panics caught; tests against the previous SDK version; Python in separate processes |
 | R10 | **Extensions as the only home** of stitching, deep zoom, depth from focus and volumes | The SDK must be rich enough for heavy, GPU-bound nodes | P2.03 gives Rust extensions the GPU; P3.01 is a small extension that proves the path before P3.02 |
 | R11 | **The host's sleep, and WSL's clock drift** | Wrong wall-clock times in metadata | A monotonic clock; UTC mapped at start-up and re-checked; a status warning on drift |
@@ -1111,3 +1113,5 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-27 | **P1.06a measured 2,315 lines against its second estimate of 1,730 (×1.34),** over the 2,000 cap: code 1,038, tests 974, examples 280. GPU phases keep landing at 1.2–1.4 times their estimates; later estimates multiply by 1.3 before comparing with the cap. **The chain resizes before colour,** in linear light: plan D7 and P1.06b's spec give the new order ([notes](m1/notes/P1.06a-dark-flat-and-colour.md#size)) |
 | 2026-11-27 | **P1.06b's second estimate,** before its code: code 660 (the demosaic's device code shared through a header, which `build.rs` inlines for NVRTC, 40; the fused kernel, 350, tiled through shared memory if a direct one misses 10 ms; its launch and parameters 150; the fused path and the equivalence check in `tetera-imaging` 120) · tests 500 · examples 80 · docs-as-code 20 · glue 10 = **1,270**, about 1,650 at P1.06a's ×1.3. Under 2,000, so the phase stays whole |
 | 2026-11-27 | **P1.06b measured 1,113 lines against its second estimate of 1,270 (×0.88):** the direct fused kernel met the 10 ms budget (4–5 ms for 20 MP to 1920 × 1280), so no tiling. It matches the unfused chain exactly (ADR-0011; [notes](m1/notes/P1.06b-the-fused-kernel.md#size)) |
+| 2026-11-27 | **P1.07's second estimate,** before its code: about 2,850 (code 1,290 · tests 1,200 · examples 270 · docs-as-code 50 · glue 40). Over 2,000, and its ready split's second half still 2,380 at ×1.3: **split by the agent** under the owner's standing approval into P1.07a (denoise), P1.07b (PSFs and Richardson–Lucy on the CPU) and P1.07c (Richardson–Lucy on the GPU). 65 phases, M1 28 |
+| 2026-11-27 | **P1.07a's second estimate:** code 450 (temporal averaging 160, the bilateral filter and its weight tables 290) · tests 420 · examples 120 · docs-as-code 20 · glue 10 = **1,020**, 1,330 at ×1.3. Its behaviour spec, committed with this estimate, chooses the bilateral filter over non-local means |

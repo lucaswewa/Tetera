@@ -47,8 +47,10 @@ Each phase has:
 | [P1.05b](#p105b-binning-resize-display-transform-and-jpeg) | Binning, resize, display transform and JPEG | P1.05a | 1,880 | — | G1, G1c |
 | [P1.06a](#p106a-dark-flat-and-colour) | Dark, flat and colour | P1.05b | 1,730 | — | G1, G1c |
 | [P1.06b](#p106b-the-fused-kernel) | The fused kernel | P1.06a | 1,270 | — | G1, G1c |
-| [P1.07](#p107-denoise-and-deconvolution) | Denoise and deconvolution | P1.05b | 1,670 | Yes | G1, G1c |
-| [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06b, P1.07 | 1,880 | — | G1, G1c |
+| [P1.07a](#p107a-denoise) | Denoise | P1.05b | 1,020 | Yes | G1, G1c |
+| [P1.07b](#p107b-psfs-and-richardsonlucy) | PSFs and Richardson–Lucy | P1.07a | 1,235 | Yes | G1 |
+| [P1.07c](#p107c-richardsonlucy-on-the-gpu) | Richardson–Lucy on the GPU | P1.07b | 650 | — | G1, G1c |
+| [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06b, P1.07c | 1,880 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
 | [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09 | 1,350 | — | G1 |
 | [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
@@ -65,7 +67,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 26 phases since P1.04, P1.05 and P1.06 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 28 phases since P1.04 to P1.07 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -483,7 +485,7 @@ Each phase has:
 **Open questions.** Q19 (a hand-written fused kernel).
 ---
 
-## P1.07: Denoise and deconvolution
+## P1.07a: Denoise
 
 | | |
 |---|---|
@@ -492,35 +494,91 @@ Each phase has:
 | ADRs | — |
 | Gates | G1, G1c |
 | Spec-first | Yes: the notes open with the behaviour and its literature before any code |
-| First estimate | code 1,100 · tests 400 · examples 120 · docs-as-code 50 = **1,670** |
-| Ready split | P1.07a: denoise (~600) · P1.07b: PSFs and deconvolution (~1,070) |
+| Second estimate | code 450 · tests 420 · examples 120 · docs-as-code 20 · glue 10 = **1,020** (1,330 at ×1.3). The agent split P1.07 (second estimate 2,850) on 2026-11-27, under the owner's standing approval, into P1.07a, P1.07b and P1.07c: the ready split's second half alone came to 2,380 at ×1.3 |
 
-**Goal.** Reduce noise without blurring edges, and restore detail the optics blurred.
+**Goal.** Reduce noise without blurring edges, on either backend.
 
 **Scope.**
 
 - **Temporal averaging:** a running mean over N frames, reset when the stage moves.
-- **One edge-preserving spatial filter.** The spec chooses between bilateral (Tomasi and Manduchi, 1998) and non-local means (Buades, Coll and Morel, 2005), weighing quality against time at 20 MP.
+- **One edge-preserving spatial filter.** The behaviour spec chooses between bilateral (Tomasi and Manduchi, 1998) and non-local means (Buades, Coll and Morel, 2005), weighing quality against time at 20 MP.
+- **CUDA kernels** for each, each with its CPU twin.
+
+**Out of scope.** PSFs and deconvolution (P1.07b, P1.07c); BM3D and learned denoisers (extensions).
+
+**Try it.** `denoise`: PSNR before and after, on a noisy synthetic image, for each method on each backend, with timings.
+
+**Done when.**
+
+- The behaviour spec, with its sources, was committed before the code.
+- Each method raises the PSNR of a noisy synthetic image; the numbers are recorded.
+- The backends agree exactly.
+
+**Tests.** The running mean over N frames, and its reset; the filter's weights; edges kept while flat noise falls; the twins. **Broken on purpose:** the reset when the stage moves, and the filter's range weight.
+
+**Open questions.** Q20 (denoise methods).
+
+---
+
+## P1.07b: PSFs and Richardson–Lucy
+
+| | |
+|---|---|
+| Crates | `tetera-imaging` |
+| Depends on | P1.07a |
+| ADRs | — |
+| Gates | G1 |
+| Spec-first | Yes |
+| Estimate | code 550 · tests 520 · examples 120 · docs-as-code 25 · glue 20 = **1,235**, from P1.07's split; its own second estimate comes before its code |
+
+**Goal.** Restore detail the optics blurred, on the CPU.
+
+**Scope.**
+
 - **PSFs:**
   - a theoretical widefield PSF from the objective's NA and the wavelength: 2D in focus, and 3D through focus (scalar diffraction, Born and Wolf);
   - a measured PSF, loaded from a file (measured in M5).
-- **Richardson–Lucy** (Richardson, 1972; Lucy, 1974), FFT-based, 2D and 3D, with a set number of iterations and optional total-variation regularisation (Dey and others, 2006). FFTs through `rustfft` on the CPU and cuFFT on the GPU.
+- **Richardson–Lucy** (Richardson, 1972; Lucy, 1974), FFT-based, 2D and 3D, with a set number of iterations and optional total-variation regularisation (Dey and others, 2006). FFTs through `rustfft`.
 
-**Out of scope.** BM3D and learned denoisers (extensions); blind deconvolution.
+**Out of scope.** Richardson–Lucy on the GPU (P1.07c); blind deconvolution.
 
-**Try it.** `denoise`: PSNR before and after, on a noisy synthetic image. `deconvolve`: an image blurred by a known PSF, with noise, restored; the error against the truth by iteration.
+**Try it.** `deconvolve`: an image blurred by a known PSF, with noise, restored; the error against the truth by iteration.
 
 **Done when.**
 
 - The behaviour spec, with its sources, was committed before the code.
 - Richardson–Lucy lowers the error against the ground truth on synthetic data; the numbers are recorded.
-- The backends agree within the spec's tolerance.
+
+**Tests.** PSF normalisation and symmetry; Richardson–Lucy conserving flux; convergence on a point source. **Broken on purpose:** flux conservation, and the PSF's normalisation.
+
+**Open questions.** Q21 (2D and 3D; theoretical PSF first).
+
+---
+
+## P1.07c: Richardson–Lucy on the GPU
+
+| | |
+|---|---|
+| Crates | `tetera-compute`, `tetera-imaging` |
+| Depends on | P1.07b |
+| ADRs | — |
+| Gates | G1, G1c |
+| Estimate | code 290 · tests 280 · examples 60 · docs-as-code 10 · glue 10 = **650**, from P1.07's split; its own second estimate comes before its code |
+
+**Goal.** Deconvolve on the GPU, matching the CPU.
+
+**Scope.** Richardson–Lucy, 2D and 3D, with its regularisation, on cuFFT; its elementwise kernels, each with its CPU twin.
+
+**Out of scope.** Blind deconvolution.
+
+**Try it.** `deconvolve` gains the GPU: both backends, with timings.
+
+**Done when.**
+
+- The backends agree within the tolerance P1.07b's behaviour spec states.
 - 20 iterations of 2D Richardson–Lucy at 20 MP on the GPU are timed and recorded.
 
-**Tests.** PSF normalisation and symmetry; Richardson–Lucy conserving flux; convergence on a point source; the twins. **Broken on purpose:** flux conservation, and the PSF's normalisation.
-
-**Open questions.** Q20 (denoise methods), Q21 (2D and 3D; theoretical PSF first).
-
+**Tests.** The twins over random PSFs and images, 2D and 3D. **Broken on purpose:** the correction step's mirrored PSF.
 ---
 
 ## P1.08: The pipeline engine
@@ -528,7 +586,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-pipeline` (new, L3) |
-| Depends on | P1.06b, P1.07 |
+| Depends on | P1.06b, P1.07c |
 | ADRs | 0012 the pipeline model |
 | Gates | G1, G1c |
 | First estimate | code 1,200 · tests 500 · examples 100 · docs-as-code 80 = **1,880** |
