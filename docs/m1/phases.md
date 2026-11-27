@@ -49,7 +49,7 @@ Each phase has:
 | [P1.06b](#p106b-the-fused-kernel) | The fused kernel | P1.06a | 1,270 | — | G1, G1c |
 | [P1.07a](#p107a-denoise) | Denoise | P1.05b | 1,020 | Yes | G1, G1c |
 | [P1.07b](#p107b-psfs-and-richardsonlucy) | PSFs and Richardson–Lucy | P1.07a | 1,395 | Yes | G1 |
-| [P1.07c](#p107c-richardsonlucy-on-the-gpu) | Richardson–Lucy on the GPU | P1.07b | 650 | — | G1, G1c |
+| [P1.07c](#p107c-richardsonlucy-on-the-gpu) | Richardson–Lucy on the GPU | P1.07b | 1,430 | — | G1, G1c |
 | [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06b, P1.07c | 1,880 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
 | [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09 | 1,350 | — | G1 |
@@ -563,7 +563,7 @@ Each phase has:
 | Depends on | P1.07b |
 | ADRs | — |
 | Gates | G1, G1c |
-| Estimate | code 290 · tests 280 · examples 60 · docs-as-code 10 · glue 10 = **650**, from P1.07's split; its own second estimate comes before its code |
+| Second estimate | code 655 · tests 655 · examples 90 · docs-as-code 15 · glue 15 = **1,430** (1,860 at ×1.3), against 650 from P1.07's split |
 
 **Goal.** Deconvolve on the GPU, matching the CPU.
 
