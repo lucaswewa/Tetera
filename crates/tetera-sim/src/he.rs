@@ -331,12 +331,12 @@ impl HeSample {
 
     /// The nuclei whose centres lie in [`x0`, `x1`) × [`y0`, `y1`).
     pub fn nuclei(&self, x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Nucleus> {
-        let cells = |a: f64, b: f64| {
-            (a / NUCLEUS_CELL).floor() as i32 - 1..=(b / NUCLEUS_CELL).floor() as i32 + 1
-        };
+        // A nucleus's centre lies within its own cell, jittered less than half a cell, so
+        // the cells the rectangle touches hold every nucleus in it.
+        let cell = |v: f64| (v / NUCLEUS_CELL).floor() as i32;
         let mut found = Vec::new();
-        for j in cells(y0, y1) {
-            for i in cells(x0, x1) {
+        for j in cell(y0)..=cell(y1) {
+            for i in cell(x0)..=cell(x1) {
                 if let Some(n) = self.nucleus(i, j)
                     && (x0..x1).contains(&n.centre.0)
                     && (y0..y1).contains(&n.centre.1)
