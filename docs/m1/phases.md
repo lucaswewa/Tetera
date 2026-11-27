@@ -57,9 +57,10 @@ Each phase has:
 | [P1.08e](#p108e-batch-runs-and-tiling) | Batch runs and tiling | P1.08d | 780 | — | G1, G1c |
 | [P1.09a](#p109a-the-camera) | The camera | P1.03 | 1,150 | — | G1 |
 | [P1.09b](#p109b-the-stage-the-objectives-and-the-light) | The stage, the objectives and the light | P1.09a | 1,490 | — | G1 |
-| [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09b | 1,350 | — | G1 |
+| [P1.10a](#p110a-the-simulated-clock-and-motion-profiles) | The simulated clock and motion profiles | P1.09b | 1,080 | — | G1 |
+| [P1.10b](#p110b-the-virtual-stage) | The virtual stage | P1.10a | 1,430 | — | G1 |
 | [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
-| [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10, P1.11 | 1,920 | — | G1, G1c, G2 |
+| [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10b, P1.11 | 1,920 | — | G1, G1c, G2 |
 | [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12 | 1,980 | — | G1 |
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13 | 1,050 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
@@ -72,7 +73,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 33 phases since P1.04 to P1.09 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 34 phases since P1.04 to P1.10 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -222,7 +223,7 @@ Each phase has:
 - **Geometry:** points and vectors in µm and in pixels; `Rect` in pixels; `Affine2` (compose, invert, apply); `StagePos { x, y, z }`.
 - **The clock:**
   - `Timestamp`: nanoseconds since the process started, from the monotonic clock;
-  - a `Clock` trait, with `SystemClock`, and `ManualClock` for tests. P1.10's simulated clock implements it too;
+  - a `Clock` trait, with `SystemClock`, and `ManualClock` for tests. P1.10a's simulated clock implements it too;
   - UTC mapped once at start-up, and re-checked: a drift over 1 s raises a warning (WSL2's clock can drift after the host sleeps).
 - **IDs:** `Id<T>`, a UUID v7, so IDs sort by time.
 - **Errors:** one `Error` with a kind (invalid argument, not found, busy, hardware, timeout, cancelled, internal), a context chain and an optional source.
@@ -808,7 +809,7 @@ Each phase has:
 
 ---
 
-## P1.10: The simulated clock and the virtual stage
+## P1.10a: The simulated clock and motion profiles
 
 | | |
 |---|---|
@@ -816,15 +817,48 @@ Each phase has:
 | Depends on | P1.09b |
 | ADRs | 0014 the simulated clock |
 | Gates | G1 |
-| First estimate | code 800 · tests 450 · examples 80 · docs-as-code 20 = **1,350** |
+| Second estimate | code 450 (the clock 200; motion profiles 250) · tests 500 (property tests of the profiles 250; the clock 150; unit tests 100) · examples 80 · docs-as-code 20 · glue 30 = **1,080** (1,404 at ×1.3). The agent split P1.10 (second estimate about 2,510, 3,263 at ×1.3) on 2026-11-27, under the owner's standing approval, into P1.10a and P1.10b |
+
+**Goal.** Time that tests can control, and motion the way a real stage makes it.
+
+**Scope.**
+
+- **`SimClock`** implements `Clock`: real time at 1×, faster at N×, or stepped by hand. Simulated devices wait on it, and a step wakes them.
+- **Motion profiles:**
+  - a straight move from rest to rest, trapezoidal, or triangular when it is short, keeping each axis to its own acceleration and fastest speed, and to the speed asked for;
+  - a feed hold, which decelerates to rest from wherever the move has got to;
+  - position and speed at any time, worked out from the time alone, so the same times give the same positions, bit for bit.
+
+**Out of scope.** The virtual stage (P1.10b); the sample and the camera (P1.11, P1.12).
+
+**Try it.** `sim-clock`: the clock at 1×, faster and stepped, and a move's profile, sampled in stepped time.
+
+**Done when.**
+
+- Property tests hold for any move: it starts and ends at rest, where it should; no axis goes faster or accelerates harder than it may; it never goes back; its duration is the trapezoid's.
+- A held move stops within its deceleration distance, and never goes back.
+- The clock never goes back, at any pace; a step wakes what waits on it.
+
+**Tests.** Property tests of the profiles and the feed hold; the clock at each pace; waiters woken by steps. **Broken on purpose:** a profile that starts decelerating late, which the property tests must catch.
+
+---
+
+## P1.10b: The virtual stage
+
+| | |
+|---|---|
+| Crates | `tetera-sim` |
+| Depends on | P1.10a |
+| ADRs | — |
+| Gates | G1 |
+| Estimate | code 650 (states and commands 250; homing and faults 150; reports and the track 150; its thread 100) · tests 650 · examples 100 · docs-as-code 20 · glue 10 = **1,430**, from P1.10's split; its own second estimate comes before its code |
 
 **Goal.** A stage that moves the way the real one does, in time that tests can control.
 
 **Scope.**
 
-- **`SimClock`** implements `Clock`: real time at 1×, faster at N×, or stepped by hand. Simulated devices wait on it.
 - **`VirtualStage`** implements `Stage`:
-  - trapezoidal motion, with acceleration and maximum speed per axis;
+  - trapezoidal motion, with acceleration and maximum speed per axis (P1.10a's profiles);
   - grblHAL's states: Idle, Jog, Run, Hold, Home, Alarm;
   - soft limits; a homing sequence that takes time;
   - position reports at a set rate, with latency, kept in a timestamped track;
@@ -840,7 +874,7 @@ Each phase has:
 - In stepped time, a move's duration matches the trapezoid's within 1 ms.
 - The same steps give the same track, bit for bit.
 
-**Tests.** Property tests of motion profiles; the state machine; each fault; jogging cancelled mid-move. **Broken on purpose:** a soft limit, and a state transition.
+**Tests.** The state machine; each fault; jogging cancelled mid-move. **Broken on purpose:** a soft limit, and a state transition.
 
 ---
 
@@ -895,7 +929,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-sim`, `tetera-compute` |
-| Depends on | P1.06b, P1.10, P1.11 |
+| Depends on | P1.06b, P1.10b, P1.11 |
 | ADRs | 0016 the virtual camera's model |
 | Gates | G1, G1c, **G2 (Checkpoint A)** |
 | First estimate | code 1,400 · tests 400 · examples 120 = **1,920** |

@@ -1,0 +1,18 @@
+[package]
+name = "tetera-sim"
+description = "Tetera's simulated world: the simulated clock, motion profiles, and the virtual devices."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+tetera-core.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
