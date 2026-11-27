@@ -7,7 +7,7 @@
 //! (P1.06b).
 //!
 //! [`IspParams`] holds the calibration inputs; [`Isp`] prepares them for one raw layout, once;
-//! [`DeviceIsp`] holds the prepared tables on the GPU.
+//! `DeviceIsp`, with the `cuda` feature, holds the prepared tables on the GPU.
 
 use crate::bayer::{BinMode, bin_cpu};
 use crate::colour::{Colour, ColourCorrection, colour_cpu};
