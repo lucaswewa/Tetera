@@ -263,3 +263,23 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run --release -p tetera-sim --features cuda --example virtual-optics` — expect the full field at 50× within 40 ms moving as well as still.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-sim -p tetera-compute --features tetera-sim/cuda` — expect 93 tests to pass in `tetera-sim` and 91 in `tetera-compute`.
 - **Result:** see the [notes](notes/P1.12b-the-sensor-and-motion.md#manual-test).
+
+## P1.12c: The virtual camera
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU.
+- [ ] `cargo run --release -p tetera-sim --features cuda --example virtual-camera` — expect the virtual MIChrome 20 on the GPU, 5472 × 3648, live in mode 0 at 14.49 fps while the stage jogs at 1 mm/s, with none or few frames dropped; then jogging at 100 to 1,000 µm/s, each frame made within 40 ms up to 250 µm/s; then each mode at each bit depth at its rate (7.24 and 14.49; 26.57 and 53.14; 33.87 and 67.26 fps), none dropped, each still frame made within 40 ms. Look at the JPEGs in `target/virtual-camera/`: H&E at 20×, smeared along the jog and sheared by the rolling shutter.
+- [ ] `cargo run --release -p tetera-sim --example virtual-camera -- --smoke` — expect each mode at its rate on a small sensor on the CPU, and `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-sim --features cuda -- camera::` — expect the camera's tests to pass, the contract suite on the CPU and the GPU among them.
+- **Result:** see the [notes](notes/P1.12c-the-virtual-camera.md#manual-test).
+
+## Checkpoint A: the virtual instrument renders H&E live
+
+The owner runs this at Checkpoint C, with B's and C's; the agent ran and recorded it at P1.12c, under the owner's standing approval.
+
+- **Prerequisites:** `main` after P1.12c; the CUDA toolkit 13.3 in WSL, and the GPU.
+- [ ] `cargo xtask gate checkpoint` — expect G2 to pass on a fresh clone: every suite, every example's smoke run, and the CUDA steps.
+- [ ] `cargo run --release -p tetera-sim --features cuda --example he-sample` — expect the H&E sample's PNGs in `target/he-sample/`. Judge them plausible: tissue, stroma, glands, nuclei with chromatin, red cells in vessels, at 5×, 20× and 50×.
+- [ ] `cargo run --release -p tetera-sim --features cuda --example virtual-optics` — expect the field through each objective and through focus, sharpest at 2 µm, with the full field on the GPU within 40 ms still and moving.
+- [ ] `cargo run --release -p tetera-sim --features cuda --example virtual-sensor` — expect raw frames still, smeared, skewed and grainy, and the noise against the model.
+- [ ] `cargo run --release -p tetera-sim --features cuda --example virtual-camera` — expect live H&E at the camera's rates while the stage jogs, as in P1.12c's entry. Look at the JPEG strip.
+- **Result:** see the [notes](notes/P1.12c-the-virtual-camera.md#checkpoint-a).

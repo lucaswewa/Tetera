@@ -355,6 +355,34 @@ mod tests {
     }
 
     #[test]
+    fn samples_download_into_a_frames_bytes() {
+        let Some(gpu) = gpu() else { return };
+        let buffer = gpu.upload(&[0x0102u16, 0xa0b0, 7]).unwrap();
+        let mut bytes = [0u8; 10];
+        // Where in `bytes` an even address starts, and an odd one.
+        let even = usize::from(!(bytes.as_ptr() as usize).is_multiple_of(2));
+        let odd = 1 - even;
+        gpu.download_into_bytes(&buffer, &mut bytes[even..even + 6])
+            .unwrap();
+        assert_eq!(
+            &bytes[even..even + 6],
+            &[0x02, 0x01, 0xb0, 0xa0, 7, 0],
+            "little-endian"
+        );
+        for (from, len, why) in [
+            (even, 4, "too short"),
+            (even, 8, "too long"),
+            (odd, 6, "odd"),
+        ] {
+            assert!(
+                gpu.download_into_bytes(&buffer, &mut bytes[from..from + len])
+                    .is_err(),
+                "{why}"
+            );
+        }
+    }
+
+    #[test]
     fn driver_versions_decode_as_cuda_writes_them() {
         assert_eq!(cuda_version(13_050), (13, 5));
         assert_eq!(cuda_version(12_040), (12, 4));

@@ -840,6 +840,30 @@ mod tests {
             ((quarter - black) / (full - black) - 4.0).abs() < 0.2,
             "binned 2 × 2, four pixels' light: {full} then {quarter}"
         );
+        // Straight into a frame's bytes, its rows padded: the same counts.
+        let stride = 2 * 160 + 64;
+        let mut bytes = vec![0u8; stride * 120];
+        tiles
+            .frame_into(&fov, &motion, &light, 2.0, &shot, &mut bytes, stride)
+            .unwrap();
+        for (row, line) in bytes.chunks(stride).enumerate() {
+            let counts: Vec<u16> = line[..320]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| u16::from_le_bytes(*p))
+                .collect();
+            assert_eq!(counts, raw[row * 160..][..160], "row {row}");
+        }
+        for (stride, len) in [(321, 321 * 120), (318, 318 * 120), (320, 320 * 119)] {
+            let mut out = vec![0u8; len];
+            assert!(
+                tiles
+                    .frame_into(&fov, &motion, &light, 2.0, &shot, &mut out, stride)
+                    .is_err(),
+                "rows {stride} apart in {len} bytes"
+            );
+        }
         let bad = Shot {
             exposure: exposure(5, 1.0, 10, 1),
             ..shot

@@ -31,9 +31,20 @@ pub struct SensorParams {
     pub binning: u32,
 }
 
+/// The pitch, in counts, of a `width` × `height` raw frame made from `rgb_len` values into
+/// `raw_len` counts: its rows `raw_len / height` counts apart, if the shapes fit.
+pub fn pitch(rgb_len: usize, raw_len: usize, width: u32, height: u32) -> Option<usize> {
+    let n = width as usize * height as usize;
+    if height == 0 || rgb_len != 3 * n || !raw_len.is_multiple_of(height as usize) {
+        return None;
+    }
+    let pitch = raw_len / height as usize;
+    (pitch >= width as usize).then_some(pitch)
+}
+
 #[cfg(feature = "cuda")]
 mod device {
-    use super::SensorParams;
+    use super::{SensorParams, pitch};
     use crate::kernels::SENSOR;
     use crate::{CudaBackend, DeviceBuffer};
     use cudarc::driver::{LaunchConfig, PushKernelArg};
@@ -51,15 +62,9 @@ mod device {
             params: &SensorParams,
             raw: &mut DeviceBuffer<u16>,
         ) -> Result<()> {
-            let n = width as usize * height as usize;
-            let pitch = raw.len() / (height.max(1) as usize);
-            if rgb.len() != 3 * n
-                || height == 0
-                || !raw.len().is_multiple_of(height as usize)
-                || pitch < width as usize
-                || !matches!(params.bits, 8 | 12)
-                || params.binning == 0
-            {
+            let rows = pitch(rgb.len(), raw.len(), width, height);
+            let Some(pitch) = rows.filter(|_| matches!(params.bits, 8 | 12) && params.binning > 0)
+            else {
                 return Err(Error::invalid_argument(format!(
                     "a {width} × {height} frame from {} values into {}, {} bits, binned {}",
                     rgb.len(),
@@ -67,7 +72,7 @@ mod device {
                     params.bits,
                     params.binning
                 )));
-            }
+            };
             let function = self.module(&SENSOR)?.function("sensor_expose")?;
             let size = |v: u32| {
                 i32::try_from(v)
@@ -119,6 +124,26 @@ mod device {
             })?;
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod shapes {
+    use super::pitch;
+
+    #[test]
+    fn a_frames_pitch_comes_from_its_shapes() {
+        assert_eq!(pitch(3 * 48, 48, 8, 6), Some(8));
+        assert_eq!(pitch(3 * 48, 60, 8, 6), Some(10), "rows 10 apart");
+        assert_eq!(pitch(3 * 48, 47, 8, 6), None, "not whole rows");
+        assert_eq!(
+            pitch(3 * 48, 42, 8, 6),
+            None,
+            "rows narrower than the frame"
+        );
+        assert_eq!(pitch(3 * 47, 48, 8, 6), None, "the field the wrong size");
+        assert_eq!(pitch(0, 0, 0, 0), None, "no rows");
+        assert_eq!(pitch(0, 6, 0, 6), Some(1), "rows of nothing, still rows");
     }
 }
 

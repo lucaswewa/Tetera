@@ -799,11 +799,17 @@ mod tests {
     /// A scene on a clock at `rate`: the stage in focus over tissue, `objective` fitted,
     /// the light on.
     fn scene(rate: Rate, objective: Option<&str>) -> Scene {
+        scene_at(rate, objective, 1_002.0)
+    }
+
+    /// The same, the stage at a height of `z` µm; the section's lower face is in focus at
+    /// 1,000.
+    fn scene_at(rate: Rate, objective: Option<&str>, z: f64) -> Scene {
         let clock = Arc::new(SimClock::new(rate).unwrap());
         let stage = VirtualStage::new(
             clock,
             VirtualStageConfig {
-                start: StagePos::new(Um(1_000.0), Um(1_000.0), Um(1_002.0)),
+                start: StagePos::new(Um(1_000.0), Um(1_000.0), Um(z)),
                 ..VirtualStageConfig::default()
             },
         )
@@ -827,6 +833,12 @@ mod tests {
             light: Arc::new(light),
             sample: HeSample::new(7, SectionConfig::default()).unwrap(),
         }
+    }
+
+    fn camera_linear_eight() -> Frame {
+        let camera = camera(scene(Rate::Faster(10.0), Some("20x")), None);
+        set(&camera, |c| c.bit_depth = 8);
+        camera.snap(Duration::from_secs(5)).unwrap()
     }
 
     fn camera(scene: Scene, sdk: Option<SdkProcessing>) -> VirtualCamera {
@@ -935,6 +947,149 @@ mod tests {
     }
 
     #[test]
+    fn a_camera_it_cannot_make_is_refused() {
+        let good = VirtualCameraConfig {
+            sensor: SMALL,
+            ..VirtualCameraConfig::default()
+        };
+        good.check().unwrap();
+        VirtualCameraConfig {
+            sensor: Sensor {
+                width: 6,
+                height: 6,
+                pixel: 2.4,
+            },
+            max_blur: 1.0,
+            pool: 1,
+            ..good.clone()
+        }
+        .check()
+        .unwrap();
+        let with = |change: &dyn Fn(&mut VirtualCameraConfig)| {
+            let mut c = good.clone();
+            change(&mut c);
+            c
+        };
+        for bad in [
+            with(&|c| c.sensor.width = 5),
+            with(&|c| c.sensor.height = 5),
+            with(&|c| c.sensor.pixel = 0.0),
+            with(&|c| c.sensor.pixel = f64::NAN),
+            with(&|c| c.mounting_angle = f64::NAN),
+            with(&|c| c.section_z = f64::INFINITY),
+            with(&|c| c.max_blur = 0.99),
+            with(&|c| c.max_blur = f64::NAN),
+            with(&|c| c.pool = 0),
+        ] {
+            assert!(bad.check().is_err(), "{bad:?}");
+        }
+        let camera = camera(scene(Rate::Stepped, Some("20x")), None);
+        let shown = format!("{camera:?}");
+        assert!(
+            shown.contains("Tetera virtual MIChrome 20") && shown.contains("mode: 0"),
+            "{shown}"
+        );
+        assert!(format!("{:?}", scene(Rate::Stepped, Some("5x"))).contains("\"5x\""));
+    }
+
+    #[test]
+    fn a_frame_comes_once_its_last_row_has_read_out() {
+        let camera = camera(scene(Rate::Stepped, Some("20x")), None);
+        let timing = camera.timing().unwrap();
+        // 71 line times of mode 0's 72 rows at 12 bits, and the 10 ms exposure.
+        let expected = 71.0 / 72.0 / 7.24 + 0.01;
+        assert!((timing.span().as_secs_f64() - expected).abs() < 1e-6);
+        let t0 = camera.clock().now();
+        let (sink, frames) = contract::channel_sink();
+        camera.start(sink).unwrap();
+        camera
+            .clock()
+            .step(timing.span() - Duration::from_millis(1))
+            .unwrap();
+        assert!(
+            frames.recv_timeout(Duration::from_millis(300)).is_err(),
+            "not before its last row"
+        );
+        camera.clock().step(Duration::from_millis(1)).unwrap();
+        let frame = frames.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(frame.meta().exposure_start, t0);
+        camera.stop().unwrap();
+    }
+
+    #[test]
+    fn a_frame_is_the_field_along_the_stages_path_through_the_sensor() {
+        let scene = scene(Rate::Stepped, Some("20x"));
+        let (stage, sample, light) = (scene.stage.clone(), scene.sample, scene.light.light());
+        let camera = camera(scene, None);
+        stage.jog(Axis::X, 400.0).unwrap();
+        // At its speed before the frame starts.
+        camera.clock().step(Duration::from_millis(20)).unwrap();
+        let start = camera.clock().now();
+        let timing = camera.timing().unwrap();
+        let frame = stream_stepped(&camera, 1).remove(0);
+        let span = timing.span();
+        assert_eq!(
+            frame.meta().position,
+            Some(stage.position_at(start.saturating_add(span / 2))),
+            "where the stage was halfway through"
+        );
+        let first = stage.position_at(start);
+        let fov = FieldOfView {
+            centre: (first.x.um(), first.y.um()),
+            optics: Optics {
+                sensor: SMALL,
+                ..Optics::new(20.0, 0.42, 0.0).unwrap()
+            },
+        };
+        let motion = Motion {
+            velocity: (400.0, 0.0),
+            exposure: timing.exposure.as_secs_f64(),
+            line_time: timing.line_time.as_secs_f64(),
+        };
+        let field = field_moving(&sample, &fov, &motion, &light, 2.0).unwrap();
+        let exposure = Exposure {
+            time: timing.exposure,
+            gain: 1.0,
+            bits: 12,
+            binning: 1,
+        };
+        let expected = expose(
+            &field.rgb,
+            SMALL.width,
+            SMALL.height,
+            &SensorModel::default(),
+            &exposure,
+            1,
+            0,
+        )
+        .unwrap();
+        let got = samples(&frame);
+        let differ = got
+            .iter()
+            .zip(&expected)
+            .filter(|(a, b)| a.abs_diff(**b) > 1)
+            .count();
+        assert!(
+            differ * 1_000 < got.len(),
+            "{differ} of {} apart",
+            got.len()
+        );
+    }
+
+    #[test]
+    fn far_from_focus_a_frame_is_as_blurred_as_it_gets() {
+        // Two cameras of one seed, their first frames: held at the same blur beyond 25 µm
+        // at 20×, above the section and below it, and not within it.
+        let first = |z: f64| {
+            let camera = camera(scene_at(Rate::Faster(10.0), Some("20x"), z), None);
+            samples(&camera.snap(Duration::from_secs(5)).unwrap())
+        };
+        assert_eq!(first(1_060.0), first(1_200.0), "held above");
+        assert_eq!(first(940.0), first(800.0), "held below");
+        assert_ne!(first(1_002.0), first(1_060.0), "nearer, sharper");
+    }
+
+    #[test]
     fn the_virtual_camera_keeps_the_contract() {
         contract::all(&|| Box::new(camera(scene(Rate::Faster(10.0), Some("20x")), None)));
         contract::all(&|| {
@@ -991,7 +1146,14 @@ mod tests {
             );
             let rows = SMALL.height / mode(id).unwrap().binning;
             assert!((timing.line_time.as_secs_f64() * f64::from(rows) - readout).abs() < 1e-6);
+            let events = camera.subscribe();
             let got = stream_stepped(&camera, 4);
+            assert!(
+                !events
+                    .try_iter()
+                    .any(|e| matches!(e, CameraEvent::Dropped { .. })),
+                "nothing dropped, keeping up"
+            );
             for pair in got.windows(2) {
                 let (a, b) = (pair[0].meta(), pair[1].meta());
                 assert_eq!(
@@ -1144,6 +1306,9 @@ mod tests {
         let frame = camera.snap(Duration::from_secs(5)).unwrap();
         assert_eq!(frame.meta().black_level, 7);
         assert!(samples(&frame).iter().all(|&v| v < 256));
+        // Linear in 8 bits: the black level's top 8 of 12 bits.
+        let linear = camera_linear_eight();
+        assert_eq!(linear.meta().black_level, 6);
     }
 
     /// The camera on the GPU, its tiles within 1 GiB.
@@ -1200,6 +1365,70 @@ mod tests {
     }
 
     #[test]
+    fn with_its_pool_used_up_it_drops_frames_until_one_comes_back() {
+        let camera = VirtualCamera::new(
+            scene(Rate::Stepped, Some("20x")),
+            VirtualCameraConfig {
+                sensor: SMALL,
+                pool: 2,
+                ..VirtualCameraConfig::default()
+            },
+            Backend::Cpu,
+        )
+        .unwrap();
+        let events = camera.subscribe();
+        let timing = camera.timing().unwrap();
+        let clock = camera.clock().clone();
+        let t0 = clock.now();
+        let (sink, frames) = contract::channel_sink();
+        camera.start(sink).unwrap();
+        let step_to = |k: u32| {
+            let done = t0
+                .saturating_add(timing.interval * k)
+                .saturating_add(timing.span());
+            clock.step(done.saturating_since(clock.now())).unwrap();
+        };
+        // Two frames, both held: the pool is empty.
+        let mut held = Vec::new();
+        for k in 0..2 {
+            step_to(k);
+            held.push(frames.recv_timeout(Duration::from_secs(10)).unwrap());
+        }
+        for k in 2..4 {
+            step_to(k);
+            loop {
+                match events.recv_timeout(Duration::from_secs(10)).unwrap() {
+                    CameraEvent::Dropped { count } => {
+                        assert_eq!(count, 1);
+                        break;
+                    }
+                    _ => continue,
+                }
+            }
+        }
+        drop(held);
+        step_to(4);
+        let next = frames.recv_timeout(Duration::from_secs(10)).unwrap();
+        camera.stop().unwrap();
+        assert_eq!(next.meta().dropped_before, 2, "{:?}", next.meta());
+        assert_eq!(next.meta().seq, 4);
+    }
+
+    #[test]
+    fn dropping_the_camera_stops_its_stream() {
+        let camera = camera(scene(Rate::Faster(10.0), Some("20x")), None);
+        let (sink, frames) = contract::channel_sink();
+        camera.start(sink).unwrap();
+        frames.recv_timeout(Duration::from_secs(10)).unwrap();
+        drop(camera);
+        frames.try_iter().for_each(drop);
+        assert!(
+            frames.recv_timeout(Duration::from_millis(500)).is_err(),
+            "no frame after the camera has gone"
+        );
+    }
+
+    #[test]
     fn a_frame_falls_behind_and_says_how_many_it_lost() {
         let camera = camera(scene(Rate::Stepped, Some("20x")), None);
         let events = camera.subscribe();
@@ -1213,6 +1442,13 @@ mod tests {
         let next = frames.recv_timeout(Duration::from_secs(5)).unwrap();
         camera.stop().unwrap();
         assert!(next.meta().dropped_before > 0, "{:?}", next.meta());
+        assert_eq!(
+            next.meta()
+                .exposure_start
+                .saturating_since(first.meta().exposure_start),
+            interval * (1 + next.meta().dropped_before as u32),
+            "whole intervals later"
+        );
         assert_eq!(
             next.meta().seq,
             first.meta().seq + 1 + next.meta().dropped_before
