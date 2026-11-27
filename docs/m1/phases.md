@@ -51,26 +51,27 @@ Each phase has:
 | [P1.07b](#p107b-psfs-and-richardsonlucy) | PSFs and Richardson–Lucy | P1.07a | 1,395 | Yes | G1 |
 | [P1.07c](#p107c-richardsonlucy-on-the-gpu) | Richardson–Lucy on the GPU | P1.07b | 1,430 | — | G1, G1c |
 | [P1.08a](#p108a-the-pipeline-model) | The pipeline model | P1.07c | 1,510 | — | G1 |
-| [P1.08b](#p108b-the-stock-nodes-and-live-runs) | The stock nodes and live runs | P1.08a | 1,330 | — | G1, G1c |
+| [P1.08b](#p108b-the-raw-paths-nodes) | The raw path's nodes | P1.08a | 1,390 | — | G1, G1c |
 | [P1.08c](#p108c-gpu-residency-and-fusion) | GPU residency and fusion | P1.08b | 1,490 | — | G1, G1c |
-| [P1.08d](#p108d-batch-runs-and-tiling) | Batch runs and tiling | P1.08c | 740 | — | G1, G1c |
+| [P1.08d](#p108d-denoise-and-deconvolution-nodes-and-live-runs) | Denoise and deconvolution nodes, and live runs | P1.08c | 900 | — | G1, G1c |
+| [P1.08e](#p108e-batch-runs-and-tiling) | Batch runs and tiling | P1.08d | 740 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
 | [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09 | 1,350 | — | G1 |
 | [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
 | [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10, P1.11 | 1,920 | — | G1, G1c, G2 |
 | [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12 | 1,980 | — | G1 |
-| [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08c, P1.13 | 1,050 | — | G1, G1c |
+| [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13 | 1,050 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13 | 800 | — | G1 |
 | [P1.15b](#p115b-datasets-and-capture) | Datasets and capture | P1.14a, P1.15a | 1,550 | — | G1 |
 | [P1.16](#p116-autofocus) | Autofocus | P1.15b | 1,300 | Yes | G1 |
 | [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16 | 1,530 | — | G1 |
 | [P1.18](#p118-calibration) | Calibration (**Checkpoint C**) | P1.17 | 1,900 | Yes | G1, G1c, G2 |
-| [P1.19](#p119-batch-processing) | Batch processing | P1.15b, P1.08d | 1,400 | — | G1, G1c |
+| [P1.19](#p119-batch-processing) | Batch processing | P1.15b, P1.08e | 1,400 | — | G1, G1c |
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 31 phases since P1.04 to P1.08 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 32 phases since P1.04 to P1.08 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -606,7 +607,7 @@ Each phase has:
 - **The registry,** under stable ids, with the first glue nodes: crop, and statistics.
 - **The executor,** on the CPU: topological order, each value handed from port to port.
 
-**Out of scope.** The stock nodes and live runs (P1.08b); GPU residency and fusion (P1.08c); batch runs and tiling (P1.08d).
+**Out of scope.** The stock nodes (P1.08b, P1.08d); GPU residency and fusion (P1.08c); live runs (P1.08d); batch runs and tiling (P1.08e).
 
 **Try it.** `recipe`: a JSON recipe validated, a broken one refused with its messages, and the good one run on a synthetic frame.
 
@@ -620,7 +621,7 @@ Each phase has:
 
 ---
 
-## P1.08b: The stock nodes and live runs
+## P1.08b: The raw path's nodes
 
 | | |
 |---|---|
@@ -628,25 +629,26 @@ Each phase has:
 | Depends on | P1.08a |
 | ADRs | — |
 | Gates | G1, G1c |
-| Estimate | code 600 (the stock nodes, about 30 lines each, 450; live runs 150) · tests 600 · examples 100 · docs-as-code 20 · glue 10 = **1,330** (1,730 at ×1.3), from P1.08's split; its own second estimate comes before its code |
+| Second estimate | code 620 (an encoded image as a port type 40; ten nodes of about 55 lines each: binning, the Bayer split, the superpixel, demosaicking, dark, flat, resizing, colour, the display transform, JPEG) · tests 620 · examples 120 · docs-as-code 20 · glue 10 = **1,390** (1,810 at ×1.3). P1.08b as first split, with every stock node and live runs, came to about 1,760, 2,290 at ×1.3: the agent re-split it on 2026-11-27, under the owner's standing approval, the denoise and deconvolution nodes joining live runs in P1.08d |
 
-**Goal.** Every stock algorithm as a node, and recipes run on a live stream.
+**Goal.** The raw path, from a raw frame to a JPEG, as nodes.
 
 **Scope.**
 
-- **The stock nodes** of P1.05–P1.07 in the registry, under stable ids: the Bayer split, the superpixel, binning, demosaicking, resizing, the display transform, JPEG, dark, flat, colour, temporal averaging, the bilateral filter, and Richardson–Lucy. Each runs on whichever backend `Compute` chose.
-- **Live mode:** one frame at a time; a frame that arrives while one is running replaces the waiting one.
+- **An encoded image** as a port type: bytes in a format, JPEG first.
+- **The raw path's nodes** in the registry, under stable ids, each on whichever backend `Compute` chose: binning, the Bayer split, the superpixel, demosaicking, dark subtraction, the flat field, resizing, colour, the display transform, and JPEG.
+- **The live chain as a recipe:** raw → dark → flat → demosaic → resize → colour → JPEG.
 
-**Out of scope.** Keeping data on the GPU between nodes, and fusion (P1.08c).
+**Out of scope.** The denoise and deconvolution nodes, and live runs (P1.08d); keeping data on the GPU between nodes, and fusion (P1.08c).
 
-**Try it.** `recipe` runs the live chain as separate nodes, live at 14.5 fps.
+**Try it.** `recipe` runs the live chain's recipe on a synthetic raw frame, node by node, to a JPEG.
 
 **Done when.**
 
-- Every stock node is in the registry, with its descriptor and its parameters' schema.
-- Live mode never queues more than one frame.
+- Each of the raw path's nodes is in the registry, with its descriptor and its parameters' schema, and matches the function it wraps.
+- The live chain's recipe gives the same preview as `Isp::run`.
 
-**Tests.** Each node against the function it wraps; live mode under a source faster than the recipe. **Broken on purpose:** live mode keeping every frame.
+**Tests.** Each node against the function it wraps; the chain's recipe against the ISP. **Broken on purpose:** the demosaic node ignoring its method.
 
 ---
 
@@ -667,7 +669,7 @@ Each phase has:
 - **GPU residency:** data kept on the GPU between consecutive CUDA nodes, copied only at the boundaries; copies counted.
 - **The fusion pass:** finds the live chain in a recipe, and runs P1.06b's fused kernel in its place, when the backend and the parameters allow.
 
-**Out of scope.** Batch runs and tiling (P1.08d).
+**Out of scope.** The denoise and deconvolution nodes, and live runs (P1.08d); batch runs and tiling (P1.08e).
 
 **Try it.** `recipe` on the GPU: the copies it made, and the live chain fused against unfused.
 
@@ -680,12 +682,43 @@ Each phase has:
 
 ---
 
-## P1.08d: Batch runs and tiling
+## P1.08d: Denoise and deconvolution nodes, and live runs
 
 | | |
 |---|---|
 | Crates | `tetera-pipeline` |
 | Depends on | P1.08c |
+| ADRs | — |
+| Gates | G1, G1c |
+| Estimate | code 400 (temporal averaging, the bilateral filter and Richardson–Lucy as nodes 200; live runs 200) · tests 400 · examples 80 · docs-as-code 15 · glue 5 = **900**, from P1.08b's re-split; its own second estimate comes before its code |
+
+**Goal.** The rest of the stock nodes, and recipes run on a live stream.
+
+**Scope.**
+
+- **The denoise and deconvolution nodes:** temporal averaging, the bilateral filter, and Richardson–Lucy, each on the backend chosen, and on the GPU without needless copies.
+- **Live mode:** one frame at a time; a frame that arrives while one is running replaces the waiting one.
+
+**Out of scope.** Batch runs and tiling (P1.08e).
+
+**Try it.** `recipe` runs the live chain live at 14.5 fps.
+
+**Done when.**
+
+- Every stock node is in the registry, with its descriptor and its parameters' schema.
+- Live mode never queues more than one frame.
+
+**Tests.** Each node against the function it wraps; live mode under a source faster than the recipe. **Broken on purpose:** live mode keeping every frame.
+
+---
+
+## P1.08e: Batch runs and tiling
+
+
+| | |
+|---|---|
+| Crates | `tetera-pipeline` |
+| Depends on | P1.08d |
 | ADRs | — |
 | Gates | G1, G1c |
 | Estimate | code 330 (batch runs over a list of inputs 80; tiles with halos, each node's reach declared, 250) · tests 330 · examples 60 · docs-as-code 15 · glue 5 = **740**, from P1.08's split; its own second estimate comes before its code |
@@ -922,7 +955,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-acquire` (new, L4) |
-| Depends on | P1.08c, P1.13 |
+| Depends on | P1.08d, P1.13 |
 | ADRs | — (the frame bus's design is in ADR-0008, from P1.03) |
 | Gates | G1, G1c |
 | First estimate | code 700 · tests 300 · examples 50 = **1,050** (the owner split P1.14 on 2026-11-26) |
@@ -1195,7 +1228,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-workflows`, `tetera-pipeline`, `tetera-store`, `tetera-api` |
-| Depends on | P1.15b, P1.08d |
+| Depends on | P1.15b, P1.08e |
 | ADRs | — |
 | Gates | G1, G1c |
 | First estimate | code 900 · tests 400 · examples 80 · docs-as-code 20 = **1,400** |

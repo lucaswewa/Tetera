@@ -7,7 +7,7 @@ Tetera's pipeline engine, L3 (plan §6.7, [ADR-0012](../../docs/adr/0012-the-pip
 - **A recipe** is JSON with a schema (`Recipe::schema`): its inputs and their types, its nodes, each fed from the recipe's inputs or other nodes' outputs (`node.port`), and its outputs. Recipes in [`recipes/`](recipes/) show the format.
 - **`Plan::check`** checks a recipe against the `Registry` and reports every problem, each where it is and what is wrong: an unknown node or version, an unknown port, mismatched types, an input left unfed or given twice, a cycle, missing or invalid parameters. A problem downstream of another isn't reported again.
 - **`Plan::run`** runs the nodes in topological order, each after those that feed it, and gives the recipe's outputs. It checks the inputs it is given, and that each node gives what it declared.
-- **The registry** holds the nodes by id and version, a recipe getting the latest unless it names one. It starts with two glue nodes, `tetera.crop` and `tetera.statistics`; the stock nodes join in P1.08b.
+- **The registry** holds the nodes by id and version, a recipe getting the latest unless it names one. It starts with two glue nodes, `tetera.crop` and `tetera.statistics`; the stock nodes join in P1.08b and P1.08d.
 
 ## How to try it
 
