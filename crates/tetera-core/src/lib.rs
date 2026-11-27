@@ -7,11 +7,11 @@
 //! - [`time`]: the monotonic clock, its mapping to UTC, and the drift check;
 //! - [`id`]: typed IDs that sort by creation;
 //! - [`error`]: one error type, with a kind and a context chain;
-//! - [`log`]: log records and the ring that keeps the newest.
-//!
-//! P1.03 adds the frame model.
+//! - [`log`]: log records and the ring that keeps the newest;
+//! - [`frame`]: the frame model: formats, layouts, metadata, the pool, and views.
 
 pub mod error;
+pub mod frame;
 pub mod geometry;
 pub mod id;
 pub mod log;
@@ -19,6 +19,7 @@ pub mod time;
 pub mod units;
 
 pub use error::{Error, ErrorKind, Result, ResultExt};
+pub use frame::{Frame, FrameLayout, FrameMeta, FrameMut, FramePool, PixelFormat, PixelView};
 pub use geometry::{Affine2, PointPx, PointUm, Rect, StagePos, VectorPx, VectorUm};
 pub use id::Id;
 pub use log::{LogEntry, LogLevel, LogRecord, LogRing};

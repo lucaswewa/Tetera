@@ -33,3 +33,15 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-log --example log_tour -- --journald`, then `journalctl -t tetera-log-tour -o json -n 6` — expect priorities 7, 7, 6, 4, 3 and **2** for the critical record, with `FREE_GB=0` and the other fields. Nothing on standard error, since journald has the records.
 - [ ] `RUST_LOG=warn cargo run -p tetera-log --example log_tour` — expect only the warn, error and critical records in the ring (the smoke check would fail with this filter, so don't pass `--smoke`).
 - **Result:** see the [notes](notes/P1.02-core-types-and-logging.md#manual-test).
+
+## P1.03: The frame model
+
+- **Prerequisites:** the phase's branch, built; about 1 GB of free memory.
+- [ ] `cargo run -p tetera-core --example frame_pool` — expect:
+  - `39.9 MB each, 639 MB in all`;
+  - lines from three consumers reading frames 0, 12, 24 and 36, with row means of 0, 3084, 2056 and 1028 (the frame's level × 257);
+  - `48 taken, 16 allocated`;
+  - `With all 16 lent, a 17th: all 16 frames of the pool were still in use after 200 ms.`;
+  - `Once they come back, a frame is lent at once.`
+- [ ] Watch its memory with `/usr/bin/time -v cargo run -q -p tetera-core --example frame_pool` — expect a peak near 640 MB however many frames pass through: the pool doesn't grow.
+- **Result:** see the [notes](notes/P1.03-the-frame-model.md#manual-test).

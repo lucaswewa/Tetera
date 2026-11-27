@@ -129,7 +129,54 @@ pub fn duration_from_ms(ms: f64) -> Result<Duration> {
 
 /// A duration in milliseconds, as APIs give it.
 pub fn duration_ms(d: Duration) -> f64 {
-    d.as_secs_f64() * 1_000.0
+    // Whole nanoseconds over a million: one correctly rounded division, so 12.5 ms reads 12.5.
+    d.as_nanos() as f64 / 1_000_000.0
+}
+
+/// Serde for a [`Duration`] as milliseconds, as the API speaks it (ADR-0006):
+/// `#[serde(with = "tetera_core::units::ms")]`.
+pub mod ms {
+    use super::{duration_from_ms, duration_ms};
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::time::Duration;
+
+    /// Writes `d` as milliseconds.
+    pub fn serialize<S: Serializer>(d: &Duration, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_f64(duration_ms(*d))
+    }
+
+    /// Reads milliseconds, refusing what [`duration_from_ms`] refuses.
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
+        duration_from_ms(f64::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Serde for an optional [`Duration`] as milliseconds, or `null`.
+pub mod ms_opt {
+    use super::{duration_from_ms, duration_ms};
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::time::Duration;
+
+    /// Writes `d` as milliseconds, or `null`.
+    pub fn serialize<S: Serializer>(
+        d: &Option<Duration>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match d {
+            Some(d) => serializer.serialize_some(&duration_ms(*d)),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    /// Reads milliseconds or `null`, refusing what [`duration_from_ms`] refuses.
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Duration>, D::Error> {
+        Option::<f64>::deserialize(deserializer)?
+            .map(duration_from_ms)
+            .transpose()
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 #[cfg(test)]
@@ -204,6 +251,34 @@ mod tests {
                 .message()
                 .contains("too long")
         );
+    }
+
+    #[test]
+    fn durations_serialise_as_milliseconds() {
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct Timing {
+            #[serde(with = "ms")]
+            exposure: Duration,
+            #[serde(with = "ms_opt", default)]
+            line: Option<Duration>,
+        }
+        let t = Timing {
+            exposure: Duration::from_micros(12_500),
+            line: Some(Duration::from_nanos(10_500)),
+        };
+        let json = serde_json::to_string(&t).unwrap();
+        assert_eq!(json, r#"{"exposure":12.5,"line":0.0105}"#);
+        assert_eq!(serde_json::from_str::<Timing>(&json).unwrap(), t);
+        let none: Timing = serde_json::from_str(r#"{"exposure":1,"line":null}"#).unwrap();
+        assert_eq!(none.line, None);
+        assert_eq!(
+            serde_json::from_str::<Timing>(r#"{"exposure":2}"#)
+                .unwrap()
+                .line,
+            None
+        );
+        assert!(serde_json::from_str::<Timing>(r#"{"exposure":-1}"#).is_err());
+        assert!(serde_json::from_str::<Timing>(r#"{"exposure":1,"line":-2}"#).is_err());
     }
 
     proptest! {
