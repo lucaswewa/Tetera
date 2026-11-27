@@ -25,6 +25,11 @@
 //! From P1.08d:
 //! - [`restore`]: temporal averaging, the bilateral filter and Richardson–Lucy as nodes;
 //! - [`live`]: a plan run live on a thread of its own, one frame waiting at most, the latest.
+//!
+//! From P1.08e:
+//! - batch runs over a list of inputs, and tiled runs: each step declares how far it reaches,
+//!   and a recipe whose steps all reach a bounded way runs in tiles with a halo, giving what
+//!   the whole frame gives.
 
 mod fuse;
 pub mod glue;
@@ -37,6 +42,7 @@ pub mod registry;
 pub mod restore;
 pub mod run;
 pub mod stock;
+mod tile;
 
 pub use live::{Live, LiveStats};
 pub use node::{Backends, Context, Descriptor, Node, Step};

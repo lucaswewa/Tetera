@@ -3,7 +3,9 @@
 //! Then the live chain, node by node, from a synthetic sensor's raw frame to a JPEG, on the CPU
 //! and, with the `cuda` feature, on the GPU, node by node and fused, each checked against the
 //! ISP's own preview. Then live: a synthetic camera's frames at 14.5 fps, the recipe running
-//! each as it can, a frame that comes while one waits taking its place.
+//! each as it can, a frame that comes while one waits taking its place. Last, a batch over a
+//! folder of frames, written to `target/recipe/frames` and read back, denoised whole and in
+//! tiles, the two checked equal.
 //!
 //! Run it with `cargo run --release -p tetera-pipeline --example recipe --features cuda`. It
 //! writes the preview to `target/recipe/preview.jpg`. With a path,
@@ -26,6 +28,117 @@ use tetera_pipeline::{Context, Live, Plan, Recipe, Registry, Value};
 const GOOD: &str = include_str!("../recipes/crop-and-measure.json");
 const BROKEN: &str = include_str!("../recipes/broken.json");
 const CHAIN: &str = include_str!("../recipes/live-chain.json");
+const DENOISE: &str = include_str!("../recipes/denoise.json");
+
+/// `image`, RGB of 16 bits, as a binary PPM file.
+fn write_ppm(path: &std::path::Path, image: &Image<u16>) -> Result<()> {
+    let mut bytes = format!("P6\n{} {}\n65535\n", image.width(), image.height()).into_bytes();
+    for v in image.data() {
+        bytes.extend_from_slice(&v.to_be_bytes());
+    }
+    std::fs::write(path, bytes)
+        .map_err(|e| Error::internal(format!("couldn't write {}: {e}", path.display())))
+}
+
+/// A binary PPM file of 16 bits back as an RGB image.
+fn read_ppm(path: &std::path::Path) -> Result<Image<u16>> {
+    let bytes =
+        std::fs::read(path).map_err(|e| Error::not_found(format!("{}: {e}", path.display())))?;
+    let bad = || Error::invalid_argument(format!("{} isn't a 16-bit PPM", path.display()));
+    // The header is four words: P6, the width, the height and 65535, each after white space.
+    let mut words = Vec::new();
+    let mut at = 0;
+    while words.len() < 4 {
+        while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+            at += 1;
+        }
+        let start = at;
+        while bytes.get(at).is_some_and(|b| !b.is_ascii_whitespace()) {
+            at += 1;
+        }
+        words.push(
+            std::str::from_utf8(&bytes[start..at])
+                .map_err(|_| bad())?
+                .to_string(),
+        );
+    }
+    let [magic, w, h, max] = &words[..] else {
+        return Err(bad());
+    };
+    let (w, h): (u32, u32) = (w.parse().map_err(|_| bad())?, h.parse().map_err(|_| bad())?);
+    if magic != "P6" || max != "65535" {
+        return Err(bad());
+    }
+    let data = bytes[at + 1..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&b| u16::from_be_bytes(b))
+        .collect();
+    Image::new(w, h, 3, data)
+}
+
+/// A batch over a folder of `count` frames of `width × height`, written then read back, run by
+/// the denoise recipe whole and in tiles of `tile`.
+fn folder(registry: &Registry, width: u32, height: u32, count: u64, tile: u32) -> Result<()> {
+    let dir = std::path::Path::new("target/recipe/frames");
+    // A fresh folder, so frames of another run don't join the batch.
+    if dir.exists() {
+        std::fs::remove_dir_all(dir)
+            .map_err(|e| Error::internal(format!("couldn't empty {}: {e}", dir.display())))?;
+    }
+    std::fs::create_dir_all(dir)
+        .map_err(|e| Error::internal(format!("couldn't make {}: {e}", dir.display())))?;
+    let clean = test_pattern(width, height, 12);
+    for seed in 0..count {
+        let frame = Image::new(width, height, 3, noisy(clean.data(), 80.0, 4_095, seed))?;
+        write_ppm(&dir.join(format!("frame-{seed}.ppm")), &frame)?;
+    }
+    let mut paths: Vec<_> = std::fs::read_dir(dir)
+        .map_err(|e| Error::internal(format!("couldn't read {}: {e}", dir.display())))?
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "ppm"))
+        .collect();
+    paths.sort();
+    let frames: Vec<BTreeMap<String, Value>> = paths
+        .iter()
+        .map(|p| {
+            Ok(BTreeMap::from([(
+                "image".to_string(),
+                Value::U16(read_ppm(p)?),
+            )]))
+        })
+        .collect::<Result<_>>()?;
+    let recipe = Recipe::from_json(DENOISE)?;
+    let mut plan = Plan::new(&recipe, registry)?;
+    let reach = plan.reach()?;
+    let compute = Compute::detect()?;
+    let context = Context { compute: &compute };
+    println!(
+        "\nA batch over {} frames read back from {}, `{}`, reaching {reach} pixels:",
+        frames.len(),
+        dir.display(),
+        plan.name()
+    );
+    let start = Instant::now();
+    let whole = plan.run_batch(&context, frames.clone())?;
+    let whole_ms = start.elapsed().as_secs_f64() * 1e3 / frames.len() as f64;
+    let start = Instant::now();
+    let tiled: Vec<BTreeMap<String, Value>> = frames
+        .into_iter()
+        .map(|f| plan.run_tiled(&context, f, (tile, tile)))
+        .collect::<Result<_>>()?;
+    let tiled_ms = start.elapsed().as_secs_f64() * 1e3 / whole.len() as f64;
+    if tiled != whole {
+        return Err(Error::internal(
+            "the tiled batch differs from the whole one",
+        ));
+    }
+    println!(
+        "  whole, {whole_ms:.0} ms a frame; in tiles of {tile} × {tile}, {tiled_ms:.0} ms a frame; the two the same, exactly"
+    );
+    Ok(())
+}
 
 /// The sensor the ISP's example uses: an offset, vignetting, and unequal channels.
 fn sensor() -> Sensor {
@@ -308,6 +421,11 @@ fn main() -> Result<()> {
     }
     let (width, height) = if smoke { (640, 480) } else { (5_472, 3_648) };
     live_chain(&registry, width, height)?;
+    if smoke {
+        folder(&registry, 320, 240, 2, 128)?;
+    } else {
+        folder(&registry, width, height, 4, 1_024)?;
+    }
     if smoke {
         println!("\nsmoke: ok");
     }

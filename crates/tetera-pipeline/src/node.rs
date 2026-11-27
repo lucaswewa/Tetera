@@ -191,6 +191,13 @@ pub trait Node: Send + Sync {
 pub trait Step: Send {
     /// Its outputs, from `inputs`, which are of the types its node declared, in order.
     fn run(&mut self, context: &Context, inputs: &[&Value]) -> Result<Vec<Value>>;
+
+    /// How far, in pixels, an output pixel reaches into its inputs around it, for tiling: 0
+    /// for a pixel's own, 2 for a 5 × 5 window. `None`, the default, when it needs the whole
+    /// image, or changes its size.
+    fn reach(&self) -> Option<u32> {
+        None
+    }
 }
 
 /// `parameters` read as `P`, or serde's words for why not, such as ``missing field `width` ``.

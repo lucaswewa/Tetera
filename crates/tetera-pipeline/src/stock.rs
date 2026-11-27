@@ -86,22 +86,41 @@ impl Node for Stock {
     }
 }
 
-/// A step that is a closure.
-struct FnStep<F>(F);
+/// A step that is a closure, and its reach.
+struct FnStep<F> {
+    f: F,
+    reach: Option<u32>,
+}
 
 impl<F> Step for FnStep<F>
 where
     F: FnMut(&Context, &[&Value]) -> Result<Vec<Value>> + Send,
 {
     fn run(&mut self, context: &Context, inputs: &[&Value]) -> Result<Vec<Value>> {
-        (self.0)(context, inputs)
+        (self.f)(context, inputs)
+    }
+
+    fn reach(&self) -> Option<u32> {
+        self.reach
     }
 }
 
+/// A step that needs the whole image.
 pub(crate) fn step(
     f: impl FnMut(&Context, &[&Value]) -> Result<Vec<Value>> + Send + 'static,
 ) -> Result<Box<dyn Step>> {
-    Ok(Box::new(FnStep(f)))
+    Ok(Box::new(FnStep { f, reach: None }))
+}
+
+/// A step whose output pixel reads its inputs `reach` pixels around, which tiles can run.
+pub(crate) fn local(
+    reach: u32,
+    f: impl FnMut(&Context, &[&Value]) -> Result<Vec<Value>> + Send + 'static,
+) -> Result<Box<dyn Step>> {
+    Ok(Box::new(FnStep {
+        f,
+        reach: Some(reach),
+    }))
 }
 
 /// A stock node, on either backend.
@@ -319,7 +338,11 @@ fn demosaic() -> Arc<dyn Node> {
     node(d, |params| {
         let p: DemosaicParameters = parameters(params)?;
         let method = Demosaic::from(p.method);
-        step(move |ctx, inputs| {
+        let reach = match method {
+            Demosaic::Bilinear => 1,
+            Demosaic::MalvarHeCutler => 2,
+        };
+        local(reach, move |ctx, inputs| {
             #[cfg(feature = "cuda")]
             if let Value::DeviceRaw(m) = inputs[0] {
                 let rgb = demosaic_device::<u16>(gpu(ctx)?, m, method)?;
@@ -342,7 +365,7 @@ fn dark() -> Arc<dyn Node> {
     .output(raw("raw", "It, the dark subtracted."));
     node(d, |params| {
         let _: NoParameters = parameters(params)?;
-        step(|ctx, inputs| {
+        local(0, |ctx, inputs| {
             #[cfg(feature = "cuda")]
             if let (Value::DeviceRaw(m), Value::DeviceRaw(d)) = (inputs[0], inputs[1]) {
                 let out = subtract_dark_device(gpu(ctx)?, m, d.buffer())?;
@@ -530,7 +553,7 @@ fn colour() -> Arc<dyn Node> {
         let colour = Colour::new(&correction, p.levels.map(Levels::from), p.curve.into())?;
         #[cfg(feature = "cuda")]
         let mut tables: Option<DeviceColour> = None;
-        step(move |ctx, inputs| {
+        local(0, move |ctx, inputs| {
             #[cfg(feature = "cuda")]
             if let Value::DeviceU16(i) = inputs[0] {
                 let gpu = gpu(ctx)?;
@@ -577,7 +600,7 @@ fn display() -> Arc<dyn Node> {
         let mut transform = DisplayTransform::new(&levels, curve)?;
         #[cfg(feature = "cuda")]
         let mut tables: Option<DeviceDisplay> = None;
-        step(move |ctx, inputs| {
+        local(0, move |ctx, inputs| {
             let PortType::Image {
                 channels: Some(channels),
                 sample: Some(SampleType::U16),
