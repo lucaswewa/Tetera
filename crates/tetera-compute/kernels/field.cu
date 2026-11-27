@@ -10,59 +10,64 @@ __device__ float from_half(unsigned short h)
     return f;
 }
 
-// One stain of the grid's level pixel (gx, gy), held within the grid, from its tile.
-__device__ float texel(
-    const unsigned long long* tiles, int c0, int r0, int columns,
-    long long gi0, long long gj0, int gw, int gh, long long cx, long long cy, int stain)
+// Both stains of the grid's level pixel (c, r), held within the grid, from its tile: one
+// 32-bit load of the two halves. (off_x, off_y) is the grid's first pixel within its first
+// tile, so the tile and the pixel within it come by shifts and masks.
+__device__ __forceinline__ void texel(
+    const unsigned long long* tiles, int columns, int off_x, int off_y, int gw, int gh,
+    int c, int r, float* h, float* e)
 {
-    long long c = cx < 0 ? 0 : (cx > gw - 1 ? gw - 1 : cx);
-    long long r = cy < 0 ? 0 : (cy > gh - 1 ? gh - 1 : cy);
-    long long gx = gi0 + c, gy = gj0 + r;
-    long long tc = (gx >= 0 ? gx / 256 : -((-gx + 255) / 256)) - c0;
-    long long tr = (gy >= 0 ? gy / 256 : -((-gy + 255) / 256)) - r0;
-    long long ix = gx - (tc + c0) * 256, iy = gy - (tr + r0) * 256;
-    const unsigned short* tile = (const unsigned short*)tiles[tr * columns + tc];
-    return from_half(tile[2 * (iy * 256 + ix) + stain]);
+    c = c < 0 ? 0 : (c > gw - 1 ? gw - 1 : c);
+    r = r < 0 ? 0 : (r > gh - 1 ? gh - 1 : r);
+    int lx = off_x + c, ly = off_y + r;
+    const unsigned int* tile = (const unsigned int*)tiles[(ly >> 8) * columns + (lx >> 8)];
+    unsigned int pair = tile[((ly & 255) << 8) + (lx & 255)];
+    *h = from_half((unsigned short)(pair & 0xffffu));
+    *e = from_half((unsigned short)(pair >> 16));
 }
 
-// Each sensor pixel's stains, bilinear from the grid of tiles.
+// Each sensor pixel's stains, bilinear from the grid of tiles, averaged along its row's path
+// during its exposure. Pixel (col, row) starts at (ax + col·bx + row·cx, ay + col·by +
+// row·cy) on the grid, in its pixels, the map worked out on the host in double precision,
+// the rolling shutter's delay in its row terms; the path's samples are single-precision steps
+// from there.
 extern "C" __global__ void field_resample(
     float* out_h, float* out_e,
-    const unsigned long long* tiles, int c0, int r0, int columns,
-    long long gi0, long long gj0, int gw, int gh, double level_pixel,
-    double centre_x, double centre_y, double pixel, double cos_a, double sin_a,
-    int width, int height, double vx, double vy, double line_time, double exposure, int samples)
+    const unsigned long long* tiles, int columns, int off_x, int off_y, int gw, int gh,
+    double ax, double bx, double cx, double ay, double by, double cy,
+    float step_x, float step_y, int width, int height, int samples)
 {
     int col = blockIdx.x * blockDim.x + threadIdx.x;
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     if (col >= width || row >= height) {
         return;
     }
-    double u = ((double)col + 0.5 - (double)width / 2.0) * pixel;
-    double v = ((double)row + 0.5 - (double)height / 2.0) * pixel;
-    double x = centre_x + u * cos_a - v * sin_a;
-    double y = centre_y + u * sin_a + v * cos_a;
-    // Along the row's path during its exposure: the rolling shutter and the motion.
-    float sum[2] = {0.0f, 0.0f};
+    double gx = ax + (double)col * bx + (double)row * cx;
+    double gy = ay + (double)col * by + (double)row * cy;
+    double fbx = floor(gx), fby = floor(gy);
+    int ibx = (int)fbx, iby = (int)fby;
+    float rx = (float)(gx - fbx), ry = (float)(gy - fby);
+    float sum_h = 0.0f, sum_e = 0.0f;
     for (int k = 0; k < samples; k++) {
-        double t = (double)row * line_time + ((double)k + 0.5) / (double)samples * exposure;
-        double fx = ((x + vx * t) / level_pixel - (double)gi0) - 0.5;
-        double fy = ((y + vy * t) / level_pixel - (double)gj0) - 0.5;
-        double ix = floor(fx), iy = floor(fy);
-        float tx = (float)(fx - ix), ty = (float)(fy - iy);
-        long long i = (long long)ix, j = (long long)iy;
-        for (int s = 0; s < 2; s++) {
-            float a = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i, j, s);
-            float b = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i + 1, j, s);
-            float c = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i, j + 1, s);
-            float d = texel(tiles, c0, r0, columns, gi0, gj0, gw, gh, i + 1, j + 1, s);
-            float top = a + tx * (b - a);
-            float bottom = c + tx * (d - c);
-            sum[s] += top + ty * (bottom - top);
-        }
+        float fx = rx + ((float)k + 0.5f) * step_x;
+        float fy = ry + ((float)k + 0.5f) * step_y;
+        float flx = floorf(fx), fly = floorf(fy);
+        int i = ibx + (int)flx, j = iby + (int)fly;
+        float tx = fx - flx, ty = fy - fly;
+        float ah, ae, bh, be, ch, ce, dh, de;
+        texel(tiles, columns, off_x, off_y, gw, gh, i, j, &ah, &ae);
+        texel(tiles, columns, off_x, off_y, gw, gh, i + 1, j, &bh, &be);
+        texel(tiles, columns, off_x, off_y, gw, gh, i, j + 1, &ch, &ce);
+        texel(tiles, columns, off_x, off_y, gw, gh, i + 1, j + 1, &dh, &de);
+        float top = ah + tx * (bh - ah);
+        float bottom = ch + tx * (dh - ch);
+        sum_h += top + ty * (bottom - top);
+        top = ae + tx * (be - ae);
+        bottom = ce + tx * (de - ce);
+        sum_e += top + ty * (bottom - top);
     }
-    out_h[row * width + col] = sum[0] / (float)samples;
-    out_e[row * width + col] = sum[1] / (float)samples;
+    out_h[row * width + col] = sum_h / (float)samples;
+    out_e[row * width + col] = sum_e / (float)samples;
 }
 
 // A blur along rows: out = in ⊛ weights, held at the edges.

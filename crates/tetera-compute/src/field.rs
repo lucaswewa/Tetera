@@ -25,6 +25,47 @@ pub struct SensorView {
     pub samples: u32,
 }
 
+/// Where each sensor pixel's path starts on a grid, in the grid's pixels, as the kernel takes
+/// it: pixel (col, row) at `x.0 + col · x.1 + row · x.2` across and the same of `y` down,
+/// less half a pixel, as bilinear sampling takes it; and the step between its samples.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GridMap {
+    /// Across: the first pixel's place, then a column's step and a row's.
+    pub x: (f64, f64, f64),
+    /// Down.
+    pub y: (f64, f64, f64),
+    /// From one of a pixel's samples to the next, grid pixels.
+    pub step: (f32, f32),
+}
+
+impl SensorView {
+    /// The map from its pixels to `grid`'s: the view's place and angle, the rolling shutter's
+    /// delay from row to row, and the motion during each row's exposure.
+    pub fn grid_map(&self, grid: &TileGrid) -> GridMap {
+        let inv = 1.0 / grid.pixel;
+        let (sin, cos) = self.angle.sin_cos();
+        let u0 = (0.5 - f64::from(self.width) / 2.0) * self.pixel;
+        let v0 = (0.5 - f64::from(self.height) / 2.0) * self.pixel;
+        let per_sample = self.exposure * inv / f64::from(self.samples.max(1));
+        GridMap {
+            x: (
+                (self.centre.0 + u0 * cos - v0 * sin) * inv - grid.first.0 as f64 - 0.5,
+                self.pixel * cos * inv,
+                (-self.pixel * sin + self.velocity.0 * self.line_time) * inv,
+            ),
+            y: (
+                (self.centre.1 + u0 * sin + v0 * cos) * inv - grid.first.1 as f64 - 0.5,
+                self.pixel * sin * inv,
+                (self.pixel * cos + self.velocity.1 * self.line_time) * inv,
+            ),
+            step: (
+                (self.velocity.0 * per_sample) as f32,
+                (self.velocity.1 * per_sample) as f32,
+            ),
+        }
+    }
+}
+
 /// The grid of level pixels a field resamples from, and the tiles that hold it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TileGrid {
@@ -152,6 +193,8 @@ mod device {
             let expected = grid.tiles.0 as usize * grid.tiles.1 as usize;
             if tiles.len() != expected
                 || view.samples == 0
+                || !(0..256).contains(&(grid.first.0 - i64::from(grid.tile.0) * 256))
+                || !(0..256).contains(&(grid.first.1 - i64::from(grid.tile.1) * 256))
                 || tiles.iter().any(|t| t.len() != 256 * 256 * 2)
                 || (view.width, view.height) != (planes.width, planes.height)
             {
@@ -170,38 +213,38 @@ mod device {
             let function = self.module(&FIELD)?.function("field_resample")?;
             let (columns, gw, gh) = (grid.tiles.0 as i32, grid.size.0 as i32, grid.size.1 as i32);
             let (width, height) = (view.width as i32, view.height as i32);
-            let (sin, cos) = view.angle.sin_cos();
             let samples = view.samples as i32;
+            // The grid's first pixel within its first tile.
+            let off_x = (grid.first.0 - i64::from(grid.tile.0) * 256) as i32;
+            let off_y = (grid.first.1 - i64::from(grid.tile.1) * 256) as i32;
+            let map = view.grid_map(grid);
             let mut launch = stream.launch_builder(&function);
             launch
                 .arg(planes.h.slice_mut())
                 .arg(planes.e.slice_mut())
                 .arg(table.slice())
-                .arg(&grid.tile.0)
-                .arg(&grid.tile.1)
                 .arg(&columns)
-                .arg(&grid.first.0)
-                .arg(&grid.first.1)
+                .arg(&off_x)
+                .arg(&off_y)
                 .arg(&gw)
                 .arg(&gh)
-                .arg(&grid.pixel)
-                .arg(&view.centre.0)
-                .arg(&view.centre.1)
-                .arg(&view.pixel)
-                .arg(&cos)
-                .arg(&sin)
+                .arg(&map.x.0)
+                .arg(&map.x.1)
+                .arg(&map.x.2)
+                .arg(&map.y.0)
+                .arg(&map.y.1)
+                .arg(&map.y.2)
+                .arg(&map.step.0)
+                .arg(&map.step.1)
                 .arg(&width)
                 .arg(&height)
-                .arg(&view.velocity.0)
-                .arg(&view.velocity.1)
-                .arg(&view.line_time)
-                .arg(&view.exposure)
                 .arg(&samples);
             // SAFETY: `field_resample` takes (float* out_h, float* out_e, const unsigned long
-            // long* tiles, int c0, int r0, int columns, long long gi0, long long gj0, int gw,
-            // int gh, double level_pixel, double centre_x, double centre_y, double pixel,
-            // double cos, double sin, int width, int height, double vx, double vy, double
-            // line_time, double exposure, int samples), matched here in order and type.
+            // long* tiles, int columns, int off_x, int off_y, int gw, int gh, double ax,
+            // double bx, double cx, double ay, double by, double cy, float step_x, float
+            // step_y, int width, int height, int samples), matched here in order and type.
+            // `texel` clamps each level pixel into the grid's gw × gh; off_x and off_y are
+            // within 0..256, as the grid's first tile holds its first pixel.
             // Thread (col, row) < (width, height) writes out_h and out_e at row · width + col,
             // inside the planes, which are width · height (checked above). It reads level
             // pixels held within the grid's gw × gh, which the grid's tiles cover (checked
