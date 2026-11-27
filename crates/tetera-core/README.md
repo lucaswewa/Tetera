@@ -8,13 +8,13 @@ Tetera's foundation layer, L0: the types every other crate shares. It does no I/
 - **`id`:** `Id<T>`, a UUID v7 typed by what it names, sorting by creation.
 - **`error`:** `Error`, with an `ErrorKind`, a context chain and a source.
 - **`log`:** `LogRecord`, `LogLevel` (with *critical*), and `LogRing`, which keeps the newest records.
-
-P1.03 adds the frame model.
+- **`frame`** ([ADR-0008](../../docs/adr/0008-the-frame-model-the-buffer-pool-and-the-frame-bus.md)): `PixelFormat` with Bayer patterns that follow a crop; `FrameLayout` with aligned rows; `FrameMeta`; `FramePool`, which lends `FrameMut`s to fill and shares frozen `Frame`s, its buffers returning when the last share drops; safe views of rows, samples and Bayer sites.
 
 ## How to try it
 
 ```bash
 cargo run -p tetera-core --example core_tour
+cargo run -p tetera-core --example frame_pool
 cargo run -p tetera-core --example hello -- --smoke
 ```
 
@@ -27,5 +27,7 @@ cargo run -p tetera-core --example hello -- --smoke
 - an error with its context.
 
 With `-- --smoke`, it also prints `smoke: ok`.
+
+`frame_pool` makes a pool of 16 full MIChrome 20 frames (about 640 MB) and feeds 48 frames through it to three consumer threads, each reading a row of every frame without a copy. It prints the pool's counts (48 taken, 16 allocated), then lends all 16 and shows a 17th take waiting 200 ms and failing with a clear message. `-- --smoke` checks the counts.
 
 To try the debugger, open the repository in VS Code over Remote-WSL, set a breakpoint in an example, choose **Debug an example** in the Run and Debug view, enter the example's name when asked, and press F5.

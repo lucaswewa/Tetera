@@ -13,3 +13,4 @@ The [plan's §10](../implementation-plan.md#10-planned-adrs) lists the ADRs stil
 | [0005](0005-layered-crates-and-the-local-gates.md) | Layered crates, and the local gates | Accepted | P1.01 |
 | [0006](0006-units-coordinates-and-the-clock.md) | Units, coordinates and the clock | Accepted | P1.02 |
 | [0007](0007-logging.md) | Logging | Accepted | P1.02 |
+| [0008](0008-the-frame-model-the-buffer-pool-and-the-frame-bus.md) | The frame model, the buffer pool and the frame bus | Accepted | P1.03 |
