@@ -373,6 +373,8 @@ mod tests {
             (even, 4, "too short"),
             (even, 8, "too long"),
             (odd, 6, "odd"),
+            (odd, 7, "odd, its samples the right number"),
+            (even, 7, "a byte over"),
         ] {
             assert!(
                 gpu.download_into_bytes(&buffer, &mut bytes[from..from + len])

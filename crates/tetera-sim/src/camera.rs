@@ -537,7 +537,6 @@ impl Shared {
                     frame: seq,
                 },
                 frame.data_mut(),
-                stride,
             )?,
         }
         let mut black = model.black_level;
@@ -1018,62 +1017,64 @@ mod tests {
 
     #[test]
     fn a_frame_is_the_field_along_the_stages_path_through_the_sensor() {
-        let scene = scene(Rate::Stepped, Some("20x"));
-        let (stage, sample, light) = (scene.stage.clone(), scene.sample, scene.light.light());
-        let camera = camera(scene, None);
-        stage.jog(Axis::X, 400.0).unwrap();
-        // At its speed before the frame starts.
-        camera.clock().step(Duration::from_millis(20)).unwrap();
-        let start = camera.clock().now();
-        let timing = camera.timing().unwrap();
-        let frame = stream_stepped(&camera, 1).remove(0);
-        let span = timing.span();
-        assert_eq!(
-            frame.meta().position,
-            Some(stage.position_at(start.saturating_add(span / 2))),
-            "where the stage was halfway through"
-        );
-        let first = stage.position_at(start);
-        let fov = FieldOfView {
-            centre: (first.x.um(), first.y.um()),
-            optics: Optics {
-                sensor: SMALL,
-                ..Optics::new(20.0, 0.42, 0.0).unwrap()
-            },
-        };
-        let motion = Motion {
-            velocity: (400.0, 0.0),
-            exposure: timing.exposure.as_secs_f64(),
-            line_time: timing.line_time.as_secs_f64(),
-        };
-        let field = field_moving(&sample, &fov, &motion, &light, 2.0).unwrap();
-        let exposure = Exposure {
-            time: timing.exposure,
-            gain: 1.0,
-            bits: 12,
-            binning: 1,
-        };
-        let expected = expose(
-            &field.rgb,
-            SMALL.width,
-            SMALL.height,
-            &SensorModel::default(),
-            &exposure,
-            1,
-            0,
-        )
-        .unwrap();
-        let got = samples(&frame);
-        let differ = got
-            .iter()
-            .zip(&expected)
-            .filter(|(a, b)| a.abs_diff(**b) > 1)
-            .count();
-        assert!(
-            differ * 1_000 < got.len(),
-            "{differ} of {} apart",
-            got.len()
-        );
+        for (axis, velocity) in [(Axis::X, (400.0, 0.0)), (Axis::Y, (0.0, -300.0))] {
+            let scene = scene(Rate::Stepped, Some("20x"));
+            let (stage, sample, light) = (scene.stage.clone(), scene.sample, scene.light.light());
+            let camera = camera(scene, None);
+            stage.jog(axis, velocity.0 + velocity.1).unwrap();
+            // At its speed before the frame starts.
+            camera.clock().step(Duration::from_millis(20)).unwrap();
+            let start = camera.clock().now();
+            let timing = camera.timing().unwrap();
+            let frame = stream_stepped(&camera, 1).remove(0);
+            let span = timing.span();
+            assert_eq!(
+                frame.meta().position,
+                Some(stage.position_at(start.saturating_add(span / 2))),
+                "where the stage was halfway through"
+            );
+            let first = stage.position_at(start);
+            let fov = FieldOfView {
+                centre: (first.x.um(), first.y.um()),
+                optics: Optics {
+                    sensor: SMALL,
+                    ..Optics::new(20.0, 0.42, 0.0).unwrap()
+                },
+            };
+            let motion = Motion {
+                velocity,
+                exposure: timing.exposure.as_secs_f64(),
+                line_time: timing.line_time.as_secs_f64(),
+            };
+            let field = field_moving(&sample, &fov, &motion, &light, 2.0).unwrap();
+            let exposure = Exposure {
+                time: timing.exposure,
+                gain: 1.0,
+                bits: 12,
+                binning: 1,
+            };
+            let expected = expose(
+                &field.rgb,
+                SMALL.width,
+                SMALL.height,
+                &SensorModel::default(),
+                &exposure,
+                1,
+                0,
+            )
+            .unwrap();
+            let got = samples(&frame);
+            let differ = got
+                .iter()
+                .zip(&expected)
+                .filter(|(a, b)| a.abs_diff(**b) > 1)
+                .count();
+            assert!(
+                differ * 1_000 < got.len(),
+                "{axis:?}: {differ} of {} apart",
+                got.len()
+            );
+        }
     }
 
     #[test]
@@ -1417,14 +1418,15 @@ mod tests {
     #[test]
     fn dropping_the_camera_stops_its_stream() {
         let camera = camera(scene(Rate::Faster(10.0), Some("20x")), None);
+        let events = camera.subscribe();
         let (sink, frames) = contract::channel_sink();
         camera.start(sink).unwrap();
         frames.recv_timeout(Duration::from_secs(10)).unwrap();
         drop(camera);
-        frames.try_iter().for_each(drop);
+        // Its stream had stopped by the time it was gone.
         assert!(
-            frames.recv_timeout(Duration::from_millis(500)).is_err(),
-            "no frame after the camera has gone"
+            events.try_iter().any(|e| e == CameraEvent::Stopped),
+            "stopped as it went"
         );
     }
 

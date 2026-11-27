@@ -306,15 +306,7 @@ impl HeTiles {
     ) -> Result<Vec<u16>> {
         let s = fov.optics.sensor;
         let mut bytes = vec![0u8; 2 * s.width as usize * s.height as usize];
-        self.frame_into(
-            fov,
-            motion,
-            light,
-            focus,
-            shot,
-            &mut bytes,
-            2 * s.width as usize,
-        )?;
+        self.frame_into(fov, motion, light, focus, shot, &mut bytes)?;
         Ok(bytes
             .as_chunks::<2>()
             .0
@@ -323,10 +315,10 @@ impl HeTiles {
             .collect())
     }
 
-    /// The same, straight into `out`: 16-bit little-endian counts, rows `stride` bytes apart,
-    /// as a frame from a pool holds them; pinned memory takes it fastest. Its buffer on the
-    /// GPU is kept for the next frame.
-    #[allow(clippy::too_many_arguments)]
+    /// The same, straight into `out`: 16-bit little-endian counts, its sensor's rows evenly
+    /// spaced through it, as a frame from a pool holds them; pinned memory takes it fastest.
+    /// The sensor's launch refuses rows that don't fit, and the download a buffer of an odd
+    /// length. Its buffer on the GPU is kept for the next frame.
     pub fn frame_into(
         &self,
         fov: &FieldOfView,
@@ -335,21 +327,8 @@ impl HeTiles {
         focus: f64,
         shot: &Shot,
         out: &mut [u8],
-        stride: usize,
     ) -> Result<()> {
         shot.exposure.check()?;
-        let s = fov.optics.sensor;
-        if !stride.is_multiple_of(2)
-            || stride < 2 * s.width as usize
-            || out.len() != stride * s.height as usize
-        {
-            return Err(tetera_core::Error::invalid_argument(format!(
-                "a {} × {} raw frame into {} bytes, rows {stride} apart",
-                s.width,
-                s.height,
-                out.len()
-            )));
-        }
         let samples = out.len() / 2;
         self.field_moving_with(fov, motion, light, focus, |planes| {
             let mut kept = self.raw.lock().unwrap_or_else(PoisonError::into_inner);
@@ -844,7 +823,7 @@ mod tests {
         let stride = 2 * 160 + 64;
         let mut bytes = vec![0u8; stride * 120];
         tiles
-            .frame_into(&fov, &motion, &light, 2.0, &shot, &mut bytes, stride)
+            .frame_into(&fov, &motion, &light, 2.0, &shot, &mut bytes)
             .unwrap();
         for (row, line) in bytes.chunks(stride).enumerate() {
             let counts: Vec<u16> = line[..320]
@@ -855,13 +834,14 @@ mod tests {
                 .collect();
             assert_eq!(counts, raw[row * 160..][..160], "row {row}");
         }
-        for (stride, len) in [(321, 321 * 120), (318, 318 * 120), (320, 320 * 119)] {
+        // Rows a byte apart from whole counts, too narrow, not whole rows, a byte over.
+        for len in [321 * 120, 318 * 120, 320 * 119, 320 * 120 + 1] {
             let mut out = vec![0u8; len];
             assert!(
                 tiles
-                    .frame_into(&fov, &motion, &light, 2.0, &shot, &mut out, stride)
+                    .frame_into(&fov, &motion, &light, 2.0, &shot, &mut out)
                     .is_err(),
-                "rows {stride} apart in {len} bytes"
+                "{len} bytes"
             );
         }
         let bad = Shot {
