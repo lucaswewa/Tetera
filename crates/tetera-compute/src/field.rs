@@ -61,7 +61,7 @@ mod device {
     }
 
     /// The most shared memory a blur's block takes before it reads global memory instead.
-    const SHARED_LIMIT: u32 = 40 * 1024;
+    const SHARED_LIMIT: u32 = 40_960;
 
     fn per_pixel(width: u32, height: u32) -> LaunchConfig {
         LaunchConfig {
@@ -314,7 +314,8 @@ mod device {
     }
 }
 
-#[cfg(all(test, feature = "cuda"))]
+#[cfg(test)]
+#[cfg(feature = "cuda")]
 mod tests {
     use super::*;
     use crate::half;
@@ -459,6 +460,32 @@ mod tests {
             "an even blur"
         );
         assert!(gpu.field_blur(&mut planes, &[], true).is_err());
+        // Planes of the wrong size are refused before any kernel runs.
+        for broken in 0..3 {
+            let mut planes = gpu.field_planes(8, 4).unwrap();
+            match broken {
+                0 => planes.h = gpu.zeros(31).unwrap(),
+                1 => planes.sum_e = gpu.zeros(33).unwrap(),
+                _ => planes.rgb = gpu.zeros(95).unwrap(),
+            }
+            assert!(
+                gpu.field_resample(
+                    &[&tile],
+                    &one_tile(),
+                    &view((128.0, 128.0), 0.0),
+                    &mut planes
+                )
+                .is_err()
+            );
+            assert!(gpu.field_blur(&mut planes, &[1.0], true).is_err());
+            let light = FieldLight {
+                intensity: 1.0,
+                unevenness: 0.0,
+                vignetting: 0.0,
+                warmth: [1.0; 3],
+            };
+            assert!(gpu.field_light(&mut planes, &light).is_err(), "{broken}");
+        }
     }
 
     /// `plane` (`w` × `h`) blurred by `weights` along rows then columns, held at its edges.
@@ -507,6 +534,7 @@ mod tests {
             gpu.field_blur(&mut planes, &weights, true).unwrap();
             let once = gpu.download(&planes.sum_h).unwrap();
             let expected = host_blur(&input, w, h, &weights);
+            assert_eq!((once.len(), expected.len()), (w * h, w * h));
             let worst = once
                 .iter()
                 .zip(&expected)

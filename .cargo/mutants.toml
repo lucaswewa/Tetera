@@ -84,4 +84,6 @@ exclude_re = [
     # the same; and one closure makes both passes, so a sign flipped in it flips back.
     "replace \\+ with - in blur",
     "replace \\+= with -= in blur",
+    # No blur below a σ of 1e-3 pixels: at exactly 1e-3, a blur of three weights rounds to one.
+    "replace < with <= in gaussian",
 ]
