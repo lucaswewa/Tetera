@@ -41,14 +41,15 @@ Each phase has:
 | [P1.01](#p101-workspace-and-gates) | Workspace and gates | — | 1,750 | — | G1, G2 |
 | [P1.02](#p102-core-types-and-logging) | Core types and logging | P1.01 | 1,570 | — | G1 |
 | [P1.03](#p103-the-frame-model) | The frame model | P1.02 | 1,220 | — | G1 |
-| [P1.04](#p104-compute-backends) | Compute backends | P1.03 | 1,550 | — | G1, G1c |
-| [P1.05](#p105-bayer-demosaic-resize-and-jpeg) | Bayer, demosaic, resize and JPEG | P1.04 | 1,600 | — | G1, G1c |
+| [P1.04a](#p104a-compute-backends) | Compute backends | P1.03 | 1,340 | — | G1, G1c |
+| [P1.04b](#p104b-kernels-and-the-twin-harness) | Kernels and the twin harness | P1.04a | 1,310 | — | G1, G1c |
+| [P1.05](#p105-bayer-demosaic-resize-and-jpeg) | Bayer, demosaic, resize and JPEG | P1.04b | 1,600 | — | G1, G1c |
 | [P1.06](#p106-dark-flat-colour-and-the-fused-kernel) | Dark, flat, colour, and the fused kernel | P1.05 | 1,600 | — | G1, G1c |
 | [P1.07](#p107-denoise-and-deconvolution) | Denoise and deconvolution | P1.05 | 1,670 | Yes | G1, G1c |
 | [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06, P1.07 | 1,880 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
 | [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09 | 1,350 | — | G1 |
-| [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04 | 1,800 | Yes | G1, G1c |
+| [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
 | [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06, P1.10, P1.11 | 1,920 | — | G1, G1c, G2 |
 | [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12 | 1,980 | — | G1 |
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08, P1.13 | 1,050 | — | G1, G1c |
@@ -62,7 +63,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 23 phases, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 24 phases since the owner split P1.04 on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -259,11 +260,11 @@ Each phase has:
 - **`PixelFormat`:** `Bayer16 { pattern, significant_bits }`, `Bayer8`, `Mono8`, `Mono16`, `Rgb8`, `Rgb16`, `Rgba8`, planar `F32`. Sizes and strides for each, with ROI and binning. **A crop at an odd offset changes the Bayer phase,** and the format records it.
 - **`FrameMeta`:** sequence number; exposure start, end and midpoint; line time (rolling shutter); exposure, gain, mode, binning, ROI, black level; objective; the light's state; the stage position at the midpoint, if known; frames dropped before this one.
 - **`FramePool`:** a fixed number of buffers of one size, aligned to 4 KiB without unsafe code; `take()` waits up to a timeout when all are in use; a frame is shared by reference count, and its buffer goes back to the pool when the last reference drops; statistics (in use, waits, misses).
-- **`Allocator` trait:** plain host memory now. P1.04 plugs in pinned memory for CUDA.
+- **`Allocator` trait:** plain host memory now. P1.04a plugs in pinned memory for CUDA.
 - **Safe views:** rows, planes, Bayer sites; scaling between significant bits and full range.
 - **The frame bus's design,** decided here and recorded in ADR-0008: lossless subscribers with backpressure, latest-wins subscribers with a one-frame mailbox. P1.14a builds it.
 
-**Out of scope.** Pinned memory (P1.04); building the frame bus (P1.14a).
+**Out of scope.** Pinned memory (P1.04a); building the frame bus (P1.14a).
 
 **Try it.** `frame-pool`: a pool of 16 full Bayer16 frames (about 640 MB), filled and shared by three consumers, with the statistics, then an exhausted pool.
 
@@ -279,45 +280,73 @@ Each phase has:
 
 ---
 
-## P1.04: Compute backends
+## P1.04a: Compute backends
 
 | | |
 |---|---|
 | Crates | `tetera-compute` (new, L1, unsafe allowed) |
 | Depends on | P1.03 |
-| ADRs | 0009 compute backends: the CPU reference and CUDA · 0010 building and loading CUDA kernels under WSL2 |
+| ADRs | 0009 compute backends: the CPU reference and CUDA |
 | Gates | G1, G1c |
-| First estimate | code 900 · tests 350 · examples 120 · docs-as-code 60 · glue 120 = **1,550** |
+| Second estimate | code 760 · tests 400 · examples 100 · docs-as-code 60 · glue 20 = **1,340**. The owner split P1.04 (second estimate 2,670) on 2026-11-27 |
 
-**Goal.** Run the same operation on the CPU or on CUDA, choose between them at run time, and prove the two agree.
+**Goal.** Choose between the CPU and CUDA at run time, hold data on either, and know what this machine's GPU and WSL2 offer.
 
 **Scope.**
 
 - **Backends:** `Cpu` (rayon) and `Cuda` (`cudarc`, the driver loaded at run time). The `cuda` feature builds the CUDA path; without a GPU, a driver, or the feature, everything runs on the CPU. `TETERA_FORCE_CPU=1` forces the CPU.
-- **Detection:** the device, its compute capability, free VRAM, the driver's and the toolkit's versions.
-- **Memory:** device buffers; pinned host memory, through P1.03's `Allocator`; streams; asynchronous copies.
-- **Kernels:** CUDA C under `kernels/`, compiled to PTX by `build.rs` when the feature is on and `nvcc` is found, and embedded in the binary.
-- **The twin harness:** runs an operation on both backends and compares the results within a stated tolerance; `cuda_or_skip!()` for tests that need `TETERA_CUDA=1`.
-- **One small kernel pair** (scale and offset `u16` to `f32`) to prove the path.
-- **VRAM budgets:** each user (simulator, preview, jobs) reserves a budget, and a request beyond it is refused.
-- **What WSL2's CUDA offers,** checked and recorded in ADR-0010: pinned memory at 640 MB, cuFFT, NVRTC, nvJPEG, and inter-process memory handles.
-- **The CUDA toolkit's version,** chosen and pinned, with its exact install commands in `docs/setup/toolchain.md`.
+- **Detection:** the device, its compute capability, its memory and free VRAM, the driver's CUDA version.
+- **Memory:** device buffers, copied to and from the host; streams; pinned host memory, through P1.03's `Allocator`.
+- **What WSL2's CUDA offers,** checked and recorded in ADR-0009: pinned memory at 640 MB, cuFFT, NVRTC, nvJPEG, and inter-process memory handles.
+- **The CUDA toolkit's version,** 13.3, pinned, with its exact install commands in `docs/setup/toolchain.md`.
 
-**Out of scope.** Imaging kernels (P1.05 on); fusion (P1.06).
+**Out of scope.** Kernels and their build (P1.04b); imaging (P1.05).
 
-**Try it.** `compute-info` (the device, the versions, and each WSL2 feature: works or not); `twin-scale` (both backends, with timings).
+**Try it.** `compute_info`: the device, the versions, and each WSL2 feature: works or not.
 
 **Done when.**
 
 - The workspace builds without the CUDA toolkit, and with it.
+- With `TETERA_FORCE_CPU=1`, or no GPU, the CPU is chosen.
+- With `TETERA_CUDA=1`, device buffers round-trip on this PC, and a frame pool lives in pinned memory.
+- The WSL2 feature table is in ADR-0009.
+
+**Tests.** Backend selection with faked detection; buffer round trips (CUDA, with `TETERA_CUDA=1`); pinned buffers' alignment. **Broken on purpose:** the fallback to the CPU when the driver is missing.
+
+**Owner's steps.** Install the CUDA toolkit 13.3 for WSL-Ubuntu (it needs `sudo`), with the commands in `docs/setup/toolchain.md`.
+
+---
+
+## P1.04b: Kernels and the twin harness
+
+| | |
+|---|---|
+| Crates | `tetera-compute` |
+| Depends on | P1.04a |
+| ADRs | 0010 building and loading CUDA kernels under WSL2 |
+| Gates | G1, G1c |
+| Estimate | code 575 · tests 600 · examples 90 · docs-as-code 25 · glue 20 = **1,310**, from P1.04's split; its own second estimate comes before its code |
+
+**Goal.** Run the same operation on the CPU or on CUDA, and prove the two agree.
+
+**Scope.**
+
+- **Kernels:** CUDA C under `kernels/`, compiled to PTX by `build.rs` when the `cuda` feature is on and `nvcc` is found, and embedded in the binary; loaded as modules, and launched.
+- **The twin harness:** runs an operation on both backends and compares the results within a stated tolerance; `cuda_or_skip!()` for tests that need `TETERA_CUDA=1`.
+- **One small kernel pair** (scale and offset `u16` to `f32`) to prove the path.
+- **VRAM budgets:** each user (simulator, preview, jobs) reserves a budget, and a request beyond it is refused.
+
+**Out of scope.** Imaging kernels (P1.05 on); fusion (P1.06).
+
+**Try it.** `twin_scale`: both backends, with timings and their difference.
+
+**Done when.**
+
 - The CUDA twin tests pass with `TETERA_CUDA=1` on this PC.
-- With `TETERA_FORCE_CPU=1`, everything runs on the CPU.
-- The WSL2 feature table is in ADR-0010.
+- The workspace still builds without the CUDA toolkit.
+- A budget refuses a request beyond it.
 
-**Tests.** Backend selection with faked detection; the harness's tolerance arithmetic; VRAM budget accounting; the CUDA twins (G1c). **Broken on purpose:** the fallback to the CPU when the driver is missing.
-
-**Owner's steps.** Install the CUDA toolkit for WSL-Ubuntu (it needs `sudo`), with the commands this phase writes.
-
+**Tests.** The harness's tolerance arithmetic; VRAM budget accounting; the CUDA twins (G1c). **Broken on purpose:** the harness's comparison, which a test must catch passing a result out of tolerance.
 ---
 
 ## P1.05: Bayer, demosaic, resize and JPEG
@@ -325,7 +354,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-imaging` (new, L1) |
-| Depends on | P1.04 |
+| Depends on | P1.04b |
 | ADRs | — |
 | Gates | G1, G1c |
 | First estimate | code 1,000 · tests 400 · examples 120 · docs-as-code 40 · glue 40 = **1,600** |
@@ -553,7 +582,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-sim`, `tetera-compute` |
-| Depends on | P1.04 |
+| Depends on | P1.04b |
 | ADRs | 0015 simulated samples on the GPU |
 | Gates | G1, G1c |
 | Spec-first | Yes |
@@ -781,7 +810,7 @@ Each phase has:
 **Scope.**
 
 - **A job:** id, kind (hardware or compute), state, progress and message, log lines, result.
-- **Hardware jobs** one at a time from a queue; **compute jobs** on a pool that shares the GPU, through P1.04's VRAM budgets.
+- **Hardware jobs** one at a time from a queue; **compute jobs** on a pool that shares the GPU, through P1.04b's VRAM budgets.
 - **Cancel,** through tokens that a job checks.
 - **The history** in SQLite (`rusqlite`, bundled), pruned by age.
 - **The `jobs` Thing:** list, get, cancel, with events.
