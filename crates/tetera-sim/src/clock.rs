@@ -176,6 +176,11 @@ mod tests {
         );
         assert_eq!(clock.host_time(Duration::from_secs(1)), None);
         assert_eq!(clock.drift(), 0, "its own UTC");
+        let since = UtcTime::now().nanos_since(clock.origin());
+        assert!(
+            (0..1_000_000_000).contains(&since),
+            "mapped as it started: {since} ns ago"
+        );
         assert_eq!(
             clock.utc(clock.now()),
             clock.origin().saturating_add(Duration::from_micros(5_250))

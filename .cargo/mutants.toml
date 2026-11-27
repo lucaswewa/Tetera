@@ -51,4 +51,7 @@ exclude_re = [
     "replace - with / in step_from",
     # The fake stage's jog: a speed of zero is refused before its direction is chosen.
     "replace > with >= in <impl Stage for FakeStage>::jog",
+    # A motion profile's segments meet: at a boundary, the segment ending and the one
+    # starting give the same distance and speed.
+    "replace < with <= in Profile::along",
 ]

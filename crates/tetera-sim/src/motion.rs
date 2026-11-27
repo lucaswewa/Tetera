@@ -223,7 +223,11 @@ impl Profile {
         if t.as_secs_f64() >= self.end() {
             return self.to;
         }
-        let (s, _) = self.along(t);
+        self.point(self.along(t).0)
+    }
+
+    /// The point `s` µm along its line.
+    fn point(&self, s: f64) -> StagePos {
         let [x, y, z] = coordinates(&self.from);
         let [dx, dy, dz] = self.direction;
         StagePos::new(Um(x + dx * s), Um(y + dy * s), Um(z + dz * s))
@@ -248,7 +252,9 @@ impl Profile {
         for segment in &self.segments {
             match *segment {
                 Segment::SpeedUp { end } => segments.push(Segment::SpeedUp { end: end.min(at) }),
-                Segment::Cruise { start, s0, .. } if start < at => {
+                // Held before it cruises, the cruise ends at the hold, before it would start, and
+                // is never reached.
+                Segment::Cruise { start, s0, .. } => {
                     segments.push(Segment::Cruise { start, end: at, s0 });
                 }
                 _ => {}
@@ -259,24 +265,14 @@ impl Profile {
             end: at + v / a,
             s_end: stop,
         });
-        let [x, y, z] = coordinates(&self.from);
-        let [dx, dy, dz] = self.direction;
         Profile {
-            to: StagePos::new(Um(x + dx * stop), Um(y + dy * stop), Um(z + dz * stop)),
+            to: self.point(stop),
             stop,
-            // Held while speeding up, it never reached its cruising speed.
-            speed: if self.speeds_up_until(at) {
-                v
-            } else {
-                self.speed
-            },
+            // Its speed when held: its cruising speed, or less while it was speeding up.
+            speed: v,
             segments,
             ..*self
         }
-    }
-
-    fn speeds_up_until(&self, t: f64) -> bool {
-        matches!(self.segments.first(), Some(Segment::SpeedUp { end }) if t < *end)
     }
 }
 
@@ -562,6 +558,12 @@ mod tests {
         Ok(())
     }
 
+    /// Whether `at` is `s` µm along the line from `from` in `direction`.
+    fn on_line(at: &StagePos, from: &StagePos, direction: [f64; 3], s: f64) -> bool {
+        let (a, b) = (coordinates(at), coordinates(from));
+        (0..3).all(|i| (a[i] - (b[i] + direction[i] * s)).abs() <= 1e-6)
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(400))]
 
@@ -573,8 +575,12 @@ mod tests {
             limits in limits(),
         ) {
             let p = Profile::new(from, to, speed, &limits).unwrap();
-            prop_assert_eq!(p.position(Duration::ZERO), from);
+            prop_assert_eq!((p.from(), p.position(Duration::ZERO)), (from, from));
             prop_assert_eq!(p.position(p.duration()), to);
+            for k in 1..10u32 {
+                let t = p.duration().mul_f64(f64::from(k) / 10.0);
+                prop_assert!(on_line(&p.position(t), &from, p.direction(), p.along(t).0), "partway, on its line");
+            }
             let (v, a, t) = expected(&p, speed, &limits);
             prop_assert!((p.duration().as_secs_f64() - t).abs() < 1e-6, "{:?} against {}", p.duration(), t);
             prop_assert!(near(p.acceleration(), a));
@@ -603,6 +609,7 @@ mod tests {
             prop_assert!(held.length() <= s + v * v / (2.0 * p.acceleration()) + slack);
             prop_assert!(held.duration() <= p.duration() + Duration::from_nanos(1));
             prop_assert_eq!(held.position(held.duration()), held.to());
+            prop_assert!(on_line(&held.to(), &from, p.direction(), held.length()), "at rest on its line");
             let (pv, pa, _) = expected(&p, speed, &limits);
             keeps_to(&held, pv, pa, &limits)?;
         }
