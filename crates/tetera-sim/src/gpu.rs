@@ -423,17 +423,18 @@ mod tests {
         let gpu = tetera_compute::cuda_or_skip!();
         let tiles = tiles_on(gpu, sample(false), 256);
         let light = Light::default();
-        for (m, na, angle, focus) in [
-            (5.0, 0.14, 0.0, 2.0),
-            (20.0, 0.42, 0.3, 1.0),
-            (50.0, 0.55, -0.2, 2.5),
-            (50.0, 0.55, 0.0, 8.0),
+        // Two sizes of sensor through one cache, its planes made again for the second.
+        for (m, na, angle, focus, width) in [
+            (5.0, 0.14, 0.0, 2.0, 160),
+            (20.0, 0.42, 0.3, 1.0, 96),
+            (50.0, 0.55, -0.2, 2.5, 160),
+            (50.0, 0.55, 0.0, 8.0, 160),
         ] {
             let fov = FieldOfView {
                 centre: (1_000.0, 1_000.0),
                 optics: Optics {
                     sensor: Sensor {
-                        width: 160,
+                        width,
                         height: 120,
                         pixel: 2.4,
                     },

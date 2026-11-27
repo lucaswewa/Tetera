@@ -80,16 +80,38 @@ mod device {
         pub width: u32,
         /// Its height.
         pub height: u32,
-        h: DeviceBuffer<f32>,
-        e: DeviceBuffer<f32>,
-        rows_h: DeviceBuffer<f32>,
-        rows_e: DeviceBuffer<f32>,
+        pub(crate) h: DeviceBuffer<f32>,
+        pub(crate) e: DeviceBuffer<f32>,
+        pub(crate) rows_h: DeviceBuffer<f32>,
+        pub(crate) rows_e: DeviceBuffer<f32>,
         /// The groups' haematoxylin, summed.
         pub sum_h: DeviceBuffer<f32>,
         /// Their eosin.
         pub sum_e: DeviceBuffer<f32>,
         /// The field: irradiance in red, green and blue, three to a pixel.
         pub rgb: DeviceBuffer<f32>,
+    }
+
+    impl FieldPlanes {
+        /// Whether each plane is the sensor's size, as the kernels take it.
+        fn check(&self) -> Result<()> {
+            let n = self.width as usize * self.height as usize;
+            let planes = [
+                &self.h,
+                &self.e,
+                &self.rows_h,
+                &self.rows_e,
+                &self.sum_h,
+                &self.sum_e,
+            ];
+            if planes.iter().any(|p| p.len() != n) || self.rgb.len() != 3 * n {
+                return Err(Error::internal(format!(
+                    "field planes not {} × {}",
+                    self.width, self.height
+                )));
+            }
+            Ok(())
+        }
     }
 
     impl CudaBackend {
@@ -118,6 +140,7 @@ mod device {
             view: &SensorView,
             planes: &mut FieldPlanes,
         ) -> Result<()> {
+            planes.check()?;
             let expected = grid.tiles.0 as usize * grid.tiles.1 as usize;
             if tiles.len() != expected
                 || tiles.iter().any(|t| t.len() != 256 * 256 * 2)
@@ -189,6 +212,7 @@ mod device {
                     weights.len()
                 )));
             }
+            planes.check()?;
             let table = self.upload(weights)?;
             let radius = (weights.len() / 2) as i32;
             let (w, h) = (planes.width as i32, planes.height as i32);
@@ -261,6 +285,7 @@ mod device {
 
         /// The groups' summed stains in `planes` lit, into its `rgb`.
         pub fn field_light(&self, planes: &mut FieldPlanes, light: &FieldLight) -> Result<()> {
+            planes.check()?;
             let function = self.module(&FIELD)?.function("field_light")?;
             let (w, h) = (planes.width as i32, planes.height as i32);
             let mut launch = self.stream().launch_builder(&function);
@@ -285,6 +310,263 @@ mod device {
             unsafe { launch.launch(per_pixel(planes.width, planes.height)) }
                 .map_err(|e| launch_failed("field_light", e))?;
             Ok(())
+        }
+    }
+}
+
+#[cfg(all(test, feature = "cuda"))]
+mod tests {
+    use super::*;
+    use crate::half;
+
+    /// A tile whose haematoxylin is its column / 256 and eosin its row / 256.
+    fn ramp(gpu: &crate::CudaBackend) -> crate::DeviceBuffer<u16> {
+        let mut host = Vec::with_capacity(256 * 256 * 2);
+        for row in 0..256 {
+            for col in 0..256 {
+                host.push(half::from_f32(col as f32 / 256.0));
+                host.push(half::from_f32(row as f32 / 256.0));
+            }
+        }
+        gpu.upload(&host).unwrap()
+    }
+
+    fn one_tile() -> TileGrid {
+        TileGrid {
+            first: (0, 0),
+            size: (256, 256),
+            pixel: 1.0,
+            tile: (0, 0),
+            tiles: (1, 1),
+        }
+    }
+
+    fn view(centre: (f64, f64), angle: f64) -> SensorView {
+        SensorView {
+            centre,
+            pixel: 1.0,
+            angle,
+            width: 8,
+            height: 4,
+        }
+    }
+
+    #[test]
+    fn a_field_resamples_its_tiles_bilinearly_held_at_their_edge() {
+        let gpu = crate::cuda_or_skip!();
+        let tile = ramp(&gpu);
+        let mut planes = gpu.field_planes(8, 4).unwrap();
+        // The view's pixels fall on the tile's pixels' middles: column 124 + col, row 126 + row.
+        gpu.field_resample(
+            &[&tile],
+            &one_tile(),
+            &view((128.0, 128.0), 0.0),
+            &mut planes,
+        )
+        .unwrap();
+        let (h, e) = (
+            gpu.download(&planes.h).unwrap(),
+            gpu.download(&planes.e).unwrap(),
+        );
+        for k in 0..32 {
+            let (col, row) = ((k % 8) as f32, (k / 8) as f32);
+            assert_eq!(
+                (h[k], e[k]),
+                ((124.0 + col) / 256.0, (126.0 + row) / 256.0),
+                "{k}"
+            );
+        }
+        // A quarter pixel along: a quarter of the way to the next.
+        gpu.field_resample(
+            &[&tile],
+            &one_tile(),
+            &view((128.25, 128.0), 0.0),
+            &mut planes,
+        )
+        .unwrap();
+        assert!((gpu.download(&planes.h).unwrap()[0] - 124.25 / 256.0).abs() < 1e-6);
+        // Turned a quarter: the sensor's rows run along the tile's columns.
+        gpu.field_resample(
+            &[&tile],
+            &one_tile(),
+            &view((128.0, 128.0), std::f64::consts::FRAC_PI_2),
+            &mut planes,
+        )
+        .unwrap();
+        let (h, e) = (
+            gpu.download(&planes.h).unwrap(),
+            gpu.download(&planes.e).unwrap(),
+        );
+        assert!(
+            (e[1] - e[0] - 1.0 / 256.0).abs() < 1e-6 && (h[1] - h[0]).abs() < 1e-6,
+            "{:?}",
+            &e[..2]
+        );
+        // Beyond the grid, held at its edge.
+        gpu.field_resample(
+            &[&tile],
+            &one_tile(),
+            &view((-50.0, 400.0), 0.0),
+            &mut planes,
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                gpu.download(&planes.h).unwrap()[0],
+                gpu.download(&planes.e).unwrap()[0]
+            ),
+            (0.0, 255.0 / 256.0)
+        );
+    }
+
+    #[test]
+    fn a_field_refuses_tiles_and_planes_that_dont_fit() {
+        let gpu = crate::cuda_or_skip!();
+        let tile = ramp(&gpu);
+        let short = gpu.zeros::<u16>(256).unwrap();
+        let mut planes = gpu.field_planes(8, 4).unwrap();
+        let two = TileGrid {
+            tiles: (2, 1),
+            ..one_tile()
+        };
+        for (tiles, grid, v) in [
+            (vec![&tile], two, view((128.0, 128.0), 0.0)),
+            (vec![&short], one_tile(), view((128.0, 128.0), 0.0)),
+            (
+                vec![&tile],
+                one_tile(),
+                SensorView {
+                    width: 9,
+                    ..view((128.0, 128.0), 0.0)
+                },
+            ),
+            (
+                vec![&tile],
+                one_tile(),
+                SensorView {
+                    height: 3,
+                    ..view((128.0, 128.0), 0.0)
+                },
+            ),
+        ] {
+            assert!(
+                gpu.field_resample(&tiles, &grid, &v, &mut planes).is_err(),
+                "{grid:?} {v:?}"
+            );
+        }
+        assert!(
+            gpu.field_blur(&mut planes, &[0.5, 0.5], true).is_err(),
+            "an even blur"
+        );
+        assert!(gpu.field_blur(&mut planes, &[], true).is_err());
+    }
+
+    /// `plane` (`w` × `h`) blurred by `weights` along rows then columns, held at its edges.
+    fn host_blur(plane: &[f32], w: usize, h: usize, weights: &[f32]) -> Vec<f32> {
+        let r = (weights.len() / 2) as i64;
+        let pass = |src: &[f32], rows: bool| -> Vec<f32> {
+            (0..w * h)
+                .map(|k| {
+                    let (row, col) = ((k / w) as i64, (k % w) as i64);
+                    let mut s = 0.0f32;
+                    for (i, weight) in weights.iter().enumerate() {
+                        let d = i as i64 - r;
+                        let (c, rr) = if rows {
+                            ((col + d).clamp(0, w as i64 - 1), row)
+                        } else {
+                            (col, (row + d).clamp(0, h as i64 - 1))
+                        };
+                        s += weight * src[(rr * w as i64 + c) as usize];
+                    }
+                    s
+                })
+                .collect()
+        };
+        pass(&pass(plane, true), false)
+    }
+
+    #[test]
+    fn a_blur_in_shared_memory_or_not_is_the_same_and_adds_up() {
+        let gpu = crate::cuda_or_skip!();
+        let (w, h) = (300usize, 40usize);
+        let input: Vec<f32> = (0..w * h)
+            .map(|k| ((k * 37) % 101) as f32 / 101.0)
+            .collect();
+        for radius in [1usize, 60, 100, 3_000] {
+            // Rows and columns in shared memory, rows only, then neither.
+            let weights: Vec<f32> = (0..=2 * radius)
+                .map(|i| 1.0 / (1.0 + (i as f32 - radius as f32).abs()))
+                .collect();
+            let total: f32 = weights.iter().sum();
+            let weights: Vec<f32> = weights.iter().map(|x| x / total).collect();
+            let mut planes = gpu.field_planes(w as u32, h as u32).unwrap();
+            planes.h = gpu.upload(&input).unwrap();
+            planes.e = gpu
+                .upload(&input.iter().map(|x| 1.0 - x).collect::<Vec<_>>())
+                .unwrap();
+            gpu.field_blur(&mut planes, &weights, true).unwrap();
+            let once = gpu.download(&planes.sum_h).unwrap();
+            let expected = host_blur(&input, w, h, &weights);
+            let worst = once
+                .iter()
+                .zip(&expected)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0, f32::max);
+            assert!(worst < 1e-5, "radius {radius}: {worst}");
+            gpu.field_blur(&mut planes, &weights, false).unwrap();
+            let twice = gpu.download(&planes.sum_h).unwrap();
+            assert!(
+                twice
+                    .iter()
+                    .zip(&once)
+                    .all(|(a, b)| (a - 2.0 * b).abs() < 1e-5),
+                "added, radius {radius}"
+            );
+            let e = gpu.download(&planes.sum_e).unwrap();
+            assert!(
+                e.iter()
+                    .zip(&twice)
+                    .all(|(e, h)| (e + h - 2.0).abs() < 1e-4),
+                "eosin too, radius {radius}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_field_is_lit_by_beer_lambert_and_its_light() {
+        let gpu = crate::cuda_or_skip!();
+        let (w, h) = (4u32, 2u32);
+        let mut planes = gpu.field_planes(w, h).unwrap();
+        let stains: Vec<f32> = (0..8).map(|k| k as f32 * 0.1).collect();
+        planes.sum_h = gpu.upload(&stains).unwrap();
+        planes.sum_e = gpu
+            .upload(&stains.iter().map(|x| 0.5 * x).collect::<Vec<_>>())
+            .unwrap();
+        let light = FieldLight {
+            intensity: 1_000.0,
+            unevenness: 0.1,
+            vignetting: 0.2,
+            warmth: [1.4, 1.0, 0.6],
+        };
+        gpu.field_light(&mut planes, &light).unwrap();
+        let rgb = gpu.download(&planes.rgb).unwrap();
+        let (hv, ev) = ([0.650f32, 0.704, 0.286], [0.072f32, 0.990, 0.105]);
+        for k in 0..8 {
+            let (col, row) = ((k % 4) as f32, (k / 4) as f32);
+            let u = (col + 0.5) / 4.0 * 2.0 - 1.0;
+            let v = (row + 0.5) / 2.0 * 2.0 - 1.0;
+            let lit = 1_000.0
+                * (1.0 + 0.1 * (0.6 * u - 0.3 * v + 0.1 * u * v))
+                * (1.0 - 0.2 * (u * u + v * v) / 2.0);
+            for c in 0..3 {
+                let od = stains[k] * hv[c] + 0.5 * stains[k] * ev[c];
+                let expected = lit * light.warmth[c] * 10f32.powf(-od);
+                assert!(
+                    (rgb[3 * k + c] - expected).abs() < 1e-3 * expected,
+                    "{k} {c}: {} against {expected}",
+                    rgb[3 * k + c]
+                );
+            }
         }
     }
 }

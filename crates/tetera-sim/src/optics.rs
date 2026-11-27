@@ -530,6 +530,40 @@ mod tests {
         };
         let (a, b) = (turned.position(0.0, 0.0), turned.position(10.0, 0.0));
         assert!(near(b.0, a.0, 1e-9) && near(b.1 - a.1, 1.2, 1e-9));
+        // At any angle, the box of its four corners.
+        let tilted = FieldOfView {
+            optics: small(20.0, 0.42, 0.3),
+            ..fov
+        };
+        let corners = [(-0.5, -0.5), (191.5, -0.5), (-0.5, 127.5), (191.5, 127.5)]
+            .map(|(c, r)| tilted.position(c, r));
+        let (tx0, ty0, tx1, ty1) = tilted.bounds(0.0);
+        assert!(near(
+            tx0,
+            corners.iter().map(|p| p.0).fold(f64::INFINITY, f64::min),
+            1e-9
+        ));
+        assert!(near(
+            ty0,
+            corners.iter().map(|p| p.1).fold(f64::INFINITY, f64::min),
+            1e-9
+        ));
+        assert!(near(
+            tx1,
+            corners
+                .iter()
+                .map(|p| p.0)
+                .fold(f64::NEG_INFINITY, f64::max),
+            1e-9
+        ));
+        assert!(near(
+            ty1,
+            corners
+                .iter()
+                .map(|p| p.1)
+                .fold(f64::NEG_INFINITY, f64::max),
+            1e-9
+        ));
         let (bx0, by0, bx1, by1) = turned.bounds(0.0);
         assert!(
             near(bx1 - bx0, 128.0 * 0.12, 1e-9) && near(by1 - by0, 192.0 * 0.12, 1e-9),
@@ -607,6 +641,12 @@ mod tests {
         assert_eq!((warm[1], cool[1]), (1.0, 1.0), "relative to green");
         assert!(warm[0] > 1.3 && warm[2] < 0.6, "warm: {warm:?}");
         assert!(cool[2] > 1.0 && cool[0] < 0.95, "cool: {cool:?}");
+        // Hot enough that Planck's −1 matters: worked out on its own.
+        let hot = blackbody(20_000.0);
+        assert!(
+            (hot[0] - 0.673323).abs() < 1e-5 && (hot[2] - 1.59323).abs() < 1e-5,
+            "{hot:?}"
+        );
         assert_eq!(unevenness(0.0, 0.0, 0.1), 1.0);
         assert!(near(f64::from(unevenness(1.0, 0.0, 0.1)), 1.06, 1e-6));
         assert!(near(f64::from(unevenness(1.0, -1.0, 0.1)), 1.08, 1e-6));
@@ -615,6 +655,67 @@ mod tests {
             near(f64::from(vignette(1.0, 1.0, 0.15)), 0.85, 1e-6),
             "darker by its vignetting in the corners"
         );
+    }
+
+    #[test]
+    fn a_grid_counts_its_tiles_exactly_and_bilinear_holds_at_its_edges() {
+        let grid = |first, size| Grid {
+            level: 0,
+            first,
+            size,
+        };
+        assert_eq!(grid((0, 0), (256, 256)).tiles(), ((0, 0), 1, 1));
+        assert_eq!(grid((0, 0), (257, 512)).tiles(), ((0, 0), 2, 2));
+        assert_eq!(grid((-1, 255), (2, 2)).tiles(), ((-1, 0), 2, 2));
+        let plane: Vec<Stains> = (0..4)
+            .map(|k| Stains {
+                haematoxylin: k as f32,
+                eosin: 10.0 * k as f32,
+            })
+            .collect();
+        assert_eq!(bilinear(&plane, 2, 2, 0.5, 0.5).haematoxylin, 0.0);
+        assert_eq!(bilinear(&plane, 2, 2, 1.0, 0.5).haematoxylin, 0.5);
+        assert_eq!(
+            bilinear(&plane, 2, 2, 9.0, 9.0),
+            plane[3],
+            "held at the far edge"
+        );
+        assert_eq!(
+            bilinear(&plane, 2, 2, -9.0, -9.0),
+            plane[0],
+            "and the near one"
+        );
+        assert_eq!(bilinear(&plane, 2, 2, 1.5, 9.0).haematoxylin, 3.0);
+    }
+
+    #[test]
+    fn a_pixel_is_lit_by_its_place_and_its_stains() {
+        let light = Light {
+            intensity: 1_000.0,
+            colour_temperature: 3_200.0,
+            unevenness: 0.1,
+        };
+        let warmth = [1.4, 1.0, 0.6];
+        // A 2 × 2 sensor: pixel (0, 1) sits at u = −½, v = ½.
+        let p = lit(
+            &light,
+            warmth,
+            0.2,
+            Stains {
+                haematoxylin: 0.3,
+                eosin: 0.1,
+            },
+            (0, 1),
+            (2, 2),
+        );
+        let k = 1_000.0 * (1.0 + 0.1 * (-0.3 - 0.15 - 0.025)) * (1.0 - 0.2 * 0.25);
+        for c in 0..3 {
+            let od = 0.3 * HAEMATOXYLIN[c] + 0.1 * EOSIN[c];
+            assert!(
+                (p[c] - k * warmth[c] * 10f32.powf(-od)).abs() < 1e-3,
+                "{c}: {p:?}"
+            );
+        }
     }
 
     #[test]
@@ -710,7 +811,13 @@ mod tests {
         }
         let corner = bare.rgb[0][1];
         assert!(corner < middle[1] * 0.9, "the corners darker");
-        assert_eq!(bare.srgb8(1_000.0 * warmth[0]).len(), 192 * 128 * 3);
+        let shown = bare.srgb8(1_000.0 * warmth[0]);
+        assert_eq!(shown.len(), 192 * 128 * 3);
+        let at = (64 * 192 + 96) * 3;
+        assert_eq!(
+            &shown[at..at + 3],
+            &crate::he::srgb8(middle.map(|v| v / (1_000.0 * warmth[0])))
+        );
     }
 
     #[test]
