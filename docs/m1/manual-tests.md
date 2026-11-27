@@ -206,3 +206,11 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-hal --example hal-fakes -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-hal` — expect 20 tests to pass.
 - **Result:** see the [notes](notes/P1.09a-the-camera.md#manual-test).
+
+## P1.09b: The stage, the objectives and the light
+
+- **Prerequisites:** the phase's branch.
+- [ ] `cargo run -p tetera-hal --example hal-fakes` — after the camera's part, expect the fake stage's axes; a move of about 0.2 s, read partway along its line; a move by −1 mm; a jog of about 250 µm; a move beyond the travel refused; a stall halfway into alarm, then homed; its events in order; the four Mitutoyo objectives from `configs/objectives.toml`, the 20× fitted and a 40× refused; and the light as set, an intensity of 1.5 refused.
+- [ ] `cargo run -p tetera-hal --example hal-fakes -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-hal` — expect 52 tests to pass.
+- **Result:** see the [notes](notes/P1.09b-the-stage-the-objectives-and-the-light.md#manual-test).

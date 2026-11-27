@@ -34,6 +34,8 @@ rustfft = "6.4.1"
 schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+# The objective catalogue, `configs/objectives.toml` (P1.09b).
+toml = { version = "1.2.1", default-features = false, features = ["parse", "serde", "std"] }
 tracing = "0.1.44"
 # libjpeg-turbo, built from source with its SIMD code: it needs cmake and nasm (P1.05b).
 turbojpeg = { version = "1.5.1", default-features = false, features = ["cmake", "require-simd"] }

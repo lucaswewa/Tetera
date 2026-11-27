@@ -48,7 +48,8 @@ pub struct Span {
 }
 
 impl Span {
-    fn holds(&self, v: f64) -> bool {
+    /// Whether `v` is finite and within the span.
+    pub fn holds(&self, v: f64) -> bool {
         v.is_finite() && self.min <= v && v <= self.max
     }
 }

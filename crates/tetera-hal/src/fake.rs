@@ -1,5 +1,8 @@
-//! The fake camera (P1.09a): a moving test pattern at a set rate, from a pool of its own, on a
-//! thread of its own, with faults on demand. It stands in for a camera in tests and examples.
+//! The fakes, which stand in for devices in tests and examples, with faults on demand. Here,
+//! the fake camera (P1.09a): a moving test pattern at a set rate, from a pool of its own, on a
+//! thread of its own. In [`stage`], the fake stage (P1.09b).
+
+pub mod stage;
 
 use crate::camera::{
     Camera, CameraCapabilities, CameraConfig, CameraEvent, CameraMode, FrameSink, Span, Trigger,

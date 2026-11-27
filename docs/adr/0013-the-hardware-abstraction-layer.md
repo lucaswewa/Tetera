@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-27
-- Phase: P1.09a
+- Phase: P1.09a; the stage, P1.09b
 
 ## Context
 
@@ -31,7 +31,12 @@
    - `contract::camera::all` holds the checks every camera must pass, as public functions that panic with what went wrong;
    - the fake runs them now, the virtual camera (P1.12) and the drivers (M5) later;
    - a fake broken on purpose must fail them.
-8. **Fakes with faults on demand:** `FakeCamera` gives a moving test pattern at a set rate from its own pool, timestamped by a `Clock`, and fails when asked: a refused configuration, dropped frames, a failed stream, a disconnection.
+8. **Fakes with faults on demand:** `FakeCamera` gives a moving test pattern at a set rate from its own pool, timestamped by a `Clock`, and fails when asked: a refused configuration, dropped frames, a failed stream, a disconnection. `FakeStage` moves at once or in time, and fails when asked: a refused move, a stall into alarm, an alarm, a disconnection.
+9. **A stage's moves start and return** (P1.09b):
+   - `move_to`, `move_by`, `jog` and `home` check what they are asked, start, and return; `wait` blocks until the stage is still, and gives its reading then;
+   - so a scan can move and expose at once, and `stop` can be called from another thread while a move is under way;
+   - a stage's states are grblHAL's: idle, moving, jogging, homing, and alarm, which only homing clears.
+10. **Each contract suite has tests of its own:** a device flawed on purpose, in one way for each check, fails that check, so a check that stops checking is caught.
 
 ## Consequences
 
@@ -50,5 +55,6 @@
 
 - **Async traits:** the server is async, but drivers block, and an async trait would push that onto every driver. The API layer moves blocking calls to its own threads instead.
 - **A pull API** (`next_frame()`): simpler for one consumer, but a slow consumer stalls the camera, and it doesn't fit a bridge that pushes frames.
+- **Moves that block until done:** simpler to call, but a scan couldn't expose while the stage settles, and stopping a move would need a second channel to the driver anyway.
 - **Borrowed buffers:** fewer allocations, but a frame couldn't outlive the driver's callback, nor cross a process.
 - **One fake for each test:** what OScope did; a shared suite catches more with less.

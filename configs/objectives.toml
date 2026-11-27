@@ -1,0 +1,34 @@
+# The objectives Tetera knows (plan Q24): Mitutoyo's Plan Apo long-working-distance
+# objectives, infinity-corrected for a 200 mm tube lens, and swapped by hand. The user says
+# which is fitted; each has its own calibration (P1.18).
+#
+# Each objective: the name the user knows it by, its model, its magnification, its
+# numerical aperture, and its working distance in mm.
+
+[[objective]]
+name = "5x"
+model = "Mitutoyo M Plan Apo 5X"
+magnification = 5.0
+numerical_aperture = 0.14
+working_distance_mm = 34.0
+
+[[objective]]
+name = "10x"
+model = "Mitutoyo M Plan Apo 10X"
+magnification = 10.0
+numerical_aperture = 0.28
+working_distance_mm = 33.5
+
+[[objective]]
+name = "20x"
+model = "Mitutoyo M Plan Apo 20X"
+magnification = 20.0
+numerical_aperture = 0.42
+working_distance_mm = 20.0
+
+[[objective]]
+name = "50x"
+model = "Mitutoyo M Plan Apo 50X"
+magnification = 50.0
+numerical_aperture = 0.55
+working_distance_mm = 13.0
