@@ -500,10 +500,12 @@ impl Shared {
             binning: m.binning,
         };
         let model = self.made.model;
-        let mut raw = match &self.renderer {
+        let width = sensor.width as usize;
+        let stride = frame.layout().stride;
+        match &self.renderer {
             Renderer::Cpu => {
                 let field = field_moving(&self.scene.sample, &fov, &motion, &light, focus)?;
-                expose(
+                let raw = expose(
                     &field.rgb,
                     sensor.width,
                     sensor.height,
@@ -511,10 +513,19 @@ impl Shared {
                     &exposure,
                     self.made.seed,
                     seq,
-                )?
+                )?;
+                frame
+                    .data_mut()
+                    .par_chunks_mut(stride)
+                    .zip(raw.par_chunks(width))
+                    .for_each(|(out, line)| {
+                        for (pair, v) in out.as_chunks_mut::<2>().0.iter_mut().zip(line) {
+                            *pair = v.to_le_bytes();
+                        }
+                    });
             }
             #[cfg(feature = "cuda")]
-            Renderer::Gpu(tiles, _) => tiles.frame(
+            Renderer::Gpu(tiles, _) => tiles.frame_into(
                 &fov,
                 &motion,
                 &light,
@@ -525,37 +536,33 @@ impl Shared {
                     seed: self.made.seed,
                     frame: seq,
                 },
+                frame.data_mut(),
+                stride,
             )?,
-        };
-        let width = sensor.width as usize;
+        }
         let mut black = model.black_level;
         if let Some(sdk) = sdk {
-            raw.par_chunks_mut(width)
+            let shift = if config.bit_depth == 8 { 8 } else { 0 };
+            frame
+                .data_mut()
+                .par_chunks_mut(stride)
                 .enumerate()
                 .for_each(|(row, line)| {
-                    for (col, v) in line.iter_mut().enumerate() {
-                        let c = sdk.apply(*v, model.black_level, bayer(col as u32, row as u32));
-                        *v = if config.bit_depth == 8 { c >> 8 } else { c };
+                    for (col, pair) in line[..2 * width]
+                        .as_chunks_mut::<2>()
+                        .0
+                        .iter_mut()
+                        .enumerate()
+                    {
+                        let count = u16::from_le_bytes(*pair);
+                        let c = sdk.apply(count, model.black_level, bayer(col as u32, row as u32));
+                        *pair = (c >> shift).to_le_bytes();
                     }
                 });
-            black = if config.bit_depth == 8 {
-                sdk.offset >> 8
-            } else {
-                sdk.offset
-            };
+            black = sdk.offset >> shift;
         } else if config.bit_depth == 8 {
             black >>= 4;
         }
-        let stride = frame.layout().stride;
-        frame
-            .data_mut()
-            .par_chunks_mut(stride)
-            .zip(raw.par_chunks(width))
-            .for_each(|(out, line)| {
-                for (pair, v) in out.as_chunks_mut::<2>().0.iter_mut().zip(line) {
-                    *pair = v.to_le_bytes();
-                }
-            });
         let meta = frame.meta_mut();
         meta.seq = seq;
         meta.exposure_start = start;

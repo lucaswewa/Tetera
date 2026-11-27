@@ -95,8 +95,8 @@ pub fn sensor_params(
     }
 }
 
-/// A raw frame on the GPU from a `width` × `height` field there, into `raw`: the twin of
-/// `sensor::expose`.
+/// A raw frame on the GPU from a `width` × `height` field there, into `raw`, its rows
+/// `raw.len() / height` counts apart: the twin of `sensor::expose`.
 #[allow(clippy::too_many_arguments)]
 pub fn expose_on(
     gpu: &CudaBackend,
@@ -294,8 +294,8 @@ impl HeTiles {
     }
 
     /// A raw frame, row by row: the field made on the GPU, the stage moving as `motion` says,
-    /// and exposed there as `shot` says, its buffer kept for the next frame. The twin of
-    /// `optics::field_moving` then `sensor::expose`.
+    /// and exposed there as `shot` says. The twin of `optics::field_moving` then
+    /// `sensor::expose`.
     pub fn frame(
         &self,
         fov: &FieldOfView,
@@ -304,14 +304,58 @@ impl HeTiles {
         focus: f64,
         shot: &Shot,
     ) -> Result<Vec<u16>> {
+        let s = fov.optics.sensor;
+        let mut bytes = vec![0u8; 2 * s.width as usize * s.height as usize];
+        self.frame_into(
+            fov,
+            motion,
+            light,
+            focus,
+            shot,
+            &mut bytes,
+            2 * s.width as usize,
+        )?;
+        Ok(bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| u16::from_le_bytes(*p))
+            .collect())
+    }
+
+    /// The same, straight into `out`: 16-bit little-endian counts, rows `stride` bytes apart,
+    /// as a frame from a pool holds them; pinned memory takes it fastest. Its buffer on the
+    /// GPU is kept for the next frame.
+    #[allow(clippy::too_many_arguments)]
+    pub fn frame_into(
+        &self,
+        fov: &FieldOfView,
+        motion: &Motion,
+        light: &Light,
+        focus: f64,
+        shot: &Shot,
+        out: &mut [u8],
+        stride: usize,
+    ) -> Result<()> {
         shot.exposure.check()?;
-        let mut raw =
-            vec![0u16; fov.optics.sensor.width as usize * fov.optics.sensor.height as usize];
+        let s = fov.optics.sensor;
+        if !stride.is_multiple_of(2)
+            || stride < 2 * s.width as usize
+            || out.len() != stride * s.height as usize
+        {
+            return Err(tetera_core::Error::invalid_argument(format!(
+                "a {} × {} raw frame into {} bytes, rows {stride} apart",
+                s.width,
+                s.height,
+                out.len()
+            )));
+        }
+        let samples = out.len() / 2;
         self.field_moving_with(fov, motion, light, focus, |planes| {
             let mut kept = self.raw.lock().unwrap_or_else(PoisonError::into_inner);
-            if kept.as_ref().is_none_or(|r| r.len() != raw.len()) {
+            if kept.as_ref().is_none_or(|r| r.len() != samples) {
                 *kept = None;
-                *kept = Some(self.gpu.zeros(raw.len())?);
+                *kept = Some(self.gpu.zeros(samples)?);
             }
             let buffer = kept.as_mut().expect("raw made");
             expose_on(
@@ -325,9 +369,8 @@ impl HeTiles {
                 shot.frame,
                 buffer,
             )?;
-            self.gpu.download_into(buffer, &mut raw)
-        })?;
-        Ok(raw)
+            self.gpu.download_into_bytes(buffer, out)
+        })
     }
 
     /// The field, brought back to the host.

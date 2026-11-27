@@ -197,6 +197,29 @@ impl CudaBackend {
         self.synchronize()
     }
 
+    /// `buffer`'s 16-bit samples copied into `host`'s bytes, little-endian, as a frame holds
+    /// them; `host` must be twice its length and start on an even address. It returns once
+    /// the copy has written `host`.
+    #[cfg(target_endian = "little")]
+    pub fn download_into_bytes(&self, buffer: &DeviceBuffer<u16>, host: &mut [u8]) -> Result<()> {
+        // SAFETY: any two bytes are a valid u16, and `align_to_mut` gives an aligned middle;
+        // the length and the empty ends are checked before it is used.
+        let (head, samples, tail) = unsafe { host.align_to_mut::<u16>() };
+        if !head.is_empty() || !tail.is_empty() || samples.len() != buffer.len() {
+            return Err(Error::invalid_argument(format!(
+                "a device buffer of {} samples can't be copied into {} bytes{}",
+                buffer.len(),
+                head.len() + 2 * samples.len() + tail.len(),
+                if head.is_empty() {
+                    ""
+                } else {
+                    " at an odd address"
+                }
+            )));
+        }
+        self.download_into(buffer, samples)
+    }
+
     /// Waits until the default stream's work is done.
     pub fn synchronize(&self) -> Result<()> {
         self.stream
