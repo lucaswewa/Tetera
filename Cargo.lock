@@ -745,6 +745,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tetera-hal"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "tetera-core",
+]
+
+[[package]]
 name = "tetera-imaging"
 version = "0.1.0"
 dependencies = [
