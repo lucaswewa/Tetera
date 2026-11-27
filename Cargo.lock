@@ -804,7 +804,9 @@ name = "tetera-sim"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde_json",
  "tetera-core",
+ "tetera-hal",
 ]
 
 [[package]]

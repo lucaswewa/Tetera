@@ -51,6 +51,11 @@ impl Timestamp {
         Duration::from_nanos(self.0.saturating_sub(earlier.0))
     }
 
+    /// The timestamp `d` later, saturating at the largest one.
+    pub fn saturating_add(self, d: Duration) -> Timestamp {
+        Self::from_duration(self.as_duration().saturating_add(d))
+    }
+
     /// The timestamp `d` later, unless it would overflow.
     pub fn checked_add(self, d: Duration) -> Option<Timestamp> {
         u64::try_from(d.as_nanos())
@@ -519,6 +524,11 @@ mod tests {
             Timestamp(u64::MAX).checked_add(Duration::from_nanos(1)),
             None
         );
+        assert_eq!(
+            t.saturating_add(Duration::from_millis(1)),
+            Timestamp(1_501_000_000)
+        );
+        assert_eq!(t.saturating_add(Duration::MAX), Timestamp(u64::MAX));
         assert_eq!(Timestamp::from_duration(Duration::MAX), Timestamp(u64::MAX));
     }
 

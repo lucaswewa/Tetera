@@ -6,9 +6,17 @@
 //!   simulated devices wait on;
 //! - [`motion`]: a stage's moves as trapezoidal [`Profile`]s within each axis's limits, and
 //!   feed holds.
+//!
+//! From P1.10b:
+//! - [`stage`]: the [`VirtualStage`], a grblHAL-like stage on the simulated clock, with its
+//!   states, soft limits, homing, reports and their track, and faults on demand.
 
 pub mod clock;
 pub mod motion;
+pub mod stage;
 
 pub use clock::{Rate, SimClock};
 pub use motion::{AxisLimits, Profile};
+pub use stage::{
+    GrblState, Report, VirtualAxis, VirtualStage, VirtualStageConfig, VirtualStageFault,
+};

@@ -54,4 +54,9 @@ exclude_re = [
     # A motion profile's segments meet: at a boundary, the segment ending and the one
     # starting give the same distance and speed.
     "replace < with <= in Profile::along",
+    # The virtual stage's legs meet the same way: at a boundary, the leg ending and the one
+    # starting give the same position.
+    "replace < with <= in Plan::leg",
+    # The virtual stage's jog: a speed of zero is refused before its direction is chosen.
+    "replace > with >= in <impl Stage for VirtualStage>::jog",
 ]
