@@ -43,9 +43,10 @@ Each phase has:
 | [P1.03](#p103-the-frame-model) | The frame model | P1.02 | 1,220 | — | G1 |
 | [P1.04a](#p104a-compute-backends) | Compute backends | P1.03 | 1,340 | — | G1, G1c |
 | [P1.04b](#p104b-kernels-and-the-twin-harness) | Kernels and the twin harness | P1.04a | 1,310 | — | G1, G1c |
-| [P1.05](#p105-bayer-demosaic-resize-and-jpeg) | Bayer, demosaic, resize and JPEG | P1.04b | 1,600 | — | G1, G1c |
-| [P1.06](#p106-dark-flat-colour-and-the-fused-kernel) | Dark, flat, colour, and the fused kernel | P1.05 | 1,600 | — | G1, G1c |
-| [P1.07](#p107-denoise-and-deconvolution) | Denoise and deconvolution | P1.05 | 1,670 | Yes | G1, G1c |
+| [P1.05a](#p105a-bayer-and-demosaic) | Bayer and demosaic | P1.04b | 1,860 | — | G1, G1c |
+| [P1.05b](#p105b-binning-resize-display-transform-and-jpeg) | Binning, resize, display transform and JPEG | P1.05a | 1,370 | — | G1, G1c |
+| [P1.06](#p106-dark-flat-colour-and-the-fused-kernel) | Dark, flat, colour, and the fused kernel | P1.05b | 1,600 | — | G1, G1c |
+| [P1.07](#p107-denoise-and-deconvolution) | Denoise and deconvolution | P1.05b | 1,670 | Yes | G1, G1c |
 | [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06, P1.07 | 1,880 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
 | [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09 | 1,350 | — | G1 |
@@ -63,7 +64,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 24 phases since the owner split P1.04 on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 25 phases since the owner split P1.04 and P1.05 on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -336,7 +337,7 @@ Each phase has:
 - **One small kernel pair** (scale and offset `u16` to `f32`) to prove the path.
 - **VRAM budgets:** each user (simulator, preview, jobs) reserves a budget, and a request beyond it is refused.
 
-**Out of scope.** Imaging kernels (P1.05 on); fusion (P1.06).
+**Out of scope.** Imaging kernels (P1.05a on); fusion (P1.06).
 
 **Try it.** `twin_scale`: both backends, with timings and their difference.
 
@@ -349,7 +350,7 @@ Each phase has:
 **Tests.** The harness's tolerance arithmetic; VRAM budget accounting; the CUDA twins (G1c). **Broken on purpose:** the harness's comparison, which a test must catch passing a result out of tolerance.
 ---
 
-## P1.05: Bayer, demosaic, resize and JPEG
+## P1.05a: Bayer and demosaic
 
 | | |
 |---|---|
@@ -357,36 +358,63 @@ Each phase has:
 | Depends on | P1.04b |
 | ADRs | — |
 | Gates | G1, G1c |
-| First estimate | code 1,000 · tests 400 · examples 120 · docs-as-code 40 · glue 40 = **1,600** |
-| Ready split | P1.05a: Bayer, demosaic, binning (~1,000) · P1.05b: resize, display transform, JPEG (~600) |
+| Second estimate | code 1,020 · tests 650 · examples 120 · docs-as-code 30 · glue 40 = **1,860**. The owner split P1.05 (second estimate 3,140) on 2026-11-27, moving binning from the ready split's first half to its second so that both fit |
 
-**Goal.** Turn a raw Bayer frame into an image a person can see, on either backend.
+**Goal.** Turn a raw Bayer frame into full-colour RGB, on either backend.
 
 **Scope.**
 
+- **Images:** the mosaics and RGB images the operations take and give, on the host or the device.
 - **Bayer split:** RGGB into R, G1, G2 and B planes; a half-resolution RGB superpixel.
 - **Demosaic:** bilinear, and Malvar–He–Cutler (ICASSP 2004), to RGB in 16 bits or `f32`.
-- **Binning:** 2 × 2, 3 × 3 and 4 × 4, by sum or mean, keeping the Bayer layout.
-- **Resize:** area averaging for shrinking, bilinear otherwise, to any preview size.
-- **Display transform:** black and white levels, then a gamma table, to RGB8.
-- **JPEG:** on the CPU, with SIMD, at a chosen quality. MJPEG is a sequence of these.
-- **CUDA kernels** for each operation but JPEG, each with its CPU twin.
+- **CUDA kernels** for each operation, each with its CPU twin.
 - **ROIs at odd offsets** handled through the Bayer phase that P1.03 records.
 
-**Out of scope.** JPEG on the GPU (P5.06, if it pays); dark, flat and colour (P1.06).
+**Out of scope.** Binning, resize, the display transform and JPEG (P1.05b); dark, flat and colour (P1.06).
 
-**Try it.** `demosaic`: a known RGB test pattern is mosaicked, demosaicked both ways on both backends, and written as JPEG, with timings and each method's PSNR against the pattern.
+**Try it.** `demosaic`: a known RGB test pattern is mosaicked, demosaicked both ways on both backends, and written as PPM, with timings and each method's PSNR against the pattern.
 
 **Done when.**
 
 - Integer operations agree exactly between backends, and `f32` ones within 1 least significant bit.
 - Malvar–He–Cutler's PSNR beats bilinear's on the test pattern; both numbers are recorded.
-- A 1920 × 1280 JPEG at quality 80 takes 10 ms or less on the CPU, in a release build.
 
-**Tests.** Flat colours survive mosaicking and demosaicking exactly; borders; every Bayer phase; property tests of binning sums; the CUDA twins. **Broken on purpose:** the Bayer phase after an odd crop, and border handling.
+**Tests.** Flat colours survive mosaicking and demosaicking exactly; borders; every Bayer phase; the CUDA twins. **Broken on purpose:** the Bayer phase after an odd crop, and border handling.
 
 **Open questions.** Q22 (demosaic methods).
 
+---
+
+## P1.05b: Binning, resize, display transform and JPEG
+
+| | |
+|---|---|
+| Crates | `tetera-imaging` |
+| Depends on | P1.05a |
+| ADRs | — |
+| Gates | G1, G1c |
+| Estimate | code 780 · tests 450 · examples 100 · docs-as-code 25 · glue 15 = **1,370**, from P1.05's split; its own second estimate comes before its code |
+
+**Goal.** Turn a frame into a preview a browser can show, on either backend.
+
+**Scope.**
+
+- **Binning:** 2 × 2, 3 × 3 and 4 × 4, by sum or mean, keeping the Bayer layout.
+- **Resize:** area averaging for shrinking, bilinear otherwise, to any preview size.
+- **Display transform:** black and white levels, then a gamma table, to RGB8.
+- **JPEG:** on the CPU, with SIMD, at a chosen quality. MJPEG is a sequence of these.
+- **CUDA kernels** for each operation but JPEG, each with its CPU twin.
+
+**Out of scope.** JPEG on the GPU (P5.06, if it pays); dark, flat and colour (P1.06).
+
+**Try it.** `demosaic` gains binning, a resize to preview size, the display transform and JPEG, with each step's time.
+
+**Done when.**
+
+- Integer operations agree exactly between backends, and `f32` ones within 1 least significant bit.
+- A 1920 × 1280 JPEG at quality 80 takes 10 ms or less on the CPU, in a release build.
+
+**Tests.** Property tests of binning sums; resizing flat images and ramps; the gamma table's ends; JPEG read back by a decoder; the CUDA twins. **Broken on purpose:** binning that mixes the Bayer layout's colours.
 ---
 
 ## P1.06: Dark, flat, colour, and the fused kernel
@@ -394,7 +422,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-imaging`, `tetera-compute` |
-| Depends on | P1.05 |
+| Depends on | P1.05b |
 | ADRs | 0011 fused kernels |
 | Gates | G1, G1c |
 | First estimate | code 1,000 · tests 400 · examples 100 · docs-as-code 50 · glue 50 = **1,600** |
@@ -432,7 +460,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-imaging`, `tetera-compute` |
-| Depends on | P1.05 |
+| Depends on | P1.05b |
 | ADRs | — |
 | Gates | G1, G1c |
 | Spec-first | Yes: the notes open with the behaviour and its literature before any code |

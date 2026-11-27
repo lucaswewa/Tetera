@@ -1,0 +1,21 @@
+[package]
+name = "tetera-imaging"
+description = "Tetera's imaging algorithms, each on the CPU and on CUDA: Bayer, demosaic and more."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# The CUDA paths, through tetera-compute's kernels. Without it, everything runs on the CPU.
+cuda = ["tetera-compute/cuda"]
+
+[dependencies]
+rayon.workspace = true
+tetera-compute.workspace = true
+tetera-core.workspace = true
+
+[lints]
+workspace = true
