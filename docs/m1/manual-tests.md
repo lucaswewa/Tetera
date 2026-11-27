@@ -222,3 +222,11 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-sim --example sim-clock -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-sim` — expect 15 tests to pass.
 - **Result:** see the [notes](notes/P1.10a-the-simulated-clock-and-motion-profiles.md#manual-test).
+
+## P1.10b: The virtual stage
+
+- **Prerequisites:** the phase's branch.
+- [ ] `cargo run -p tetera-sim --example virtual-stage` — expect, in stepped time, a move to (5000, 2000, 500) µm every 50 ms: Run until 350 ms, then Idle, its latest report up to 25 ms behind the stage itself. Then at 1×: the same move in about 365 ms; a jog stopped after 200 ms; homing in about 1.9 s; a stall halfway to x = 8 mm, in alarm; a hard limit while jogging; a target beyond the soft limits refused; and its events in order.
+- [ ] `cargo run -p tetera-sim --example virtual-stage -- --smoke` — expect the second part at 10×, and `smoke: ok`.
+- [ ] `cargo test -p tetera-sim` — expect 31 tests to pass.
+- **Result:** see the [notes](notes/P1.10b-the-virtual-stage.md#manual-test).
