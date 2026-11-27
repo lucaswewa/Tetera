@@ -31,10 +31,15 @@ Tetera's simulated world, L2 (plan §8, [ADR-0014](../../docs/adr/0014-the-simul
   - `depth_groups`: the section in groups as thick as the depth of field, each blurred by its defocus and the Airy disc.
   - Vignetting, and a `Light` with its intensity, its colour temperature by Planck's law, and its unevenness.
 
-  `field` makes it on the CPU from a rendered region; `HeTiles::field_with` on the GPU, from the tile cache, within 4e-5 of the light. A full 5472 × 3648 field, still, takes 9 ms at 5×, 19 ms at 20× and 38 ms at 50× on the RTX 3070 Ti Laptop GPU.
+  - `Motion`: the stage's velocity during the frame, each row's exposure and the rolling shutter's line time. Each pixel averages its row's path during its exposure, one sample a pixel of travel, up to 16; row r starts r line times after the first.
+  - `Sensor::binned`: the field at a binned pixel, for the binned modes.
+
+  `field` and `field_moving` make it on the CPU from a rendered region; `HeTiles::field_with` and `field_moving_with` on the GPU, from the tile cache, within 1e-4 of the light. A full 5472 × 3648 field, still, takes 5 ms at 5×, 10 ms at 20× and 25 ms at 50× on the RTX 3070 Ti Laptop GPU, and 27 to 33 ms at 50× moving.
+- **`sensor`:** the field as a raw frame (P1.12b). `SensorModel` is the MIChrome 20's sensor: an RGGB mosaic, each colour's quantum efficiency, Poisson shot noise and dark current, Gaussian read noise, a full well of 15,000 e⁻, a black level of 100 and 3.76 e⁻ a count at a gain of 1. `Exposure` sets the time, the gain, 12 or 8 bits, and the binning, which sums its pixels' light and charge. The noise comes from hashes of the seed, the pixel and the frame's number, so `expose` repeats a frame bit for bit. On the GPU, `HeTiles::frame` makes the field and exposes it there (`expose_on`), the same counts as the CPU's but for a handful of 20 million. A full raw frame brought back takes 25 ms at 20×, 31 ms moving.
+- **`VirtualStage::position_at`:** where the stage's plan puts it at any time, ahead of now or behind: where the camera looks during a frame.
 - **`VirtualIllumination`** implements `Illumination`: a transmitted channel, dimmable, from 2,700 to 6,500 K, which becomes the field's `Light`.
 
-The sensor and the virtual camera join in P1.12b.
+The virtual camera joins in P1.12c.
 
 ## How to try it
 
@@ -43,6 +48,7 @@ cargo run -p tetera-sim --example sim-clock
 cargo run -p tetera-sim --example virtual-stage
 cargo run --release -p tetera-sim --example he-sample
 cargo run --release -p tetera-sim --example virtual-optics
+cargo run --release -p tetera-sim --example virtual-sensor
 ```
 
 `sim-clock` runs the clock for 100 ms of the host's time at 1× and 10×, wakes a waiting thread with five steps of 10 ms, then samples a move from the origin to (2000, 1000, 300) µm every 20 ms of stepped time, and holds it at 100 ms. `-- --smoke` waits 25 ms instead.
@@ -52,3 +58,7 @@ cargo run --release -p tetera-sim --example virtual-optics
 `he-sample` renders the sample from seed 7 (or the seed given) as PNGs in `target/he-sample/`: a 2 mm overview at 2 µm; fields at the sampling of the camera's 2.4 µm pixels through 5×, 20× and 50×; three depth slices through a nucleus at 50×; and a fold at 5×. Each with its time. `-- --smoke` renders them small. With `--features cuda` and a GPU, it renders each view on the GPU too, timed and compared with the CPU's, and writes it as `-gpu.png`. It then moves a field of 3 × 3 tiles across the slide through a cache of 12, saying what it made, found and let go.
 
 `virtual-optics` writes the field the sensor sees as PNGs in `target/virtual-optics/`. On a 912 × 608 sensor on the CPU: at 5×, 20× and 50×; through focus at 50×; and under a cool, uneven light at 20×. With `--features cuda` and a GPU, it also times the full 5472 × 3648 field at each objective, cold, still and moving 100 pixels a frame, against the 40 ms budget. `-- --smoke` makes fewer and smaller fields.
+
+`virtual-sensor` writes raw frames at 20× as PNGs in `target/virtual-sensor/`, each 2 × 2 of the mosaic one pixel: still, in 8 bits, drifting 200 µm/s during the exposure, skewed by the rolling shutter at 2 mm/s, and dim at a gain of 16. It then measures the noise of an even field against the model at six levels of light. With `--features cuda` and a GPU, it times the full raw frame, still and moving, and compares the GPU's sensor with the CPU's. `-- --smoke` makes them small.
+
+The examples share one PNG writer, `examples/common/png.rs`.

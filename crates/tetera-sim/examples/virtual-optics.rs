@@ -7,6 +7,9 @@
 //! Run it with `cargo run --release -p tetera-sim --example virtual-optics`; `-- --smoke`
 //! makes fewer and smaller fields.
 
+#[path = "common/png.rs"]
+mod png;
+
 use std::path::Path;
 use std::time::Instant;
 use tetera_core::{Error, Result};
@@ -221,53 +224,5 @@ fn gpu(_: &HeSample, _: &Path, _: bool) -> Result<()> {
 
 /// Writes `f` as an 8-bit RGB PNG, `white` photoelectrons a ms the brightest.
 fn png(path: &Path, f: &Field, white: f32) -> Result<()> {
-    let rgb = f.srgb8(white);
-    let row = f.width as usize * 3;
-    let mut raw = Vec::with_capacity((row + 1) * f.height as usize);
-    for line in rgb.chunks(row) {
-        raw.push(0);
-        raw.extend_from_slice(line);
-    }
-    let mut z = vec![0x78, 0x01];
-    let blocks: Vec<&[u8]> = raw.chunks(65_535).collect();
-    for (k, block) in blocks.iter().enumerate() {
-        z.push(u8::from(k + 1 == blocks.len()));
-        let len = block.len() as u16;
-        z.extend_from_slice(&len.to_le_bytes());
-        z.extend_from_slice(&(!len).to_le_bytes());
-        z.extend_from_slice(block);
-    }
-    let (mut a, mut b) = (1u32, 0u32);
-    for &x in &raw {
-        a = (a + u32::from(x)) % 65_521;
-        b = (b + a) % 65_521;
-    }
-    z.extend_from_slice(&((b << 16) | a).to_be_bytes());
-    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
-    let mut header = f.width.to_be_bytes().to_vec();
-    header.extend_from_slice(&f.height.to_be_bytes());
-    header.extend_from_slice(&[8, 2, 0, 0, 0]);
-    for (kind, data) in [
-        (b"IHDR", &header[..]),
-        (b"IDAT", &z[..]),
-        (b"IEND", &[][..]),
-    ] {
-        png.extend_from_slice(&(data.len() as u32).to_be_bytes());
-        let start = png.len();
-        png.extend_from_slice(kind);
-        png.extend_from_slice(data);
-        let mut crc = !0u32;
-        for &byte in &png[start..] {
-            crc ^= u32::from(byte);
-            for _ in 0..8 {
-                crc = if crc & 1 == 1 {
-                    (crc >> 1) ^ 0xedb8_8320
-                } else {
-                    crc >> 1
-                };
-            }
-        }
-        png.extend_from_slice(&(!crc).to_be_bytes());
-    }
-    std::fs::write(path, png).map_err(|e| Error::internal(format!("{}: {e}", path.display())))
+    png::write(path, f.width, f.height, &f.srgb8(white))
 }

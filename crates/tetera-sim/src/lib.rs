@@ -37,6 +37,7 @@ pub mod motion;
 pub mod noise;
 pub mod optics;
 pub mod render;
+pub mod sensor;
 pub mod stage;
 pub mod tiles;
 
@@ -44,8 +45,9 @@ pub use clock::{Rate, SimClock};
 pub use he::{HeSample, Nucleus, RedCell, SectionConfig, Stains};
 pub use light::VirtualIllumination;
 pub use motion::{AxisLimits, Profile};
-pub use optics::{Field, FieldOfView, Light, Optics};
+pub use optics::{Field, FieldOfView, Light, Motion, Optics};
 pub use render::{Depth, Region, Rendered, render};
+pub use sensor::{Exposure, SensorModel};
 pub use stage::{
     GrblState, Report, VirtualAxis, VirtualStage, VirtualStageConfig, VirtualStageFault,
 };

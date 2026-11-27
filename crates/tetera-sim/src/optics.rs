@@ -22,6 +22,20 @@ pub struct Sensor {
     pub pixel: f64,
 }
 
+impl Sensor {
+    /// The sensor binned `b` × `b`: a pixel `b` times as wide, `b` times fewer each way, the
+    /// same field of view. Its field is still light a 2.4 µm pixel's worth; the sensor's
+    /// binning sums the `b`² pixels' charge (`sensor::Exposure::binning`).
+    pub fn binned(&self, b: u32) -> Sensor {
+        let b = b.max(1);
+        Sensor {
+            width: self.width / b,
+            height: self.height / b,
+            pixel: self.pixel * f64::from(b),
+        }
+    }
+}
+
 /// The MIChrome 20's sensor: 5472 × 3648 pixels of 2.4 µm.
 pub const MICHROME_20: Sensor = Sensor {
     width: 5472,
@@ -241,6 +255,47 @@ pub fn vignette(u: f32, v: f32, vignetting: f32) -> f32 {
     1.0 - vignetting * (u * u + v * v) / 2.0
 }
 
+/// The stage's motion during a frame: its velocity, how long each row exposes, and the
+/// rolling shutter's line time, row r starting r line times after row 0. The field's centre
+/// is where the stage was as row 0 began.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Motion {
+    /// µm a second, each way.
+    pub velocity: (f64, f64),
+    /// Each row's exposure, s.
+    pub exposure: f64,
+    /// From one row's start to the next's, s.
+    pub line_time: f64,
+}
+
+impl Motion {
+    /// Still.
+    pub const STILL: Motion = Motion {
+        velocity: (0.0, 0.0),
+        exposure: 0.0,
+        line_time: 0.0,
+    };
+
+    /// How far row `row`'s `k`th of `n` samples has moved, µm: at its share of the row's
+    /// exposure.
+    pub fn offset(&self, row: f64, k: u32, n: u32) -> (f64, f64) {
+        let t = row * self.line_time + (f64::from(k) + 0.5) / f64::from(n) * self.exposure;
+        (self.velocity.0 * t, self.velocity.1 * t)
+    }
+
+    /// How many samples a pixel averages along its path: one for each `pixel` µm the stage
+    /// moves during an exposure, from 1 to 16.
+    pub fn samples(&self, pixel: f64) -> u32 {
+        let travel = self.velocity.0.hypot(self.velocity.1) * self.exposure / pixel;
+        (travel.ceil() as u32).clamp(1, 16)
+    }
+
+    /// How far the field moves over a frame of `rows`, µm.
+    pub fn extent(&self, rows: u32) -> f64 {
+        self.velocity.0.hypot(self.velocity.1) * (f64::from(rows) * self.line_time + self.exposure)
+    }
+}
+
 /// The field: each sensor pixel's irradiance in red, green and blue, photoelectrons a ms at
 /// quantum efficiency 1, row by row.
 #[derive(Debug, Clone, PartialEq)]
@@ -276,11 +331,11 @@ pub struct Grid {
 }
 
 impl Grid {
-    /// The grid for `fov`, its widest blur `sigma` sensor pixels.
-    pub fn new(fov: &FieldOfView, sigma: f32) -> Self {
+    /// The grid for `fov`, its widest blur `sigma` sensor pixels, moving `moved` µm over a frame.
+    pub fn new(fov: &FieldOfView, sigma: f32, moved: f64) -> Self {
         let level = TileKey::level_for(fov.optics.pixel());
         let p = FINEST * f64::from(1u32 << level);
-        let margin = (f64::from(sigma) * 3.0 + 2.0) * fov.optics.pixel() + 2.0 * p;
+        let margin = (f64::from(sigma) * 3.0 + 2.0) * fov.optics.pixel() + 2.0 * p + moved;
         let (x0, y0, x1, y1) = fov.bounds(margin);
         let first = ((x0 / p).floor() as i64, (y0 / p).floor() as i64);
         let last = ((x1 / p).ceil() as i64, (y1 / p).ceil() as i64);
@@ -381,15 +436,28 @@ fn lit(
     })
 }
 
-/// The field on the CPU, the reference for the GPU's: `sample` seen by `fov`, focused `focus`
-/// µm above the section's lower face, under `light`. Each depth group is rendered on the
-/// grid at its level, resampled into the sensor's pixels, and blurred; the groups' stains
-/// are summed, and lit.
+/// The field on the CPU, still: `sample` seen by `fov`, focused `focus` µm above the
+/// section's lower face, under `light`.
 pub fn field(sample: &HeSample, fov: &FieldOfView, light: &Light, focus: f64) -> Result<Field> {
+    field_moving(sample, fov, &Motion::STILL, light, focus)
+}
+
+/// The field on the CPU, the reference for the GPU's, the stage moving as `motion` says. Each
+/// depth group is rendered on the grid at its level and resampled into the sensor's pixels,
+/// each pixel averaging its row's path during its exposure; then blurred. The groups' stains
+/// are summed, and lit.
+pub fn field_moving(
+    sample: &HeSample,
+    fov: &FieldOfView,
+    motion: &Motion,
+    light: &Light,
+    focus: f64,
+) -> Result<Field> {
     let s = fov.optics.sensor;
     let groups = depth_groups(&fov.optics, focus, sample.section().thickness);
     let widest = groups.iter().map(|g| g.sigma).fold(0.0, f32::max);
-    let grid = Grid::new(fov, widest);
+    let grid = Grid::new(fov, widest, motion.extent(s.height));
+    let samples = motion.samples(fov.optics.pixel());
     let p = grid.pixel();
     let n = s.width as usize * s.height as usize;
     let mut total = vec![Stains::default(); n];
@@ -410,13 +478,23 @@ pub fn field(sample: &HeSample, fov: &FieldOfView, light: &Light, focus: f64) ->
             .map(|k| {
                 let (col, row) = ((k % s.width as usize) as f64, (k / s.width as usize) as f64);
                 let (x, y) = fov.position(col, row);
-                bilinear(
-                    &rendered.stains,
-                    grid.size.0,
-                    grid.size.1,
-                    x / p - grid.first.0 as f64,
-                    y / p - grid.first.1 as f64,
-                )
+                let mut sum = Stains::default();
+                for j in 0..samples {
+                    let (dx, dy) = motion.offset(row, j, samples);
+                    let at = bilinear(
+                        &rendered.stains,
+                        grid.size.0,
+                        grid.size.1,
+                        (x + dx) / p - grid.first.0 as f64,
+                        (y + dy) / p - grid.first.1 as f64,
+                    );
+                    sum.haematoxylin += at.haematoxylin;
+                    sum.eosin += at.eosin;
+                }
+                Stains {
+                    haematoxylin: sum.haematoxylin / samples as f32,
+                    eosin: sum.eosin / samples as f32,
+                }
             })
             .collect();
         let blurred = blur(&resampled, s.width, s.height, &gaussian(group.sigma));
@@ -724,7 +802,7 @@ mod tests {
             centre: (-300.0, 4_000.0),
             optics: small(20.0, 0.42, 0.2),
         };
-        let grid = Grid::new(&fov, 4.0);
+        let grid = Grid::new(&fov, 4.0, 0.0);
         assert_eq!(grid.level, 1);
         let p = grid.pixel();
         let (x0, y0, x1, y1) = fov.bounds(0.0);
@@ -818,6 +896,175 @@ mod tests {
             &shown[at..at + 3],
             &crate::he::srgb8(middle.map(|v| v / (1_000.0 * warmth[0])))
         );
+    }
+
+    #[test]
+    fn a_binned_sensor_sees_the_same_field_in_bigger_pixels() {
+        let two = MICHROME_20.binned(2);
+        assert_eq!((two.width, two.height, two.pixel), (2_736, 1_824, 4.8));
+        let three = MICHROME_20.binned(3);
+        assert_eq!((three.width, three.height), (1_824, 1_216));
+        assert!(near(three.pixel, 7.2, 1e-12));
+        assert_eq!(MICHROME_20.binned(0), MICHROME_20);
+        let sample = HeSample::new(7, SectionConfig::default()).unwrap();
+        let light = Light::default();
+        let fine = small(20.0, 0.42, 0.0);
+        let coarse = Optics {
+            sensor: fine.sensor.binned(2),
+            ..fine
+        };
+        assert!(near(coarse.pixel(), 2.0 * fine.pixel(), 1e-12));
+        let at = |optics| FieldOfView {
+            centre: (1_000.0, 1_000.0),
+            optics,
+        };
+        let a = field(&sample, &at(fine), &light, 2.0).unwrap();
+        let b = field(&sample, &at(coarse), &light, 2.0).unwrap();
+        assert_eq!((b.width, b.height), (96, 64));
+        // A binned pixel's light is its four pixels' mean, as each is a 2.4 µm pixel's worth.
+        let mean =
+            |f: &Field| f.rgb.iter().map(|p| f64::from(p[1])).sum::<f64>() / f.rgb.len() as f64;
+        assert!(
+            near(mean(&a), mean(&b), 0.01 * mean(&a)),
+            "{} against {}",
+            mean(&a),
+            mean(&b)
+        );
+        let quad = |c: u32, r: u32| {
+            (0..4)
+                .map(|k| f64::from(a.rgb[((2 * r + k / 2) * 192 + 2 * c + k % 2) as usize][1]))
+                .sum::<f64>()
+                / 4.0
+        };
+        // Point-sampled at the binned pixel's middle, against its four pixels' mean: close on
+        // average, apart only at sharp edges.
+        let diffs: Vec<f64> = (0..64 * 96)
+            .map(|k| (quad(k % 96, k / 96) - f64::from(b.rgb[k as usize][1])).abs())
+            .collect();
+        let average = diffs.iter().sum::<f64>() / diffs.len() as f64;
+        let worst = diffs.iter().copied().fold(0.0, f64::max);
+        eprintln!(
+            "binned: {average:.2} apart on average, {worst:.1} at most, of {:.0}",
+            mean(&a)
+        );
+        assert!(
+            average < 0.01 * mean(&a) && worst < 0.1 * mean(&a),
+            "{average}, {worst}"
+        );
+    }
+
+    #[test]
+    fn motion_is_sampled_along_each_rows_exposure() {
+        let m = Motion {
+            velocity: (300.0, -400.0),
+            exposure: 0.01,
+            line_time: 1e-5,
+        };
+        // Row 0's four samples at the middles of their quarters of 10 ms; row 100 a ms later.
+        let (x, y) = m.offset(0.0, 0, 4);
+        assert!(near(x, 300.0 * 0.00125, 1e-12) && near(y, -400.0 * 0.00125, 1e-12));
+        let (x, _) = m.offset(100.0, 3, 4);
+        assert!(near(x, 300.0 * (0.001 + 0.00875), 1e-12), "{x}");
+        // 5 µm over the exposure: one sample a pixel, at most 16.
+        assert_eq!(m.samples(1.0), 5);
+        assert_eq!(m.samples(1.25), 4);
+        assert_eq!(m.samples(0.1), 16);
+        assert_eq!(Motion::STILL.samples(0.1), 1);
+        assert!(near(m.extent(100), 500.0 * (100.0 * 1e-5 + 0.01), 1e-9));
+        assert_eq!(Motion::STILL.extent(3_648), 0.0);
+    }
+
+    #[test]
+    fn motion_averages_the_field_along_its_path() {
+        let sample = HeSample::new(7, SectionConfig::default()).unwrap();
+        let light = Light::default();
+        let optics = small(20.0, 0.42, 0.3);
+        let fov = FieldOfView {
+            centre: (1_000.0, 1_000.0),
+            optics,
+        };
+        let pixel = optics.pixel();
+        // 11.5 pixels over 10 ms, aslant: twelve samples.
+        let speed = 11.5 * pixel / 0.01;
+        let motion = Motion {
+            velocity: (0.6 * speed, 0.8 * speed),
+            exposure: 0.01,
+            line_time: 0.0,
+        };
+        assert_eq!(motion.samples(pixel), 12);
+        let moving = field_moving(&sample, &fov, &motion, &light, 2.0).unwrap();
+        let still: Vec<Field> = (0..12)
+            .map(|k| {
+                let (dx, dy) = motion.offset(0.0, k, 12);
+                let at = FieldOfView {
+                    centre: (1_000.0 + dx, 1_000.0 + dy),
+                    optics,
+                };
+                field(&sample, &at, &light, 2.0).unwrap()
+            })
+            .collect();
+        // Beer–Lambert's light is linear in the stains in its log, and the path averages them.
+        let mut worst = 0.0f32;
+        for (k, m) in moving.rgb.iter().enumerate() {
+            for (c, v) in m.iter().enumerate() {
+                let mean = still.iter().map(|f| f.rgb[k][c].ln()).sum::<f32>() / 12.0;
+                worst = worst.max((v.ln() - mean).abs());
+            }
+        }
+        assert!(worst < 1e-4, "the path's average, within {worst}");
+        assert!(
+            sharpness(&moving) < 0.8 * sharpness(&still[0]),
+            "smeared: {} against {}",
+            sharpness(&moving),
+            sharpness(&still[0])
+        );
+        assert_eq!(
+            field_moving(&sample, &fov, &Motion::STILL, &light, 2.0).unwrap(),
+            field(&sample, &fov, &light, 2.0).unwrap(),
+            "still is still"
+        );
+    }
+
+    /// The whole-pixel shift that best lays row `row` of `a` over `b`'s: a's pixel c shows
+    /// what b's c + shift does.
+    fn shift(a: &Field, b: &Field, row: u32) -> i32 {
+        let w = a.width as usize;
+        let at = |f: &Field, c: usize| f.rgb[row as usize * w + c][1];
+        (-4..=8)
+            .map(|s: i32| {
+                let d: f32 = (12..w - 12)
+                    .map(|c| (at(a, c) - at(b, (c as i32 + s) as usize)).abs())
+                    .sum();
+                (s, d)
+            })
+            .min_by(|x, y| x.1.total_cmp(&y.1))
+            .expect("shifts")
+            .0
+    }
+
+    #[test]
+    fn a_rolling_shutter_skews_the_field() {
+        let sample = HeSample::new(7, SectionConfig::default()).unwrap();
+        let light = Light::default();
+        let optics = small(20.0, 0.42, 0.0);
+        let fov = FieldOfView {
+            centre: (1_000.0, 1_000.0),
+            optics,
+        };
+        // Each row 10 µs after the one above, at no exposure, the stage moving along x: a
+        // pixel every 40 rows.
+        let motion = Motion {
+            velocity: (optics.pixel() / (40.0 * 1e-5), 0.0),
+            exposure: 0.0,
+            line_time: 1e-5,
+        };
+        assert_eq!(motion.samples(optics.pixel()), 1);
+        let skewed = field_moving(&sample, &fov, &motion, &light, 2.0).unwrap();
+        let still = field(&sample, &fov, &light, 2.0).unwrap();
+        for (row, expected) in [(0, 0), (40, 1), (80, 2), (120, 3)] {
+            assert_eq!(shift(&skewed, &still, row), expected, "row {row}");
+            assert_eq!(shift(&still, &still, row), 0);
+        }
     }
 
     #[test]

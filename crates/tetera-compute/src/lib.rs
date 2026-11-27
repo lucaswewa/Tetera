@@ -26,6 +26,7 @@ pub mod isp;
 pub mod kernels;
 pub mod ops;
 pub mod select;
+pub mod sensor;
 pub mod twin;
 
 pub use budget::{Budget, Grant, VramBudgets};

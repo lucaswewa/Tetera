@@ -254,3 +254,12 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run --release -p tetera-sim --example virtual-optics -- --smoke` — expect `smoke: ok`.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-sim --features cuda` — expect 77 tests to pass.
 - **Result:** see the [notes](notes/P1.12a-optics-and-light-the-field-the-sensor-sees.md#manual-test).
+
+## P1.12b: The sensor and motion
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU.
+- [ ] `cargo run --release -p tetera-sim --features cuda --example virtual-sensor` — expect raw frames at 20× still, in 8 bits, drifting, skewed by the rolling shutter (about 190 pixels top to bottom) and dim at a gain of 16; the noise on an even field within a few per cent of the model's mean and variance at each level of light; then the full 5472 × 3648 raw frame on the GPU, still and moving, within 40 ms, and the GPU's sensor differing from the CPU's in a handful of counts of 20 million. Look at the PNGs in `target/virtual-sensor/`: the moving frame smeared along x, the skewed one sheared, the dim one grainy.
+- [ ] `cargo run --release -p tetera-sim --example virtual-sensor -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo run --release -p tetera-sim --features cuda --example virtual-optics` — expect the full field at 50× within 40 ms moving as well as still.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-sim -p tetera-compute --features tetera-sim/cuda` — expect 93 tests to pass in `tetera-sim` and 91 in `tetera-compute`.
+- **Result:** see the [notes](notes/P1.12b-the-sensor-and-motion.md#manual-test).

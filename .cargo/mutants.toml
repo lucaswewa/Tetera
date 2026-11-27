@@ -86,4 +86,9 @@ exclude_re = [
     "replace \\+= with -= in blur",
     # No blur below a σ of 1e-3 pixels: at exactly 1e-3, a blur of three weights rounds to one.
     "replace < with <= in gaussian",
+    # The sensor's Poisson draw: at a mean of exactly 16 both draws have its mean and
+    # variance; the inversion stops where a uniform draw equals the sum, which has
+    # probability zero, and its cap of 64 counts is reached with probability about 1e-20.
+    "replace > with >= in poisson",
+    "replace < with <= in poisson",
 ]

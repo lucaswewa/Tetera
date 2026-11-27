@@ -4,7 +4,7 @@
 // Two passes: `he_nuclei` and `he_red_cells` decide each grid cell's nucleus or red cell at
 // its own centre; `he_render` then makes each pixel, its stains as half-precision pairs.
 
-typedef unsigned int u32;
+#include "noise.cuh"
 
 // Salts, as `he.rs` numbers them.
 #define MASK 1u
@@ -32,30 +32,6 @@ typedef unsigned int u32;
 #define TAU_F 6.28318530717959f
 
 // --- noise.rs ---
-
-__device__ u32 lowbias32(u32 x)
-{
-    x ^= x >> 16;
-    x *= 0x7feb352dU;
-    x ^= x >> 15;
-    x *= 0x846ca68bU;
-    x ^= x >> 16;
-    return x;
-}
-
-__device__ u32 hash3(u32 seed, u32 salt, int x, int y, int z)
-{
-    u32 h = lowbias32(seed ^ (salt * 0x9e3779b9U));
-    h = lowbias32(h ^ (u32)x);
-    h = lowbias32(h ^ (u32)y);
-    h = lowbias32(h ^ (u32)z);
-    return h;
-}
-
-__device__ float unit_f(u32 h)
-{
-    return (float)(h >> 8) * (1.0f / 16777216.0f);
-}
 
 __device__ void lattice(double x, double wavelength, int* cell, float* t)
 {
