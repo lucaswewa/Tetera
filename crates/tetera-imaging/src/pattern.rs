@@ -23,7 +23,8 @@ pub fn noisy(values: &[u16], sigma: f64, max: u16, seed: u64) -> Vec<u16> {
         .iter()
         .map(|&v| {
             let gauss = (-2.0 * uniform().ln()).sqrt() * (TAU * uniform()).cos();
-            sigma.mul_add(gauss, f64::from(v))
+            sigma
+                .mul_add(gauss, f64::from(v))
                 .round()
                 .clamp(0.0, f64::from(max)) as u16
         })
