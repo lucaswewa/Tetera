@@ -68,7 +68,7 @@ OScope is the owner's previous build of the same instrument software. It ran thr
 
 | OScope's lesson | Source | What Tetera does |
 |---|---|---|
-| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 25 phases each. Extensions get their own two milestones |
+| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 26 phases each. Extensions get their own two milestones |
 | Line budgets (300/600/900) never fit. Estimates in parts, committed before the code, did fit: median 1.04 in M1 | M1 retrospective | **No budgets.** A five-part estimate, committed before the code, with a cap that triggers a question to the owner ([§7](#7-how-phases-work)) |
 | The simulator on the CPU was the live view's bottleneck: about 160 ms a frame, 2 s while jogging. It moved to the GPU late | ADR-0062, performance notes | **The simulator is GPU-first from its first phase**, with the CPU path as reference and fallback |
 | Full replays took about an hour per phase. Change-reach gates cut that | ADR-0038, ADR-0061 | **Tiered gates from day one:** quick, phase, checkpoint, milestone ([§8](#8-local-ci-gates)). Each phase runs only what its change reaches |
@@ -114,7 +114,7 @@ Each row is this draft's reading of the spec. Each becomes an ADR or a phase dec
 | D4 | Raw frames | The Bayer mosaic (RGGB) in 16-bit words, with its significant bits (12) in the metadata | Q16 | ADR-0008 |
 | D5 | Live preview | **Confirmed: binned live, full-resolution capture.** The live view defaults to a binned camera mode, for 30–60 fps. Captures and scans switch the camera to full resolution and back by themselves. The user can still pick any mode. JPEG over a binary WebSocket, sized to the client's viewport. Latest frame wins; never faster than the camera | Q17, Q18 | ADR-0019 |
 | D6 | GPU | CUDA through `cudarc`, loaded at run time, with a CPU twin (rayon + SIMD) for every kernel. The twin is the reference in equivalence tests and the fallback without a GPU | — | ADR-0009 |
-| D7 | Fused kernels | The stock live chain (dark → flat → demosaic → white balance and CCM → gamma → 8-bit → resize) also exists as one hand-written fused CUDA kernel. The pipeline engine uses it when a recipe matches the chain, and tests it against the unfused nodes | Q19 | ADR-0011 |
+| D7 | Fused kernels | The stock live chain (dark → flat → demosaic → resize → white balance and CCM → gamma → 8-bit; resizing before colour since P1.06a) also exists as one hand-written fused CUDA kernel. The pipeline engine uses it when a recipe matches the chain, and tests it against the unfused nodes | Q19 | ADR-0011 |
 | D8 | Simulator | GPU-first from P1.11. Deterministic from a seed. Tiles are made on demand and cached, in half precision on the GPU | Q26, Q27 | ADR-0015, ADR-0016 |
 | D9 | Simulated clock | One clock for every simulated device. A move takes the time its distance and speed imply, and the live image moves with it. Tests can step the clock or run it faster | — | ADR-0014 |
 | D10 | Rust extensions | **Confirmed.** In-process `cdylib`s behind a versioned C ABI, hidden by a safe SDK crate. Extensions are trusted code | Q29 | ADR-0026 |
@@ -363,9 +363,9 @@ camera ─▶ frame pool (Bayer16) ─▶ frame bus ─┬─▶ recorder (lossl
 | Bayer split | RGGB into R, G1, G2 and B planes | P1.05a |
 | Demosaic | Bilinear, and Malvar–He–Cutler | P1.05a |
 | Raw → JPEG / MJPEG | SIMD JPEG encoding on the CPU; nvJPEG on the GPU if WSL2 has it (checked in P1.04a) | P1.05b |
-| Dark-field subtraction | Subtract a master dark frame, matched by exposure and gain | P1.06 |
-| Flat-field correction | Divide by a normalised master flat, dark-subtracted | P1.06 |
-| Colour-correction matrix | White-balance gains, then a 3 × 3 matrix to linear sRGB, then gamma | P1.06 |
+| Dark-field subtraction | Subtract a master dark frame, matched by exposure and gain | P1.06a |
+| Flat-field correction | Divide by a normalised master flat, dark-subtracted | P1.06a |
+| Colour-correction matrix | White-balance gains, then a 3 × 3 matrix to linear sRGB, then gamma | P1.06a |
 | Denoise | Temporal averaging of N frames; a spatial edge-preserving filter (bilateral, or non-local means) | P1.07 |
 | Deconvolution with a PSF | Richardson–Lucy, FFT-based, with a theoretical widefield PSF from the objective's NA and wavelength, or a measured PSF | P1.07 |
 | Glue | Crop, bin, resize, display transform (levels, gamma), statistics | P1.05b–P1.08 |
@@ -585,7 +585,8 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 | P1.04b | Kernels and the twin harness | The PTX build and module loading, the twin-test harness, a scale-and-offset kernel pair, VRAM budgets | `ex-twin-scale` | 0010 |
 | P1.05a | Bayer and demosaic | Bayer split, bilinear and Malvar–He–Cutler demosaic; CPU and CUDA | `ex-demosaic`: a synthetic Bayer frame demosaicked, on each backend | — |
 | P1.05b | Binning, resize, display transform and JPEG | Binning, resize, levels and gamma, raw → JPEG/MJPEG; CPU and CUDA | `ex-demosaic`, to JPEG | — |
-| P1.06 | Dark, flat, CCM, and the fused kernel | Dark subtraction, flat field, white balance and CCM, gamma; the fused ISP kernel and its equivalence tests | `ex-isp`: timings fused against unfused, CPU against GPU | 0011 |
+| P1.06a | Dark, flat and colour | Dark subtraction, flat field, white balance and CCM, gamma; the unfused chain on each backend | `ex-isp`: each stage's time, CPU against GPU | — |
+| P1.06b | The fused kernel | The fused ISP kernel and its equivalence with the unfused chain | `ex-isp`: fused against unfused | 0011 |
 | P1.07 | Denoise and deconvolution *(spec-first)* | Temporal averaging, an edge-preserving spatial filter; theoretical PSF, Richardson–Lucy on cuFFT and the CPU | `ex-deconvolve`, against a blurred ground truth | — |
 | P1.08 | The pipeline engine | DAG, typed ports, JSON recipes and their schema, the registry, GPU residency, the fusion pass, live and batch runs | `ex-recipe`: a recipe run on a frame, then on a folder | 0012 |
 
@@ -687,7 +688,7 @@ Each driver phase is *Done* only after the owner has run its manual test on the 
 | P5.06 | Performance | The raw path at the camera's rate to scratch; preview latency and rate; GPU tuning; memory; several clients; H.264 only if needed | — |
 | P5.07 | Packaging and release 1.0 | A `.deb` and the systemd unit for WSL; a Windows bootstrap (`.wslconfig`, the task, usbipd); a 24-hour soak; the user's guide; the release; the retrospective | 0042 |
 
-**In all:** 62 phases, plus the spike: M1 25, M2 8, M3 10, M4 12, M5 7.
+**In all:** 63 phases, plus the spike: M1 26, M2 8, M3 10, M4 12, M5 7.
 
 **Each phase's status** is in [`m1/notes/README.md`](m1/notes/README.md): *Not started*, *In review* or *Done*.
 
@@ -709,7 +710,7 @@ Numbered across the project. Each is written in the phase named.
 | 0008 | The frame model, the buffer pool and the frame bus | P1.03 |
 | 0009 | Compute backends: the CPU reference and CUDA, and what WSL2 offers | P1.04a |
 | 0010 | Building and loading CUDA kernels under WSL2 | P1.04b |
-| 0011 | Fused kernels | P1.06 |
+| 0011 | Fused kernels | P1.06b |
 | 0012 | The pipeline model | P1.08 |
 | 0013 | The hardware abstraction layer | P1.09 |
 | 0014 | The simulated clock | P1.10 |
@@ -918,7 +919,7 @@ A first draft. **From P1.01, [`setup/toolchain.md`](setup/toolchain.md) is the g
 | R5 | **CUDA under WSL2 has limits** that native Linux doesn't. NVIDIA's WSL guide lists them | A feature Tetera plans to use may not work, such as pinned memory at size, or IPC to Python workers | P1.04 checks each feature Tetera uses. Python workers get frames through host shared memory, not CUDA IPC |
 | R6 | **Disk:** OScope's phases built 60–70 GB each. WSL's virtual disk grows and doesn't shrink by itself | Full disks break WSL | `doctor` checks before G2 and G3; `sparseVhd`; the distro on D: (§12.1); cleaning between milestones |
 | R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
-| R8 | **Scope:** 62 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
+| R8 | **Scope:** 63 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
 | R9 | **The extension ABI** must stay stable across SDK versions | Old extensions break, or crash the server | A versioned C ABI checked at install; panics caught; tests against the previous SDK version; Python in separate processes |
 | R10 | **Extensions as the only home** of stitching, deep zoom, depth from focus and volumes | The SDK must be rich enough for heavy, GPU-bound nodes | P2.03 gives Rust extensions the GPU; P3.01 is a small extension that proves the path before P3.02 |
 | R11 | **The host's sleep, and WSL's clock drift** | Wrong wall-clock times in metadata | A monotonic clock; UTC mapped at start-up and re-checked; a status warning on drift |
@@ -1105,3 +1106,6 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-27 | **The owner's standing approval to the end of P1.18:** each phase is merged once its gate passes; estimates over 2,000 are split by the agent; Checkpoints A and B are run and recorded by the agent, and the owner runs all three demos at C; teta-wot gaps go upstream as U-phases under the same approval; P1.13's systemd unit is tested as a user service, and the owner installs the system one at C |
 | 2026-11-27 | **P1.05b's second estimate,** before its code, counting tests at about the code's size (P1.05a's lesson): code 845 (binning 200, resize and its weight tables 285, the display transform 180, JPEG 70, device images of any element and dispatch 110) · tests 850 · examples 110 · docs-as-code 45 · glue 30 = **1,880**, against 1,370 from P1.05's split. Under 2,000, so the phase stays whole. **JPEG through libjpeg-turbo** (`turbojpeg` 1.5.1), the owner's choice: the pure-Rust `jpeg-encoder` 0.7.1 took 13.5 ms for 1920 × 1280 at quality 80, against the 10 ms budget. It needs `nasm`, which the owner installs |
 | 2026-11-27 | **P1.05b measured 2,238 lines against its second estimate of 1,880 (×1.19),** over the 2,000 cap: code 1,022, tests 1,002. The kernels' safe launches, each checking what its `SAFETY` comment relies on, took about 80 lines each; later estimates count them. JPEG at 1920 × 1280, quality 80: 4.8 ms ([notes](m1/notes/P1.05b-binning-resize-display-transform-and-jpeg.md#size)) |
+| 2026-11-27 | **P1.06's second estimate,** before its code, counting tests at the code's size and about 80 lines a safe launch: about 2,490 (code 1,160 · tests 1,100 · examples 160 · docs-as-code 40 · glue 30). Over 2,000: **split by the agent** under the owner's standing approval, along its ready split, into P1.06a (dark, flat, white balance and CCM, `IspParams`, the unfused chain) and P1.06b (the fused kernel, its equivalence, ADR-0011). 63 phases, M1 26 |
+| 2026-11-27 | **P1.06a's second estimate:** code 790 (dark subtraction and its matching 205, the flat field and its gains 215, white balance, CCM and the sRGB curve 220, `IspParams` and the unfused chain 150) · tests 790 · examples 100 · docs-as-code 25 · glue 25 = **1,730** |
+| 2026-11-27 | **P1.06a measured 2,315 lines against its second estimate of 1,730 (×1.34),** over the 2,000 cap: code 1,038, tests 974, examples 280. GPU phases keep landing at 1.2–1.4 times their estimates; later estimates multiply by 1.3 before comparing with the cap. **The chain resizes before colour,** in linear light: plan D7 and P1.06b's spec give the new order ([notes](m1/notes/P1.06a-dark-flat-and-colour.md#size)) |

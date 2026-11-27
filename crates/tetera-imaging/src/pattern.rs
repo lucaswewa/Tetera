@@ -1,9 +1,88 @@
 //! A test pattern with a known answer, and how close an image comes to it: the peak
-//! signal-to-noise ratio.
+//! signal-to-noise ratio. And a synthetic [`Sensor`] that records a linear image as a raw
+//! mosaic, with an offset, vignetting and unequal channels, for testing the ISP.
 
-use crate::image::Image;
+use crate::image::{Image, Mosaic, MosaicLayout};
 use std::f64::consts::{PI, TAU};
+use tetera_core::frame::format::{BayerPattern, Channel};
 use tetera_core::{Error, Result};
+
+/// A synthetic sensor: what a linear image becomes as a raw mosaic, with the faults the ISP
+/// corrects. Noise-free, so tests know the answer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sensor {
+    /// Its Bayer pattern.
+    pub pattern: BayerPattern,
+    /// Its significant bits.
+    pub bits: u8,
+    /// What every site reads with no light: the black level and dark current.
+    pub offset: u16,
+    /// How much darker the corners are: `1 − vignetting × r²`, with r 1 at a corner.
+    pub vignetting: f64,
+    /// Each channel's response to its light: red, green and blue.
+    pub response: [f64; 3],
+}
+
+impl Default for Sensor {
+    fn default() -> Self {
+        Self {
+            pattern: BayerPattern::Rggb,
+            bits: 12,
+            offset: 0,
+            vignetting: 0.0,
+            response: [1.0; 3],
+        }
+    }
+}
+
+impl Sensor {
+    fn layout(&self, width: u32, height: u32) -> MosaicLayout {
+        MosaicLayout {
+            width,
+            height,
+            pattern: self.pattern,
+            significant_bits: self.bits,
+        }
+    }
+
+    /// `rgb`, a linear image of three channels, as this sensor records it: each site's own
+    /// colour times its response and the vignetting, rounded, plus the offset, clamped.
+    pub fn expose(&self, rgb: &Image<u16>) -> Result<Mosaic> {
+        if rgb.channels() != 3 {
+            return Err(Error::invalid_argument(format!(
+                "a sensor records RGB, not {} channels",
+                rgb.channels()
+            )));
+        }
+        let layout = self.layout(rgb.width(), rgb.height());
+        let (cx, cy) = (f64::from(rgb.width()) / 2.0, f64::from(rgb.height()) / 2.0);
+        let corner = cx * cx + cy * cy;
+        let max = f64::from(layout.max());
+        let mut sites = Vec::with_capacity(layout.sites());
+        for y in 0..rgb.height() {
+            for x in 0..rgb.width() {
+                let (dx, dy) = (f64::from(x) + 0.5 - cx, f64::from(y) + 0.5 - cy);
+                let shade = 1.0 - self.vignetting * (dx * dx + dy * dy) / corner;
+                let c = match self.pattern.channel_at(x, y) {
+                    Channel::Red => 0,
+                    Channel::GreenOnRed | Channel::GreenOnBlue => 1,
+                    Channel::Blue => 2,
+                };
+                let light = (f64::from(rgb.pixel(x, y)[c]) * self.response[c] * shade).round();
+                sites.push((light + f64::from(self.offset)).clamp(0.0, max) as u16);
+            }
+        }
+        Mosaic::new(layout, sites)
+    }
+
+    /// The master dark it gives at `width × height`: the offset at every site.
+    pub fn dark(&self, width: u32, height: u32) -> Result<Mosaic> {
+        Mosaic::new(
+            self.layout(width, height),
+            vec![self.offset; width as usize * height as usize],
+        )
+    }
+}
 
 /// The finest stripes of the zone plate, in cycles a pixel: half the Bayer mosaic's
 /// Nyquist limit for red and blue, so that every method can follow them, some better.
@@ -194,6 +273,65 @@ mod tests {
         let tall = test_pattern(12, 120, 12);
         let sum: u64 = tall.data().iter().map(|&v| u64::from(v)).sum();
         assert_eq!(sum, 7_476_267);
+    }
+
+    #[test]
+    fn the_sensor_shades_each_channel_and_adds_its_offset() {
+        let sensor = Sensor {
+            offset: 100,
+            vignetting: 0.5,
+            response: [0.5, 1.0, 2.0],
+            ..Sensor::default()
+        };
+        let even = Image::new(4, 2, 3, [1_000u16; 3].repeat(8)).unwrap();
+        // 4 × 2: the centre is (2, 1), and a corner 2² + 1² = 5 from it. Sites (0, 0) and
+        // (3, 0) are 2.5/5 of the way out, shaded 0.75; (1, 0) and (2, 0), 0.5/5, shaded 0.95.
+        let m = sensor.expose(&even).unwrap();
+        assert_eq!(m.sites(), [475, 1_050, 575, 850, 850, 2_000, 1_050, 1_600]);
+        assert_eq!(
+            *m.layout(),
+            MosaicLayout {
+                width: 4,
+                height: 2,
+                pattern: BayerPattern::Rggb,
+                significant_bits: 12
+            }
+        );
+        let bright = Sensor {
+            response: [6.0; 3],
+            ..sensor
+        }
+        .expose(&even)
+        .unwrap();
+        assert!(
+            bright.sites().iter().all(|&v| v == 4_095),
+            "clamped to 12 bits"
+        );
+        let gbrg = Sensor {
+            pattern: BayerPattern::Gbrg,
+            ..sensor
+        }
+        .expose(&even)
+        .unwrap();
+        assert_eq!(
+            gbrg.sites()[1],
+            2_000,
+            "blue at (1, 0): 1,000 × 2 × 0.95 + 100"
+        );
+        // 2 × 4, the other way up: rows 0 and 3 shaded 0.75, rows 1 and 2, 0.95.
+        let tall = sensor
+            .expose(&Image::new(2, 4, 3, [1_000u16; 3].repeat(8)).unwrap())
+            .unwrap();
+        assert_eq!(
+            tall.sites(),
+            [475, 850, 1_050, 2_000, 575, 1_050, 850, 1_600]
+        );
+        assert_eq!(sensor.dark(3, 2).unwrap().sites(), [100; 6]);
+        let grey = Image::new(1, 1, 1, vec![0u16]).unwrap();
+        assert_eq!(
+            sensor.expose(&grey).unwrap_err().to_string(),
+            "a sensor records RGB, not 1 channels"
+        );
     }
 
     #[test]

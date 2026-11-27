@@ -45,13 +45,14 @@ Each phase has:
 | [P1.04b](#p104b-kernels-and-the-twin-harness) | Kernels and the twin harness | P1.04a | 1,310 | — | G1, G1c |
 | [P1.05a](#p105a-bayer-and-demosaic) | Bayer and demosaic | P1.04b | 1,860 | — | G1, G1c |
 | [P1.05b](#p105b-binning-resize-display-transform-and-jpeg) | Binning, resize, display transform and JPEG | P1.05a | 1,880 | — | G1, G1c |
-| [P1.06](#p106-dark-flat-colour-and-the-fused-kernel) | Dark, flat, colour, and the fused kernel | P1.05b | 1,600 | — | G1, G1c |
+| [P1.06a](#p106a-dark-flat-and-colour) | Dark, flat and colour | P1.05b | 1,730 | — | G1, G1c |
+| [P1.06b](#p106b-the-fused-kernel) | The fused kernel | P1.06a | 950 | — | G1, G1c |
 | [P1.07](#p107-denoise-and-deconvolution) | Denoise and deconvolution | P1.05b | 1,670 | Yes | G1, G1c |
-| [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06, P1.07 | 1,880 | — | G1, G1c |
+| [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06b, P1.07 | 1,880 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
 | [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09 | 1,350 | — | G1 |
 | [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
-| [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06, P1.10, P1.11 | 1,920 | — | G1, G1c, G2 |
+| [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10, P1.11 | 1,920 | — | G1, G1c, G2 |
 | [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12 | 1,980 | — | G1 |
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08, P1.13 | 1,050 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
@@ -64,7 +65,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 25 phases since the owner split P1.04 and P1.05 on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 26 phases since P1.04, P1.05 and P1.06 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -337,7 +338,7 @@ Each phase has:
 - **One small kernel pair** (scale and offset `u16` to `f32`) to prove the path.
 - **VRAM budgets:** each user (simulator, preview, jobs) reserves a budget, and a request beyond it is refused.
 
-**Out of scope.** Imaging kernels (P1.05a on); fusion (P1.06).
+**Out of scope.** Imaging kernels (P1.05a on); fusion (P1.06b).
 
 **Try it.** `twin_scale`: both backends, with timings and their difference.
 
@@ -370,7 +371,7 @@ Each phase has:
 - **CUDA kernels** for each operation, each with its CPU twin.
 - **ROIs at odd offsets** handled through the Bayer phase that P1.03 records.
 
-**Out of scope.** Binning, resize, the display transform and JPEG (P1.05b); dark, flat and colour (P1.06).
+**Out of scope.** Binning, resize, the display transform and JPEG (P1.05b); dark, flat and colour (P1.06a).
 
 **Try it.** `demosaic`: a known RGB test pattern is mosaicked, demosaicked both ways on both backends, and written as PPM, with timings and each method's PSNR against the pattern.
 
@@ -405,7 +406,7 @@ Each phase has:
 - **JPEG:** on the CPU, with SIMD, at a chosen quality. MJPEG is a sequence of these.
 - **CUDA kernels** for each operation but JPEG, each with its CPU twin.
 
-**Out of scope.** JPEG on the GPU (P5.06, if it pays); dark, flat and colour (P1.06).
+**Out of scope.** JPEG on the GPU (P5.06, if it pays); dark, flat and colour (P1.06a).
 
 **Try it.** `demosaic` gains binning, a resize to preview size, the display transform and JPEG, with each step's time.
 
@@ -417,18 +418,17 @@ Each phase has:
 **Tests.** Property tests of binning sums; resizing flat images and ramps; the gamma table's ends; JPEG read back by a decoder; the CUDA twins. **Broken on purpose:** binning that mixes the Bayer layout's colours.
 ---
 
-## P1.06: Dark, flat, colour, and the fused kernel
+## P1.06a: Dark, flat and colour
 
 | | |
 |---|---|
 | Crates | `tetera-imaging`, `tetera-compute` |
 | Depends on | P1.05b |
-| ADRs | 0011 fused kernels |
+| ADRs | — |
 | Gates | G1, G1c |
-| First estimate | code 1,000 · tests 400 · examples 100 · docs-as-code 50 · glue 50 = **1,600** |
-| Ready split | P1.06a: dark, flat, white balance and CCM (~800) · P1.06b: the fused kernel and its equivalence (~800) |
+| Second estimate | code 790 · tests 790 · examples 100 · docs-as-code 25 · glue 25 = **1,730**. The agent split P1.06 (second estimate 2,490) on 2026-11-27, under the owner's standing approval, along its ready split |
 
-**Goal.** Correct the raw image for the sensor and the light, and do the whole live chain in one GPU pass.
+**Goal.** Correct the raw image for the sensor and the light, and turn it into colour a person sees, on either backend.
 
 **Scope.**
 
@@ -436,23 +436,51 @@ Each phase has:
 - **Flat-field correction:** a normalised, dark-subtracted master flat per Bayer channel, guarded against near-zero values.
 - **Colour:** white-balance gains, a 3 × 3 matrix to linear sRGB, then the sRGB transfer curve, to 8 bits.
 - **`IspParams`:** the calibration inputs in one struct.
-- **The fused kernel** (D7): crop or bin → dark → flat → demosaic (either method) → white balance and CCM → gamma → 8 bits → resize, in one CUDA pass.
-- **Its reference** is the unfused chain on the CPU. The tolerance: within 1 level in 8 bits for 99.9 % of pixels, and 2 levels for all.
+- **The unfused chain:** crop or bin → dark → flat → demosaic → white balance and CCM → gamma → 8 bits → resize, stage by stage on either backend: P1.06b's reference. *Built resizing before colour, in linear light (see P1.06a's notes).*
+- **CUDA kernels** for each new stage, each with its CPU twin.
 
-**Out of scope.** Calibrating darks, flats and CCMs (P1.18); recipes (P1.08).
+**Out of scope.** The fused kernel (P1.06b); calibrating darks, flats and CCMs (P1.18); recipes (P1.08).
 
-**Try it.** `isp`: the fused against the unfused chain, CPU against GPU, from 20 MP and from the binned modes to 1920 × 1280, with timings and the images.
+**Try it.** `isp`: the unfused chain on each backend, from 20 MP and from a binned mode to 1920 × 1280, with each stage's time and the images.
+
+**Done when.**
+
+- Each stage's twins agree exactly.
+- On a synthetic frame with an offset and vignetting, dark and flat correction leave a field flat within 1 %.
+
+**Tests.** Each stage alone; property tests; the twins. **Broken on purpose:** the clamp at zero, and the guard against division by small values.
+
+---
+
+## P1.06b: The fused kernel
+
+| | |
+|---|---|
+| Crates | `tetera-compute`, `tetera-imaging` |
+| Depends on | P1.06a |
+| ADRs | 0011 fused kernels |
+| Gates | G1, G1c |
+| Estimate | code 410 · tests 400 · examples 100 · docs-as-code 30 · glue 10 = **950**, from P1.06's split; its own second estimate comes before its code |
+
+**Goal.** Do the whole live chain in one GPU pass.
+
+**Scope.**
+
+- **The fused kernel** (D7): crop or bin → dark → flat → demosaic (either method) → resize → white balance and CCM → gamma → 8 bits, in one CUDA pass: P1.06a's order.
+- **Its reference** is P1.06a's unfused chain on the CPU. The tolerance: within 1 level in 8 bits for 99.9 % of pixels, and 2 levels for all.
+
+**Out of scope.** Recipes, and the pass that finds the chain in one (P1.08).
+
+**Try it.** `isp` gains the fused chain: fused against unfused, CPU against GPU, with timings and the images.
 
 **Done when.**
 
 - Fused on the GPU, 20 MP to 1920 × 1280 takes 10 ms or less on this PC (plan §6.15).
 - The equivalence holds within the tolerance.
-- On a synthetic frame with an offset and vignetting, dark and flat correction leave a field flat within 1 %.
 
-**Tests.** Each stage alone; property tests; the fused kernel against the chain over random parameters. **Broken on purpose:** the clamp at zero, and the guard against division by small values.
+**Tests.** The fused kernel against the unfused chain over random parameters. **Broken on purpose:** a stage left out of the fused kernel, which the equivalence must catch.
 
 **Open questions.** Q19 (a hand-written fused kernel).
-
 ---
 
 ## P1.07: Denoise and deconvolution
@@ -500,7 +528,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-pipeline` (new, L3) |
-| Depends on | P1.06, P1.07 |
+| Depends on | P1.06b, P1.07 |
 | ADRs | 0012 the pipeline model |
 | Gates | G1, G1c |
 | First estimate | code 1,200 · tests 500 · examples 100 · docs-as-code 80 = **1,880** |
@@ -515,7 +543,7 @@ Each phase has:
 - **Recipes:** JSON, with a schema. Validation reports exactly what is wrong: an unknown node, mismatched ports, a cycle, a missing or invalid parameter.
 - **The registry:** the stock nodes of P1.05–P1.07 and the glue nodes, under stable ids.
 - **The executor:** topological order; data kept on the GPU between consecutive CUDA nodes, copied only at the boundaries; copies counted.
-- **The fusion pass:** finds the live chain in a recipe and runs P1.06's fused kernel in its place, when the backend and the parameters allow.
+- **The fusion pass:** finds the live chain in a recipe and runs P1.06b's fused kernel in its place, when the backend and the parameters allow.
 - **Live mode:** one frame at a time; a frame that arrives while one is running replaces the waiting one.
 - **Batch mode:** over a list of inputs; large images in tiles, with a halo for neighbourhood operations.
 
@@ -656,7 +684,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-sim`, `tetera-compute` |
-| Depends on | P1.06, P1.10, P1.11 |
+| Depends on | P1.06b, P1.10, P1.11 |
 | ADRs | 0016 the virtual camera's model |
 | Gates | G1, G1c, **G2 (Checkpoint A)** |
 | First estimate | code 1,400 · tests 400 · examples 120 = **1,920** |
@@ -762,7 +790,7 @@ Each phase has:
   - "the first frame exposed after t", for workflows.
 - **The preview pipeline,** as a session object with no transport yet:
   - its parameters: viewport size, ROI, quality, maximum rate, changeable mid-stream;
-  - crop or bin by the viewport, then P1.06's fused kernel through a live recipe, then JPEG;
+  - crop or bin by the viewport, then P1.06b's fused kernel through a live recipe, then JPEG;
   - a hook to lower quality or size, for P1.14b's slow links;
   - each stage's time, measured per frame.
 - **Live statistics,** at up to 10 Hz, from the raw data: a histogram per channel, the saturation mask at preview size, line profiles, ROI statistics, a focus value.

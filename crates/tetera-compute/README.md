@@ -10,6 +10,7 @@ Tetera's compute backends, L1 ([ADR-0009](../../docs/adr/0009-compute-backends-t
 - **`twin::compare`** compares a kernel's result with its twin's within a `Tolerance`, and says where they differ most. `cuda_or_skip!()` gives a test the GPU when `TETERA_CUDA=1` is set.
 - **`VramBudgets`** shares out the GPU's memory: each user reserves a budget, and takes grants from it; a request beyond either is refused as `Busy`.
 - **`imaging`** holds the imaging kernels (`bayer.cu`, `demosaic.cu`, `resize.cu`, `display.cu`) and their launches: the Bayer split, the superpixel, binning, bilinear and Malvar-He-Cutler demosaicking, resizing by weight tables, and the display transform by lookup tables. Their CPU twins, and the images they work on, are in [`tetera-imaging`](../tetera-imaging/README.md): every kernel lives here, since launching one is unsafe.
+- **`isp`** holds the ISP's corrections (`isp.cu`): dark subtraction, the flat field, and colour, a fixed-point matrix then a table per channel.
 
 The `cuda` feature needs no toolkit to build. To run on the GPU, it needs the Windows NVIDIA driver, and for NVRTC, cuFFT and nvJPEG the CUDA toolkit 13.3 in WSL ([docs/setup/toolchain.md](../../docs/setup/toolchain.md)).
 
