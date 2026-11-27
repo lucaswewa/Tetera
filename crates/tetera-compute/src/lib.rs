@@ -15,6 +15,7 @@ pub mod cpu;
 pub mod cuda;
 pub mod features;
 pub mod imaging;
+pub mod isp;
 #[cfg(feature = "cuda")]
 pub mod kernels;
 pub mod ops;

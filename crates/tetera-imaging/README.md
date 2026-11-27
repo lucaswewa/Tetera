@@ -11,6 +11,10 @@ Tetera's imaging algorithms, L1 (plan §6.6). Each has a CPU twin here, and, wit
 - **`resize`:** area averaging to shrink, bilinear to enlarge. The weights are integers in tables made once for a pair of sizes and shared with the GPU, so the twins agree exactly.
 - **`display`:** black and white levels for each channel, then a tone curve (linear, a gamma, or sRGB), to 8 bits, as one lookup table per channel.
 - **`jpeg`:** JPEG through libjpeg-turbo, RGB in 4:2:0 or grey. A `JpegEncoder` is kept for a stream of frames, MJPEG. Building libjpeg-turbo needs `cmake` and `nasm`; its licences are in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
+- **`correct`:** dark subtraction, clamped at zero, with a `DarkLibrary` that picks the master dark matching a frame's mode, binning, gain and exposure; and the `FlatField`, a gain per site in 1/4096ths, each channel evened out, near-zero sites left alone.
+- **`colour`:** white balance and a colour matrix as one fixed-point matrix, then levels and the transfer curve to 8 bits.
+- **`isp`:** the whole chain, `IspParams` to `Isp`, from a raw frame to a preview: crop or bin → dark → flat → demosaic → resize → colour → 8 bits. It resizes before colour, in linear light. On either backend, and the two agree exactly.
+- **`pattern::Sensor`:** a synthetic sensor with an offset, vignetting and unequal channels, for testing the ISP.
 
 Each operation runs on whichever backend a `Compute` chose. `_cpu` runs its twin, and `_device` leaves data on the GPU.
 
@@ -42,5 +46,11 @@ Then it runs the live view's chain, timed on each backend, and checks that the t
 The CUDA column includes allocating each step's output.
 
 It writes the pattern and both results to `target/demosaic` as 16-bit PPM files, each cropped to at most 960 × 640 from its centre, and the preview as `preview.jpg`. `-- --out DIR` writes them elsewhere, and `-- --smoke` takes a 640 × 480 frame, whole, once.
+
+```bash
+cargo run --release -p tetera-imaging --example isp --features cuda
+```
+
+`isp` puts the test pattern through the synthetic sensor, then through the ISP with the sensor's own dark and flat field and white balance, from a full frame and from a 2 × 2 binned one, to 1920 × 1280. It times each stage on each backend, checks that the previews agree, and writes them to `target/isp`. On this PC, the binned chain takes 42 ms on the CPU and 3.1 ms with CUDA; the full frame, 112 ms and 9.7 ms, most of either in demosaicking.
 
 The CUDA tests run with `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda`.

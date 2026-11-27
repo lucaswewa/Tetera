@@ -15,22 +15,33 @@
 //! - [`display`]: black and white levels and a tone curve, to 8 bits, by lookup tables;
 //! - [`jpeg`]: JPEG on the CPU, through libjpeg-turbo.
 //!
+//! From P1.06a:
+//! - [`correct`]: dark subtraction, with a library of master darks, and the flat field;
+//! - [`colour`]: white balance and a colour matrix, then levels and a curve, to 8 bits;
+//! - [`isp`]: the whole chain, from a raw frame to a preview, stage by stage.
+//!
 //! Each operation runs on whichever backend a [`Compute`](tetera_compute::Compute) chose;
 //! `_cpu` runs its twin, and `_device` leaves data on the GPU.
 
 pub mod bayer;
+pub mod colour;
+pub mod correct;
 pub mod demosaic;
 pub mod display;
 pub mod image;
+pub mod isp;
 pub mod jpeg;
 pub mod pattern;
 pub mod resize;
 
 pub use bayer::BinMode;
+pub use colour::{Colour, ColourCorrection};
+pub use correct::{DarkLibrary, FlatField, MasterDark};
 pub use demosaic::{Demosaic, Sample};
 pub use display::{Curve, DisplayTransform, Levels};
 pub use image::{BayerPlanes, Image, Mosaic, MosaicLayout};
 #[cfg(feature = "cuda")]
 pub use image::{DeviceImage, DeviceMosaic};
+pub use isp::{Isp, IspParams, Reduce};
 pub use jpeg::JpegEncoder;
 pub use resize::Resize;

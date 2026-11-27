@@ -97,3 +97,14 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-imaging --example demosaic -- --smoke` — expect `-` for every CUDA time, a JPEG's size, and `smoke: ok`.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda` — expect every test to pass, with none saying `skipped`.
 - **Result:** see the [notes](notes/P1.05b-binning-resize-display-transform-and-jpeg.md#manual-test).
+
+## P1.06a: Dark, flat and colour
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3, `cmake` and `nasm` in WSL.
+- [ ] `cargo run --release -p tetera-imaging --example isp --features cuda` — expect, for `full` (5472 × 3648) and `binned` (2736 × 1824):
+  - each stage's time on the CPU and on CUDA, `-` for reducing a full frame;
+  - `Twins:      the previews identical`.
+- [ ] Open `target/isp/isp-full.jpg` and `isp-binned.jpg` — expect the test pattern: the white bar grey, not tinted, and the corners as bright as the centre.
+- [ ] `cargo run -p tetera-imaging --example isp -- --smoke` — expect `-` for every CUDA time and `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda` — expect every test to pass, with none saying `skipped`.
+- **Result:** see the [notes](notes/P1.06a-dark-flat-and-colour.md#manual-test).

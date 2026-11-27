@@ -54,6 +54,13 @@ pub const DISPLAY: KernelSource = KernelSource {
     fatbin: generated::DISPLAY_FATBIN,
 };
 
+/// `kernels/isp.cu`: dark subtraction, the flat field, and colour.
+pub const ISP: KernelSource = KernelSource {
+    name: "isp",
+    source: generated::ISP_SOURCE,
+    fatbin: generated::ISP_FATBIN,
+};
+
 /// `kernels/demosaic.cu`: bilinear and Malvar-He-Cutler demosaicking.
 pub const DEMOSAIC: KernelSource = KernelSource {
     name: "demosaic",

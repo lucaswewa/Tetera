@@ -436,7 +436,7 @@ Each phase has:
 - **Flat-field correction:** a normalised, dark-subtracted master flat per Bayer channel, guarded against near-zero values.
 - **Colour:** white-balance gains, a 3 × 3 matrix to linear sRGB, then the sRGB transfer curve, to 8 bits.
 - **`IspParams`:** the calibration inputs in one struct.
-- **The unfused chain:** crop or bin → dark → flat → demosaic → white balance and CCM → gamma → 8 bits → resize, stage by stage on either backend: P1.06b's reference.
+- **The unfused chain:** crop or bin → dark → flat → demosaic → white balance and CCM → gamma → 8 bits → resize, stage by stage on either backend: P1.06b's reference. *Built resizing before colour, in linear light (see P1.06a's notes).*
 - **CUDA kernels** for each new stage, each with its CPU twin.
 
 **Out of scope.** The fused kernel (P1.06b); calibrating darks, flats and CCMs (P1.18); recipes (P1.08).
@@ -466,7 +466,7 @@ Each phase has:
 
 **Scope.**
 
-- **The fused kernel** (D7): crop or bin → dark → flat → demosaic (either method) → white balance and CCM → gamma → 8 bits → resize, in one CUDA pass.
+- **The fused kernel** (D7): crop or bin → dark → flat → demosaic (either method) → resize → white balance and CCM → gamma → 8 bits, in one CUDA pass: P1.06a's order.
 - **Its reference** is P1.06a's unfused chain on the CPU. The tolerance: within 1 level in 8 bits for 99.9 % of pixels, and 2 levels for all.
 
 **Out of scope.** Recipes, and the pass that finds the chain in one (P1.08).
