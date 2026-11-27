@@ -20,7 +20,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.08a | The pipeline model | Done | [P1.08a](P1.08a-the-pipeline-model.md) |
 | P1.08b | The raw path's nodes | Done | [P1.08b](P1.08b-the-raw-paths-nodes.md) |
 | P1.08c | GPU residency and fusion | Done | [P1.08c](P1.08c-gpu-residency-and-fusion.md) |
-| P1.08d | Denoise and deconvolution nodes, and live runs | In progress | [P1.08d](P1.08d-denoise-and-deconvolution-nodes-and-live-runs.md) |
+| P1.08d | Denoise and deconvolution nodes, and live runs | In review | [P1.08d](P1.08d-denoise-and-deconvolution-nodes-and-live-runs.md) |
 | P1.08e | Batch runs and tiling | Not started | — |
 | P1.09 | The HAL | Not started | — |
 | P1.10 | The simulated clock and the virtual stage | Not started | — |
