@@ -30,7 +30,7 @@ Each phase has:
 - tests, examples with a README and a `--smoke` mode, implementation notes, a manual-test entry, new ADRs, the phase's status in the plan;
 - **examples** live in the crate's `examples/` folder and run as `cargo run -p <crate> --example <name>`. With `--smoke`, an example finishes in under 10 seconds and exits 0;
 - the tests follow plan §5.4: they wait for conditions, get their own data roots and ports, and are skipped without their switch (`TETERA_CUDA=1` and so on);
-- **G1** before the PR. **G1c** when the change reaches CUDA code. **G2** at a checkpoint (P1.12b, P1.14b, P1.18). **G3** at P1.21;
+- **G1** before the PR. **G1c** when the change reaches CUDA code. **G2** at a checkpoint (P1.12c, P1.14b, P1.18). **G3** at P1.21;
 - the notes name the ideas taken from OScope's documents (clean room, D1).
 
 ## Summary
@@ -62,8 +62,9 @@ Each phase has:
 | [P1.11a](#p111a-the-he-sample-on-the-cpu) | The H&E sample, on the CPU | P1.04b | 1,490 | Yes | G1 |
 | [P1.11b](#p111b-the-he-sample-on-the-gpu-and-its-tiles) | The H&E sample on the GPU, and its tiles | P1.11a | 1,340 | Yes | G1, G1c |
 | [P1.12a](#p112a-optics-and-light-the-field-the-sensor-sees) | Optics and light: the field the sensor sees | P1.06b, P1.10b, P1.11b | 1,470 | — | G1, G1c |
-| [P1.12b](#p112b-the-virtual-camera-checkpoint-a) | The virtual camera (**Checkpoint A**) | P1.12a | 1,490 | — | G1, G1c, G2 |
-| [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12b | 1,980 | — | G1 |
+| [P1.12b](#p112b-the-sensor-and-motion) | The sensor and motion | P1.12a | 1,150 | — | G1, G1c |
+| [P1.12c](#p112c-the-virtual-camera-checkpoint-a) | The virtual camera (**Checkpoint A**) | P1.12b | 1,190 | — | G1, G1c, G2 |
+| [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12c | 1,980 | — | G1 |
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13 | 1,050 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13 | 800 | — | G1 |
@@ -75,7 +76,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 36 phases since P1.04 to P1.12 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 37 phases since P1.04 to P1.12 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -83,7 +84,7 @@ Each phase has:
 
 **Checkpoints:**
 
-- **A** (P1.12b): the virtual instrument renders H&E live, on the GPU, while the stage moves.
+- **A** (P1.12c): the virtual instrument renders H&E live, on the GPU, while the stage moves.
 - **B** (P1.14b): live H&E in a browser page while jogging, from the server.
 - **C** (P1.18): calibrate an objective, autofocus, and scan.
 
@@ -993,25 +994,56 @@ Each phase has:
 
 ---
 
-## P1.12b: The virtual camera (Checkpoint A)
+## P1.12b: The sensor and motion
 
 | | |
 |---|---|
 | Crates | `tetera-sim`, `tetera-compute` |
 | Depends on | P1.12a |
 | ADRs | — (0016) |
+| Gates | G1, G1c |
+| Second estimate | code 600 (the sensor on the CPU 200; its kernel 120 and launch 60; motion and the rolling shutter in the field, both backends, 120; binned modes' fields 40; the stage's path 60) · tests 400 · examples 100 · docs-as-code 30 · glue 20 = **1,150** (1,495 at ×1.3). The agent split P1.12b (second estimate about 1,660, 2,158 at ×1.3) on 2026-11-27, under the owner's standing approval, into P1.12b and P1.12c |
+
+**Goal.** Raw frames from the field: the MIChrome 20's sensor, with the stage moving during the exposure.
+
+**Scope.**
+
+- **The sensor:** RGGB sampling; quantum efficiency per channel; shot, read and dark noise, from a seed; full well; black level; gain; 12 significant bits in 16-bit words, or 8 bits.
+- **Motion:** the stage's path during the exposure, as the field's average over the path; a rolling shutter, each row exposed a line time after the one above.
+- **Binned modes:** the field at the binned pixel, its charge the sum of the pixels binned.
+- **On the GPU and the CPU,** each frame the same bits from the same seed on the same backend, and the two backends the same statistics.
+
+**Out of scope.** The camera's modes, rates and timing, `VirtualCamera`, and Checkpoint A (P1.12c).
+
+**Try it.** `virtual-sensor`: raw frames still and moving, their noise against the model, and a rolling shutter's skew, as PNGs.
+
+**Done when.**
+
+- Noise statistics match the model: each channel's mean and variance against the photons, the read noise and the dark current.
+- A moving stage smears the field along its path, and a rolling shutter skews it by the line time.
+- With a seed, a frame repeats bit for bit on the same backend.
+
+**Tests.** Noise statistics; full well and the black level; bit depths; motion blur's length; rolling-shutter skew; binning. **Broken on purpose:** the noise model's variance.
+
+---
+
+## P1.12c: The virtual camera (Checkpoint A)
+
+| | |
+|---|---|
+| Crates | `tetera-sim` |
+| Depends on | P1.12b |
+| ADRs | — (0016) |
 | Gates | G1, G1c, **G2 (Checkpoint A)** |
-| Estimate | code 800 (the sensor 250; motion and the rolling shutter 150; modes, rates and the frame loop on the clock 250; `VirtualCamera` and the contract 150) · tests 450 · examples 150 · docs-as-code 60 · glue 30 = **1,490**, from P1.12's split; its own second estimate comes before its code |
+| Estimate | code 560 (modes and rates 100; the frame loop on the clock 200; `VirtualCamera` and the contract 200; the SDK's processing 60) · tests 400 · examples 150 · docs-as-code 60 · glue 20 = **1,190**, from P1.12b's split; its own second estimate comes before its code |
 
 **Goal.** A MIChrome 20 that images the simulated slide through the fitted objective, live, at its real modes and rates.
 
 **Scope.**
 
-- **Motion:** the stage's path during the exposure; a rolling shutter, through the line time.
-- **The sensor:** RGGB sampling; quantum efficiency per channel; shot, read and dark noise; black level; gain; 12 significant bits in 16-bit words.
 - **Modes and rates** (OScope's measurements): mode 0, 5472 × 3648, 7.24 fps in 16 bits and 14.49 in 8; mode 1, 2736 × 1824, 26.57 and 53.14; mode 2, 1824 × 1216, 33.87 and 67.26. Frames are timed on the simulated clock.
 - **Optionally, the SDK's processing** (gamma, white balance, rescaling with an offset near 2,000), to mimic the real raw.
-- `VirtualCamera` implements `Camera`.
+- `VirtualCamera` implements `Camera`, from the stage, the objective, the light and the sample; changing the objective changes the field and the blur.
 - **A CPU fallback,** with a scaled-down sensor for tests.
 
 **Out of scope.** The server (P1.13); the preview (P1.14a, P1.14b).
@@ -1025,7 +1057,7 @@ Each phase has:
 - With a seed and stepped time, frames repeat bit for bit on the same backend.
 - The camera passes the contract suite.
 
-**Tests.** Noise statistics (mean and variance against the model); rolling-shutter skew while moving; mode timing; the contract. **Broken on purpose:** the noise model's variance, and the mode's frame interval.
+**Tests.** Mode timing; the contract; frames on a stepped clock. **Broken on purpose:** the mode's frame interval.
 
 **Open questions.** Q27 (linear by default; the SDK's processing optional; rolling shutter modelled).
 
