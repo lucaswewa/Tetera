@@ -66,6 +66,6 @@ cargo run --release -p tetera-imaging --example denoise --features cuda
 cargo run --release -p tetera-imaging --example deconvolve
 ```
 
-`deconvolve` blurs a synthetic specimen of beads and discs, 1,024 × 1,024, by a widefield PSF (NA 0.5, 550 nm, 0.12 µm a pixel), adds noise of σ 15, and deconvolves it. It prints the RMS error against the specimen as the iterations go, plain and with total variation. The error falls, then rises again as Richardson–Lucy fits the noise: plain, from 63.2 to 59.0 at iteration 28; with total variation, to 57.9 at iteration 52. An iteration takes about 28 ms on 16 threads. It does the same for a 192 × 192 × 48 stack, then writes the specimen, the image and the best estimate to `target/deconvolve`.
+`deconvolve` blurs a synthetic specimen of beads and discs, 1,024 × 1,024, by a widefield PSF (NA 0.5, 550 nm, 0.12 µm a pixel), adds noise of σ 15, and deconvolves it. It prints the RMS error against the specimen as the iterations go, plain and with total variation. The error falls, then rises again as Richardson–Lucy fits the noise: plain, from 63.2 to 59.0 at iteration 28; with total variation, to 57.9 at iteration 53. An iteration takes 23 to 29 ms on 16 threads. It does the same for a 192 × 192 × 48 stack, then writes the specimen, the image and the best estimate to `target/deconvolve`.
 
 The CUDA tests run with `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda`.
