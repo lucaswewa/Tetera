@@ -148,8 +148,8 @@ pub struct Column {
 /// A procedural H&E sample, from a seed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HeSample {
-    seed: Seed,
-    section: SectionConfig,
+    pub(crate) seed: Seed,
+    pub(crate) section: SectionConfig,
 }
 
 impl HeSample {

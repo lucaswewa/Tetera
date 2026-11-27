@@ -806,6 +806,7 @@ dependencies = [
  "proptest",
  "rayon",
  "serde_json",
+ "tetera-compute",
  "tetera-core",
  "tetera-hal",
 ]

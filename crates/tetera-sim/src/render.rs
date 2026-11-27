@@ -48,7 +48,7 @@ impl Region {
         ((self.pixel / POINT_SPACING).ceil() as u32).clamp(1, 4)
     }
 
-    fn check(&self) -> Result<()> {
+    pub(crate) fn check(&self) -> Result<()> {
         let depth_ok = match self.depth {
             Depth::Whole => true,
             Depth::Range(a, b) => a.is_finite() && b.is_finite() && a < b,

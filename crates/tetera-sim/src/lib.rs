@@ -16,13 +16,22 @@
 //! - [`he`]: the [`HeSample`], a procedural section of H&E-stained tissue, and colour by
 //!   absorbance;
 //! - [`render`](mod@render): a region of it rendered at any pixel size and depth, the CPU twin.
+//!
+//! From P1.11b:
+//! - [`tiles`]: tiles keyed by level of detail, place and depth, and their LRU cache within a
+//!   budget;
+//! - `gpu`, with the `cuda` feature: the sample rendered on the GPU, the twin of `render`,
+//!   and its tiles there in half precision, within a VRAM budget.
 
 pub mod clock;
+#[cfg(feature = "cuda")]
+pub mod gpu;
 pub mod he;
 pub mod motion;
 pub mod noise;
 pub mod render;
 pub mod stage;
+pub mod tiles;
 
 pub use clock::{Rate, SimClock};
 pub use he::{HeSample, Nucleus, RedCell, SectionConfig, Stains};
@@ -31,3 +40,4 @@ pub use render::{Depth, Region, Rendered, render};
 pub use stage::{
     GrblState, Report, VirtualAxis, VirtualStage, VirtualStageConfig, VirtualStageFault,
 };
+pub use tiles::{CacheStats, TileCache, TileDepth, TileKey};

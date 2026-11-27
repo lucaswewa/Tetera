@@ -17,6 +17,8 @@ pub mod deconvolve;
 pub mod denoise;
 pub mod features;
 pub mod fused;
+pub mod half;
+pub mod he;
 pub mod imaging;
 pub mod isp;
 #[cfg(feature = "cuda")]
