@@ -28,6 +28,22 @@ impl fmt::Display for SampleType {
     }
 }
 
+/// How an encoded image is encoded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Encoding {
+    /// JPEG.
+    Jpeg,
+}
+
+impl fmt::Display for Encoding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Jpeg => "JPEG",
+        })
+    }
+}
+
 /// What a port carries. On a node's input, an image's channels or sample type left out means
 /// any; on an output that follows an input, they are that input's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -43,6 +59,11 @@ pub enum PortType {
         /// Its samples' type.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sample: Option<SampleType>,
+    },
+    /// An encoded image: bytes in a format.
+    Encoded {
+        /// The format.
+        format: Encoding,
     },
     /// One number.
     Scalar,
@@ -109,6 +130,7 @@ impl fmt::Display for PortType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Raw => f.write_str("a raw frame"),
+            Self::Encoded { format } => write!(f, "a {format} image"),
             Self::Scalar => f.write_str("a scalar"),
             Self::Table => f.write_str("a table"),
             Self::Image { channels, sample } => {
@@ -177,6 +199,8 @@ pub enum Value {
     U16(Image<u16>),
     /// An image of floats.
     F32(Image<f32>),
+    /// An encoded image, its bytes.
+    Encoded(Encoding, Vec<u8>),
     /// One number.
     Scalar(f64),
     /// Named numbers.
@@ -191,6 +215,7 @@ impl Value {
             Self::U8(i) => PortType::image(i.channels(), SampleType::U8),
             Self::U16(i) => PortType::image(i.channels(), SampleType::U16),
             Self::F32(i) => PortType::image(i.channels(), SampleType::F32),
+            Self::Encoded(format, _) => PortType::Encoded { format: *format },
             Self::Scalar(_) => PortType::Scalar,
             Self::Table(_) => PortType::Table,
         }
@@ -249,6 +274,13 @@ mod tests {
         let cases = [
             (PortType::Raw, "a raw frame", r#"{"kind":"raw"}"#),
             (PortType::Scalar, "a scalar", r#"{"kind":"scalar"}"#),
+            (
+                PortType::Encoded {
+                    format: Encoding::Jpeg,
+                },
+                "a JPEG image",
+                r#"{"kind":"encoded","format":"jpeg"}"#,
+            ),
             (PortType::Table, "a table", r#"{"kind":"table"}"#),
             (PortType::ANY_IMAGE, "an image", r#"{"kind":"image"}"#),
             (
@@ -299,6 +331,11 @@ mod tests {
             PortType::image(1, SampleType::F32)
         );
         assert_eq!(Value::Scalar(1.0).port_type(), PortType::Scalar);
+        let jpeg = PortType::Encoded {
+            format: Encoding::Jpeg,
+        };
+        assert_eq!(Value::Encoded(Encoding::Jpeg, vec![0xFF]).port_type(), jpeg);
+        assert!(jpeg.is_concrete() && jpeg.accepts(&jpeg) && !jpeg.accepts(&PortType::Raw));
         assert_eq!(Value::Table(Table::new()).port_type(), PortType::Table);
         let layout = tetera_imaging::MosaicLayout {
             width: 2,

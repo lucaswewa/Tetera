@@ -1,0 +1,62 @@
+{
+  "name": "live chain",
+  "summary": "A 12-bit raw frame to a 1920 × 1280 preview and its JPEG: dark, flat, demosaic, resize, then colour, node by node.",
+  "inputs": {
+    "raw": { "kind": "raw" },
+    "dark": { "kind": "raw" },
+    "flat": { "kind": "raw" }
+  },
+  "nodes": [
+    {
+      "id": "less_dark",
+      "node": "tetera.dark",
+      "inputs": { "raw": "raw", "dark": "dark" }
+    },
+    {
+      "id": "flat_less_dark",
+      "node": "tetera.dark",
+      "inputs": { "raw": "flat", "dark": "dark" }
+    },
+    {
+      "id": "even",
+      "node": "tetera.flat",
+      "inputs": { "raw": "less_dark.raw", "flat": "flat_less_dark.raw" }
+    },
+    {
+      "id": "rgb",
+      "node": "tetera.demosaic",
+      "params": { "method": "malvar_he_cutler" },
+      "inputs": { "raw": "even.raw" }
+    },
+    {
+      "id": "small",
+      "node": "tetera.resize",
+      "params": { "width": 1920, "height": 1280 },
+      "inputs": { "image": "rgb.image" }
+    },
+    {
+      "id": "colour",
+      "node": "tetera.colour",
+      "params": {
+        "white_balance": [1.4285714285714286, 1.0, 2.0],
+        "levels": [
+          { "black": 0, "white": 4095 },
+          { "black": 0, "white": 4095 },
+          { "black": 0, "white": 4095 }
+        ],
+        "curve": "srgb"
+      },
+      "inputs": { "image": "small.image" }
+    },
+    {
+      "id": "jpeg",
+      "node": "tetera.jpeg",
+      "params": { "quality": 80 },
+      "inputs": { "image": "colour.image" }
+    }
+  ],
+  "outputs": {
+    "preview": "colour.image",
+    "jpeg": "jpeg.jpeg"
+  }
+}
