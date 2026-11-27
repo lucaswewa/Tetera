@@ -11,3 +11,5 @@ The [plan's §10](../implementation-plan.md#10-planned-adrs) lists the ADRs stil
 | [0003](0003-the-runtime-platform-ubuntu-24-04-in-wsl2.md) | The runtime platform: Ubuntu 24.04 in WSL2 | Accepted | P1.01 |
 | [0004](0004-teta-wot-v0-2-0-extended-upstream-first.md) | teta-wot v0.2.0, extended upstream first | Accepted | P1.01 |
 | [0005](0005-layered-crates-and-the-local-gates.md) | Layered crates, and the local gates | Accepted | P1.01 |
+| [0006](0006-units-coordinates-and-the-clock.md) | Units, coordinates and the clock | Accepted | P1.02 |
+| [0007](0007-logging.md) | Logging | Accepted | P1.02 |

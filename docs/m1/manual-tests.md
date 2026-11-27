@@ -17,3 +17,19 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] Commit, then `cargo xtask gate checkpoint` — expect one `fresh clone` step to pass, naming the clone's own summary.
 - [ ] In VS Code over Remote-WSL, set a breakpoint in `crates/tetera-core/examples/hello.rs`, choose **Debug an example**, accept `tetera-core` and `hello`, and press F5 — expect it to stop at the breakpoint.
 - **Result:** see the [notes](notes/P1.01-workspace-and-gates.md#manual-test).
+
+## P1.02: Core types and logging
+
+- **Prerequisites:** the phase's branch, built.
+- [ ] `cargo run -p tetera-core --example core_tour` — expect:
+  - 25,000 µm of travel as 10,417 sensor pixels;
+  - pixel (5472, 3648) at about (1261.118, 2177.389) µm, and back to (5472, 3648) px;
+  - the ROI clipped to 472 × 648;
+  - a 5000.0 µm move;
+  - the clock's UTC time, today, and its drift within the limit;
+  - two IDs in order;
+  - `capturing a burst: setting the exposure: the camera is streaming (kind busy)`.
+- [ ] `cargo run -p tetera-log --example log_tour` — expect six coloured lines on standard error, then the ring's six records from `trace` to `critical`, and the JSON file's path. That file holds six JSON lines, the last with `"level":"critical"`.
+- [ ] `cargo run -p tetera-log --example log_tour -- --journald`, then `journalctl -t tetera-log-tour -o json -n 6` — expect priorities 7, 7, 6, 4, 3 and **2** for the critical record, with `FREE_GB=0` and the other fields. Nothing on standard error, since journald has the records.
+- [ ] `RUST_LOG=warn cargo run -p tetera-log --example log_tour` — expect only the warn, error and critical records in the ring (the smoke check would fail with this filter, so don't pass `--smoke`).
+- **Result:** see the [notes](notes/P1.02-core-types-and-logging.md#manual-test).

@@ -1,12 +1,21 @@
 [package]
 name = "tetera-core"
-description = "Tetera's foundation: units, geometry, the clock, IDs, frames and errors."
+description = "Tetera's foundation: units, geometry, the clock, IDs, errors and log records."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+
+[dependencies]
+schemars.workspace = true
+serde.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

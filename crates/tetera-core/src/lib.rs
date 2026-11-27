@@ -1,9 +1,29 @@
-//! Tetera's foundation layer, L0.
+//! Tetera's foundation layer, L0: the types every other crate shares (plan §6.2). It does
+//! no I/O and has no async code.
 //!
-//! It will hold the types every other crate shares: units, geometry, the clock, IDs,
-//! frames and their metadata, and errors (plan §6.2). It does no I/O and has no async
-//! code. P1.01 creates it nearly empty, so the gates and the debugger have a crate to
-//! run; P1.02 and P1.03 fill it.
+//! - [`units`]: lengths in micrometres, times as durations, and conversions at the API's edge;
+//! - [`geometry`]: points and vectors typed by their unit, affine maps, pixel rectangles,
+//!   stage positions;
+//! - [`time`]: the monotonic clock, its mapping to UTC, and the drift check;
+//! - [`id`]: typed IDs that sort by creation;
+//! - [`error`]: one error type, with a kind and a context chain;
+//! - [`log`]: log records and the ring that keeps the newest.
+//!
+//! P1.03 adds the frame model.
+
+pub mod error;
+pub mod geometry;
+pub mod id;
+pub mod log;
+pub mod time;
+pub mod units;
+
+pub use error::{Error, ErrorKind, Result, ResultExt};
+pub use geometry::{Affine2, PointPx, PointUm, Rect, StagePos, VectorPx, VectorUm};
+pub use id::Id;
+pub use log::{LogEntry, LogLevel, LogRecord, LogRing};
+pub use time::{Clock, ManualClock, SystemClock, Timestamp, UtcTime};
+pub use units::Um;
 
 /// Tetera's version, as Cargo knows it.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

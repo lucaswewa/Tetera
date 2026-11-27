@@ -201,26 +201,26 @@ Each phase has:
 | Depends on | P1.01 |
 | ADRs | 0006 units, coordinates and the clock · 0007 logging |
 | Gates | G1 |
-| First estimate | code 900 · tests 450 · examples 120 · docs-as-code 60 · glue 40 = **1,570** |
+| First estimate | code 900 · tests 450 · examples 120 · docs-as-code 60 · glue 40 = **1,570**. Second estimate 3,180; the owner kept it whole (2026-11-26) |
 | Ready split | P1.02a: units, geometry, the clock, IDs, errors (~950) · P1.02b: logging (~620) |
 
 **Goal.** The vocabulary every other crate uses, and logging that every example and test can turn on.
 
 **Scope.**
 
-- **Units:** `Um` (µm, `f64`) for lengths, `std::time::Duration` for times, and conversions at the edges. Serde, and JSON Schema through `schemars` behind a `schema` feature.
+- **Units:** `Um` (µm, `f64`) for lengths, `std::time::Duration` for times, and conversions at the edges. Serde, and JSON Schema through `schemars`, always on: every type that crosses the API needs it from P1.13, and a feature no gate turns on would leave the derives unchecked.
 - **Geometry:** points and vectors in µm and in pixels; `Rect` in pixels; `Affine2` (compose, invert, apply); `StagePos { x, y, z }`.
 - **The clock:**
   - `Timestamp`: nanoseconds since the process started, from the monotonic clock;
   - a `Clock` trait, with `SystemClock`, and `ManualClock` for tests. P1.10's simulated clock implements it too;
   - UTC mapped once at start-up, and re-checked: a drift over 1 s raises a warning (WSL2's clock can drift after the host sleeps).
 - **IDs:** `Id<T>`, a UUID v7, so IDs sort by time.
-- **Errors:** one `Error` with a kind (invalid argument, not found, busy, hardware, timeout, cancelled, internal) and a context chain, through `thiserror`.
+- **Errors:** one `Error` with a kind (invalid argument, not found, busy, hardware, timeout, cancelled, internal), a context chain and an optional source.
 - **Log records** (in `tetera-core`): `LogRecord` with time, level, target, message and fields. The levels are trace, debug, info, warn, error and **critical**. `LogRing`, bounded, drops the oldest record and counts the drops.
 - **`tetera-log`:** the `tracing` subscriber's set-up:
   - a layer into the ring;
-  - rolling JSON files, through `tracing-appender`;
-  - journald, through `tracing-journald`, when running under systemd;
+  - JSON files rotated by size, written in-house (the owner's choice, 2026-11-26: `tracing-appender` rotates only by time);
+  - journald over its native protocol, written in-house, when running under systemd, so a critical record is priority 2 (CRIT). `tracing-journald` maps priority by level only;
   - readable output to stderr;
   - filters from the configuration or `RUST_LOG`;
   - a `critical!` macro: an error record with `critical = true`, reported as *critical*.
