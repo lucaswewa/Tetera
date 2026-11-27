@@ -59,8 +59,9 @@ Each phase has:
 | [P1.09b](#p109b-the-stage-the-objectives-and-the-light) | The stage, the objectives and the light | P1.09a | 1,490 | — | G1 |
 | [P1.10a](#p110a-the-simulated-clock-and-motion-profiles) | The simulated clock and motion profiles | P1.09b | 1,080 | — | G1 |
 | [P1.10b](#p110b-the-virtual-stage) | The virtual stage | P1.10a | 1,480 | — | G1 |
-| [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
-| [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10b, P1.11 | 1,920 | — | G1, G1c, G2 |
+| [P1.11a](#p111a-the-he-sample-on-the-cpu) | The H&E sample, on the CPU | P1.04b | 1,490 | Yes | G1 |
+| [P1.11b](#p111b-the-he-sample-on-the-gpu-and-its-tiles) | The H&E sample on the GPU, and its tiles | P1.11a | 1,340 | Yes | G1, G1c |
+| [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10b, P1.11b | 1,920 | — | G1, G1c, G2 |
 | [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12 | 1,980 | — | G1 |
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13 | 1,050 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
@@ -73,7 +74,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 34 phases since P1.04 to P1.10 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 35 phases since P1.04 to P1.11 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -878,49 +879,81 @@ Each phase has:
 
 ---
 
-## P1.11: The H&E sample on the GPU
+## P1.11a: The H&E sample, on the CPU
 
 | | |
 |---|---|
-| Crates | `tetera-sim`, `tetera-compute` |
+| Crates | `tetera-sim` |
 | Depends on | P1.04b |
 | ADRs | 0015 simulated samples on the GPU |
-| Gates | G1, G1c |
+| Gates | G1 |
 | Spec-first | Yes |
-| First estimate | code 1,300 · tests 350 · examples 100 · docs-as-code 50 = **1,800** |
-| Ready split | P1.11a: the model, on the CPU (~950) · P1.11b: GPU kernels and the tile cache (~850) |
+| Second estimate | code 820 (hashing and noise 150; the section and its tissue 450; colour 60; rendering a region 160) · tests 450 · examples 160 (with a small PNG writer) · docs-as-code 40 · glue 20 = **1,490** (1,937 at ×1.3). The agent split P1.11 (second estimate about 2,830, 3,679 at ×1.3) on 2026-11-27, under the owner's standing approval, as its ready split proposed |
 
-**Goal.** A slide of H&E tissue that looks right at every magnification, has depth, and is made on the GPU as fast as the camera needs it.
+**Goal.** A slide of H&E tissue that looks right at every magnification and has depth, with its CPU twin the reference for the GPU.
 
 **Scope.**
 
 - **The model,** as a function of position and depth:
   - a tissue mask from large-scale noise;
-  - nuclei placed by hashing a jittered grid, with noisy ellipses and chromatin texture;
+  - nuclei placed by hashing a jittered grid, with noisy ellipsoids and chromatin texture;
   - stroma and cytoplasm as oriented fibres;
   - glands with lumens, vessels with red cells, and fat;
   - a section 3–5 µm thick, with nuclei at depths, an optional tilt, and folds.
 - **Colour** through absorbance: haematoxylin and eosin optical densities and stain vectors (Ruifrok and Johnston, 2001), turned into transmitted light by Beer–Lambert.
 - **Procedural texture** from the literature: improved noise (Perlin, 2002) and cellular noise (Worley, 1996).
-- **Tiles on demand:** keyed by level of detail, position and depth layer; half precision on the GPU; an LRU cache within a VRAM budget.
-- **Deterministic from a seed:** integer hashes, so the same tile is the same bits on the same backend.
-- **The CPU twin** is the reference; the backends agree within the spec's tolerance.
+- **Deterministic from a seed:** integer hashes, so the same region is the same bits.
+- **Rendering a region** at a pixel size and a depth range, as stain densities and transmitted colour.
+- **The tolerance the GPU must keep** (P1.11b), stated in the spec.
 
-**Out of scope.** Optics and the camera (P1.12); calibration targets (P1.18).
+**Out of scope.** The GPU, tiles and their cache (P1.11b); optics and the camera (P1.12); calibration targets (P1.18).
 
-**Try it.** `he-sample`: regions rendered at the sampling of 5×, 20× and 50×, as PNGs, with depth slices and timings on each backend.
+**Try it.** `he-sample`: regions rendered at the sampling of 5×, 20× and 50×, as PNGs, with depth slices and timings.
 
 **Done when.**
 
 - The behaviour spec came first.
-- The same seed gives the same tile bits on the same backend.
+- The same seed gives the same bits; a seed one bit different gives a different image.
+- Depth orders as the spec says: a nucleus is darkest at its own depth.
+- The PNGs are written for the owner to judge at Checkpoint A.
+
+**Tests.** Hashing and noise; the model's parts; depth ordering; determinism; colour. **Broken on purpose:** the seed's hashing (a changed bit must change the image).
+
+**Open questions.** Q26 (H&E only, in 3D).
+
+---
+
+## P1.11b: The H&E sample on the GPU, and its tiles
+
+| | |
+|---|---|
+| Crates | `tetera-sim`, `tetera-compute` |
+| Depends on | P1.11a |
+| ADRs | — (0015) |
+| Gates | G1, G1c |
+| Spec-first | Yes: P1.11a's spec states its tolerance and tiles |
+| Estimate | code 750 (the model's CUDA kernel 450; tiles, levels of detail and half precision 150; the cache within a VRAM budget 150) · tests 400 · examples 120 · docs-as-code 40 · glue 30 = **1,340**, from P1.11's split; its own second estimate comes before its code |
+
+**Goal.** The same slide made on the GPU as fast as the camera needs it.
+
+**Scope.**
+
+- **The model on the GPU,** the same functions as the CPU twin, in a CUDA kernel.
+- **Tiles on demand:** keyed by level of detail, position and depth layer; half precision on the GPU; an LRU cache within a VRAM budget.
+- **The twins agree** within the tolerance P1.11a's spec states.
+
+**Out of scope.** Optics and the camera (P1.12).
+
+**Try it.** `he-sample` with `--features cuda`: the same regions on each backend, with timings.
+
+**Done when.**
+
+- The same seed gives the same tile bits on the GPU.
 - The backends agree within tolerance.
 - A 512 × 512 tile's time on the GPU is measured and recorded.
 - The owner judges the PNGs plausible at Checkpoint A.
 
-**Tests.** Determinism; the cache's eviction within its budget; depth ordering; the twins. **Broken on purpose:** the seed's hashing (a changed bit must change the image), and the cache's budget.
-
-**Open questions.** Q26 (H&E only, in 3D).
+**Tests.** The twins; the cache's eviction within its budget; tiles stitching without seams. **Broken on purpose:** the cache's budget.
 
 ---
 
@@ -929,7 +962,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-sim`, `tetera-compute` |
-| Depends on | P1.06b, P1.10b, P1.11 |
+| Depends on | P1.06b, P1.10b, P1.11b |
 | ADRs | 0016 the virtual camera's model |
 | Gates | G1, G1c, **G2 (Checkpoint A)** |
 | First estimate | code 1,400 · tests 400 · examples 120 = **1,920** |

@@ -68,7 +68,7 @@ OScope is the owner's previous build of the same instrument software. It ran thr
 
 | OScope's lesson | Source | What Tetera does |
 |---|---|---|
-| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 34 phases each. Extensions get their own two milestones |
+| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 35 phases each. Extensions get their own two milestones |
 | Line budgets (300/600/900) never fit. Estimates in parts, committed before the code, did fit: median 1.04 in M1 | M1 retrospective | **No budgets.** A five-part estimate, committed before the code, with a cap that triggers a question to the owner ([§7](#7-how-phases-work)) |
 | The simulator on the CPU was the live view's bottleneck: about 160 ms a frame, 2 s while jogging. It moved to the GPU late | ADR-0062, performance notes | **The simulator is GPU-first from its first phase**, with the CPU path as reference and fallback |
 | Full replays took about an hour per phase. Change-reach gates cut that | ADR-0038, ADR-0061 | **Tiered gates from day one:** quick, phase, checkpoint, milestone ([§8](#8-local-ci-gates)). Each phase runs only what its change reaches |
@@ -604,7 +604,8 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 | P1.09b | The stage, the objectives and the light | `Stage`, `ObjectiveMount`, `Illumination`, the fake stage, the stage's contract suite; the objective catalogue | `ex-hal-fakes`: the fake stage too | — |
 | P1.10a | The simulated clock and motion profiles | The simulated clock (real, stepped, faster); trapezoidal motion profiles within each axis's limits, and feed holds | `ex-sim-clock`: the clock, and a move's profile | 0014 |
 | P1.10b | The virtual stage | `VirtualStage` with grblHAL-like motion, states, limits, homing, reports with latency, faults | `ex-virtual-stage`: a move's timeline | — |
-| P1.11 | The H&E sample on the GPU *(spec-first)* | Procedural, 3D, deterministic H&E; tiles on demand, levels of detail, the cache; CPU twin | `ex-he-sample`: renders a region at several magnifications | 0015 |
+| P1.11a | The H&E sample, on the CPU *(spec-first)* | Procedural, 3D, deterministic H&E: the section, its tissue and its stains; colour by absorbance; regions rendered at any sampling; the CPU twin | `ex-he-sample`: regions at several magnifications, as PNGs | 0015 |
+| P1.11b | The H&E sample on the GPU, and its tiles *(spec-first)* | The model in a CUDA kernel; tiles on demand, levels of detail, half precision, the cache | `ex-he-sample` on each backend, timed | — |
 | P1.12 | Optics, light and the virtual camera | The objective's blur and defocus, vignetting, motion blur, mounting angle; simulated illumination; `VirtualCamera` with MIChrome 20's modes, Bayer and noise. **Checkpoint A:** the virtual instrument renders H&E live, on the GPU | `ex-virtual-camera`: frames while the stage moves | 0016 |
 
 #### Stage 1D: The live instrument over HTTP (ends with Checkpoint B)
@@ -696,7 +697,7 @@ Each driver phase is *Done* only after the owner has run its manual test on the 
 | P5.06 | Performance | The raw path at the camera's rate to scratch; preview latency and rate; GPU tuning; memory; several clients; H.264 only if needed | — |
 | P5.07 | Packaging and release 1.0 | A `.deb` and the systemd unit for WSL; a Windows bootstrap (`.wslconfig`, the task, usbipd); a 24-hour soak; the user's guide; the release; the retrospective | 0042 |
 
-**In all:** 71 phases, plus the spike: M1 34, M2 8, M3 10, M4 12, M5 7.
+**In all:** 72 phases, plus the spike: M1 35, M2 8, M3 10, M4 12, M5 7.
 
 **Each phase's status** is in [`m1/notes/README.md`](m1/notes/README.md): *Not started*, *In review* or *Done*.
 
@@ -722,7 +723,7 @@ Numbered across the project. Each is written in the phase named.
 | 0012 | The pipeline model | P1.08a |
 | 0013 | The hardware abstraction layer | P1.09a |
 | 0014 | The simulated clock | P1.10a |
-| 0015 | Simulated samples on the GPU | P1.11 |
+| 0015 | Simulated samples on the GPU | P1.11a |
 | 0016 | The virtual camera's model | P1.12 |
 | 0017 | Control plane and media plane | P1.13 |
 | 0018 | The service in WSL2: systemd, start-up, networking, devices | P1.13 |
@@ -927,7 +928,7 @@ A first draft. **From P1.01, [`setup/toolchain.md`](setup/toolchain.md) is the g
 | R5 | **CUDA under WSL2 has limits** that native Linux doesn't. NVIDIA's WSL guide lists them | A feature Tetera plans to use may not work, such as pinned memory at size, or IPC to Python workers | P1.04 checks each feature Tetera uses. Python workers get frames through host shared memory, not CUDA IPC |
 | R6 | **Disk:** OScope's phases built 60–70 GB each. WSL's virtual disk grows and doesn't shrink by itself | Full disks break WSL | `doctor` checks before G2 and G3; `sparseVhd`; the distro on D: (§12.1); cleaning between milestones |
 | R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
-| R8 | **Scope:** 71 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
+| R8 | **Scope:** 72 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
 | R9 | **The extension ABI** must stay stable across SDK versions | Old extensions break, or crash the server | A versioned C ABI checked at install; panics caught; tests against the previous SDK version; Python in separate processes |
 | R10 | **Extensions as the only home** of stitching, deep zoom, depth from focus and volumes | The SDK must be rich enough for heavy, GPU-bound nodes | P2.03 gives Rust extensions the GPU; P3.01 is a small extension that proves the path before P3.02 |
 | R11 | **The host's sleep, and WSL's clock drift** | Wrong wall-clock times in metadata | A monotonic clock; UTC mapped at start-up and re-checked; a status warning on drift |
@@ -1147,3 +1148,5 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-27 | **P1.10a measured 1,077 lines against its second estimate of 1,080 (×1.00):** code 431, tests 490. The property tests found two rounding faults before the code was committed ([notes](m1/notes/P1.10a-the-simulated-clock-and-motion-profiles.md#size)) |
 | 2026-11-27 | **P1.10b's second estimate:** code 670 (configuration 80; the plan and grblHAL's states 150; moves, jogs, holds, homing and faults 200; reports, the track and events 120; its thread 40; the `Stage` trait 80) · tests 650 · examples 120 · docs-as-code 20 · glue 20 = **1,480**, 1,924 at ×1.3 |
 | 2026-11-27 | **P1.10b measured 1,500 lines against its second estimate of 1,480 (×1.01):** code 738, tests 577. P1.10's two phases came to 2,577 lines, against about 2,510 at its second estimate ([notes](m1/notes/P1.10b-the-virtual-stage.md#size)) |
+| 2026-11-27 | **P1.11's second estimate,** before its code: about 2,830 (code 1,570 · tests 850 · examples 280 · docs-as-code 80 · glue 50), 3,679 at ×1.3. Over 2,000: **split by the agent** under the owner's standing approval as its ready split proposed, into P1.11a (the model on the CPU, the behaviour spec, ADR-0015) and P1.11b (the GPU kernel and the tile cache). P1.12 now depends on P1.11b. 72 phases, M1 35 |
+| 2026-11-27 | **P1.11a's second estimate:** code 820 (hashing and noise 150; the section and its tissue 450; colour 60; rendering 160) · tests 450 · examples 160 · docs-as-code 40 · glue 20 = **1,490**, 1,937 at ×1.3 |
