@@ -59,4 +59,17 @@ exclude_re = [
     "replace < with <= in Plan::leg",
     # The virtual stage's jog: a speed of zero is refused before its direction is chosen.
     "replace > with >= in <impl Stage for VirtualStage>::jog",
+    # The H&E sample's shortcuts: past a nucleus's or a red cell's edge, and where a region
+    # is absent, the stain is zero whether or not the code returns early.
+    "replace > with (>=|==) in HeSample::nucleus_density",
+    "replace > with (>=|==) in HeSample::red_cell_density",
+    "replace > with >= in HeSample::column",
+    # Ties with no area: noise exactly at a fold's edge, and two feature points exactly as
+    # far from a point.
+    "replace < with <= in HeSample::folded",
+    "replace < with <= in cellular",
+    # The 3 × 3 cells around a point are the same whichever way they are walked.
+    "replace \\+ with - in Grid<T>::around",
+    # A last layer of no thickness adds nothing.
+    "replace < with <= in point",
 ]

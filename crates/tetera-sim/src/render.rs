@@ -99,7 +99,6 @@ struct Grid<T> {
     cell: f64,
     first: (i32, i32),
     columns: i32,
-    rows: i32,
     things: Vec<Option<T>>,
 }
 
@@ -125,7 +124,6 @@ impl<T: Send> Grid<T> {
             cell,
             first,
             columns,
-            rows,
             things,
         }
     }
@@ -140,13 +138,8 @@ impl<T: Send> Grid<T> {
             .flat_map(move |dj| {
                 (-1..=1).map(move |di| (i + di - self.first.0, j + dj - self.first.1))
             })
-            .filter_map(move |(c, r)| {
-                if (0..self.columns).contains(&c) && (0..self.rows).contains(&r) {
-                    self.things[(r * self.columns + c) as usize].as_ref()
-                } else {
-                    None
-                }
-            })
+            // The grid holds every cell around every point of its region.
+            .filter_map(move |(c, r)| self.things[(r * self.columns + c) as usize].as_ref())
     }
 }
 
@@ -286,6 +279,15 @@ mod tests {
             region(TISSUE, 4, f64::NAN, Depth::Whole),
             region((f64::INFINITY, 0.0), 4, 0.5, Depth::Whole),
             region(TISSUE, 4, 0.5, Depth::Range(2.0, 1.0)),
+            region(TISSUE, 4, 0.5, Depth::Range(1.0, 1.0)),
+            Region {
+                height: 0,
+                ..region(TISSUE, 4, 0.5, Depth::Whole)
+            },
+            Region {
+                width: 0,
+                ..region(TISSUE, 4, 0.5, Depth::Whole)
+            },
             region(TISSUE, 4, 0.5, Depth::Range(f32::NAN, 1.0)),
         ] {
             assert!(render(&s, &bad).is_err(), "{bad:?}");
@@ -380,6 +382,35 @@ mod tests {
             whole.stains[0].haematoxylin > own,
             "the whole section sums its layers"
         );
+    }
+
+    #[test]
+    fn depth_is_summed_in_layers_the_last_one_partial() {
+        // A point of stroma with no nucleus or red cell: its stain is the same at every
+        // depth, so a range sums it times its thickness.
+        let s = sample(7);
+        let (x, y) = (0..2_000)
+            .map(|i| (TISSUE.0 + f64::from(i) * 0.37, TISSUE.1))
+            .find(|&(x, y)| {
+                let r = render(&s, &region((x, y), 1, 0.2, Depth::Whole)).unwrap();
+                r.stains[0].haematoxylin == 0.0 && r.stains[0].eosin > 0.0
+            })
+            .expect("a point of stroma");
+        let column = s.column(x + 0.1, y + 0.1).stains.eosin;
+        for (depth, thickness) in [
+            (Depth::Range(0.0, 0.8), 0.8),
+            (Depth::Range(1.2, 3.0), 1.8),
+            (Depth::Range(-1.0, 9.0), 4.0),
+            (Depth::Whole, 4.0),
+        ] {
+            let r = render(&s, &region((x, y), 1, 0.2, depth)).unwrap();
+            assert!(
+                (r.stains[0].eosin - column * thickness).abs() < 1e-5,
+                "{depth:?}: {} against {}",
+                r.stains[0].eosin,
+                column * thickness
+            );
+        }
     }
 
     #[test]

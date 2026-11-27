@@ -231,7 +231,8 @@ impl HeSample {
         let vessel = (1.0 - smoothstep(0.022, 0.028, v)) * (1.0 - glands);
         let wall =
             smoothstep(0.022, 0.028, v) * (1.0 - smoothstep(0.030, 0.034, v)) * (1.0 - glands);
-        let open = 1.0 - vessel - wall;
+        // What is neither lumen nor wall; rounding may leave a hair below zero.
+        let open = (1.0 - vessel - wall).max(0.0);
         if stroma > 0.0 {
             stains = stains.add(
                 Stains {
@@ -445,6 +446,7 @@ mod tests {
         assert_eq!(tilted.lower_face(2_000.0, 1_000.0), 0.0);
         assert!((tilted.lower_face(4_000.0, 0.0) - 2.0).abs() < 1e-12);
         assert_eq!(sample().section(), SectionConfig::default());
+        assert_eq!(tilted.section().tilt, [0.0005, -0.001]);
     }
 
     #[test]
@@ -503,6 +505,58 @@ mod tests {
             glass > 0 && vessel > 0 && fat_or_lumen > 0,
             "{glass} {vessel} {fat_or_lumen}"
         );
+    }
+
+    #[test]
+    fn every_column_keeps_its_densities_in_range() {
+        use rayon::prelude::*;
+        let s = sample();
+        // 250,000 columns 4 µm apart over 2 mm: tissue edges, vessels and glands meeting.
+        let worst = (0..500)
+            .into_par_iter()
+            .map(|j| {
+                (0..500).fold([0.0f32; 4], |m, i| {
+                    let c = s.column(f64::from(i) * 4.0 + 0.3, f64::from(j) * 4.0 + 0.7);
+                    for v in [c.nuclei, c.vessel, c.stains.eosin, c.stains.haematoxylin] {
+                        assert!(v >= 0.0, "{c:?}");
+                    }
+                    [
+                        m[0].max(c.nuclei),
+                        m[1].max(c.vessel),
+                        m[2].max(c.stains.eosin),
+                        m[3].max(c.stains.haematoxylin),
+                    ]
+                })
+            })
+            .reduce(|| [0.0; 4], |a, b| std::array::from_fn(|k| a[k].max(b[k])));
+        assert!(worst[0] <= 1.0 && worst[1] <= 1.0, "likelihoods: {worst:?}");
+        assert!(
+            worst[2] <= 0.25 && worst[3] <= 0.025,
+            "densities, OD/µm: {worst:?}"
+        );
+        assert!(worst.iter().all(|&v| v > 0.0), "each present: {worst:?}");
+    }
+
+    #[test]
+    fn a_rectangle_lists_the_nuclei_whose_centres_lie_in_it() {
+        let s = sample();
+        let around = s.nuclei(900.0, 900.0, 1_200.0, 1_200.0);
+        for (x0, y0, x1, y1) in [
+            (1_000.0, 1_000.0, 1_100.0, 1_100.0),
+            (1_000.4, 999.6, 1_009.9, 1_030.1),
+            (995.1, 1_004.9, 1_090.0, 1_010.0),
+        ] {
+            let mut expected: Vec<Nucleus> = around
+                .iter()
+                .filter(|n| (x0..x1).contains(&n.centre.0) && (y0..y1).contains(&n.centre.1))
+                .copied()
+                .collect();
+            let mut listed = s.nuclei(x0, y0, x1, y1);
+            let key = |n: &Nucleus| (n.centre.0.to_bits(), n.centre.1.to_bits());
+            expected.sort_by_key(key);
+            listed.sort_by_key(key);
+            assert_eq!(listed, expected, "({x0}, {y0}) to ({x1}, {y1})");
+        }
     }
 
     #[test]
