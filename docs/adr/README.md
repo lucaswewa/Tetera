@@ -20,3 +20,4 @@ The [plan's §10](../implementation-plan.md#10-planned-adrs) lists the ADRs stil
 | [0012](0012-the-pipeline-model.md) | The pipeline model | Accepted | P1.08a |
 | [0013](0013-the-hardware-abstraction-layer.md) | The hardware abstraction layer | Accepted | P1.09a |
 | [0014](0014-the-simulated-clock.md) | The simulated clock | Accepted | P1.10a |
+| [0015](0015-simulated-samples-on-the-gpu.md) | Simulated samples on the GPU | Accepted | P1.11a |

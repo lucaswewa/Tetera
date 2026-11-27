@@ -10,13 +10,24 @@
 //! From P1.10b:
 //! - [`stage`]: the [`VirtualStage`], a grblHAL-like stage on the simulated clock, with its
 //!   states, soft limits, homing, reports and their track, and faults on demand.
+//!
+//! From P1.11a:
+//! - [`noise`]: integer hashing, improved noise, cellular noise and fBm;
+//! - [`he`]: the [`HeSample`], a procedural section of H&E-stained tissue, and colour by
+//!   absorbance;
+//! - [`render`](mod@render): a region of it rendered at any pixel size and depth, the CPU twin.
 
 pub mod clock;
+pub mod he;
 pub mod motion;
+pub mod noise;
+pub mod render;
 pub mod stage;
 
 pub use clock::{Rate, SimClock};
+pub use he::{HeSample, Nucleus, RedCell, SectionConfig, Stains};
 pub use motion::{AxisLimits, Profile};
+pub use render::{Depth, Region, Rendered, render};
 pub use stage::{
     GrblState, Report, VirtualAxis, VirtualStage, VirtualStageConfig, VirtualStageFault,
 };

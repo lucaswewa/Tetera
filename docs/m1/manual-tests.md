@@ -230,3 +230,11 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-sim --example virtual-stage -- --smoke` — expect the second part at 10×, and `smoke: ok`.
 - [ ] `cargo test -p tetera-sim` — expect 31 tests to pass.
 - **Result:** see the [notes](notes/P1.10b-the-virtual-stage.md#manual-test).
+
+## P1.11a: The H&E sample, on the CPU
+
+- **Prerequisites:** the phase's branch.
+- [ ] `cargo run --release -p tetera-sim --example he-sample` — expect seven PNGs in `target/he-sample/`, each with its time: a 2 mm overview, fields at 5×, 20× and 50×, three depth slices through a nucleus, the middle one darkest, and a fold at 5×. Look at each: tissue with bare glass between; stroma with nuclei; glands with lumens; vessels with red cells; fat; at 50×, collagen fibrils and nuclei with chromatin.
+- [ ] `cargo run --release -p tetera-sim --example he-sample -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-sim` — expect 53 tests to pass.
+- **Result:** see the [notes](notes/P1.11a-the-he-sample-on-the-cpu.md#manual-test).
