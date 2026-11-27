@@ -341,7 +341,7 @@ camera ─▶ frame pool (Bayer16) ─▶ frame bus ─┬─▶ recorder (lossl
 - **Two backends** in `tetera-compute`:
   - `Cpu`, with rayon, and SIMD where it pays;
   - `Cuda`, with `cudarc`. The driver, cuFFT and NVRTC are loaded at run time. Under WSL2 they come from `/usr/lib/wsl/lib`.
-- **Kernels** are CUDA C, compiled to PTX by `build.rs` when the `cuda` feature is on and `nvcc` is found.
+- **Kernels** are CUDA C, compiled by `build.rs` to a fat binary, machine code for each major GPU architecture and PTX for newer ones, when the `cuda` feature is on and `nvcc` is found; without `nvcc`, by NVRTC at run time ([ADR-0010](adr/0010-building-and-loading-cuda-kernels-under-wsl2.md)).
 - **GPU first:** each node runs on CUDA when there is a GPU, and on the CPU otherwise, or when the build has no CUDA.
 - **Every kernel has a CPU twin.** Equivalence tests compare them within a stated tolerance.
 - **Data stays on the GPU** between consecutive CUDA nodes, and is copied back only at the boundaries.
@@ -1096,3 +1096,5 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-27 | **P1.04's second estimate,** before its code: about 2,670 (code 1,355 · tests 1,000 · examples 190 · docs-as-code 85 · glue 40). Over 2,000: **the owner split it** into P1.04a (backends, detection, buffers, pinned memory, the WSL2 feature check) and P1.04b (the kernel build, the twin harness, VRAM budgets). 61 phases, M1 24 |
 | 2026-11-27 | **P1.04a's second estimate:** code 760 (backends and selection 180, detection 150, buffers and streams 200, pinned memory 110, the WSL2 feature check 120) · tests 400 · examples 100 · docs-as-code 60 · glue 20 = **1,340**. CUDA toolkit 13.3.1 (2026-06-23), the newest in NVIDIA's WSL-Ubuntu repository; `cudarc` 0.19.10 (2026-09-24); `rayon` 1.12.0 (2026-04-14) |
 | 2026-11-27 | **P1.04a measured 1,349 lines against its second estimate of 1,340 (×1.01).** All five WSL2 CUDA features work on this PC; the gate's G1c now lints, tests and smokes CUDA code with its feature on ([notes](m1/notes/P1.04a-compute-backends.md)) |
+| 2026-11-27 | **P1.04b's second estimate,** before its code: code 625 (`build.rs` 90, loading and launching kernels 150, the scale pair 90, the twin harness 120, VRAM budgets 160, the kernel 15) · tests 650 · examples 100 · docs-as-code 25 · glue 20 = **1,420**, against 1,310 from P1.04's split. Under 2,000, so the phase stays whole |
+| 2026-11-27 | **P1.04b measured 1,405 lines against its second estimate of 1,420 (×0.99).** Kernels are built as fat binaries (`-arch=all-major`), not PTX, which a driver older than the toolkit refuses (§6.6 updated, ADR-0010); copies with pinned memory now wait until they are done, a fix to P1.04a ([notes](m1/notes/P1.04b-kernels-and-the-twin-harness.md)) |

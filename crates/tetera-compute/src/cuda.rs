@@ -4,12 +4,14 @@
 //! `cudarc` panics when it can't load a library, so every path here first checks that the
 //! library loads, with [`library_loads`], and reports an error instead.
 
+use crate::kernels::{KernelSource, Module};
 use crate::select::DeviceInfo;
 use cudarc::driver::sys::{self, CUdevice_attribute};
 use cudarc::driver::{
     CudaContext, CudaSlice, CudaStream, DeviceRepr, DriverError, PinnedHostSlice, ValidAsZeroBits,
 };
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 use tetera_core::frame::{Allocator, BufferStorage};
 use tetera_core::{Error, Result};
 
@@ -84,12 +86,14 @@ fn device_info(
     })
 }
 
-/// A CUDA device, with its context and its default stream.
+/// A CUDA device, with its context, its default stream and the kernel modules loaded on it.
+/// Clones share all three.
 #[derive(Debug, Clone)]
 pub struct CudaBackend {
     ctx: Arc<CudaContext>,
     stream: Arc<CudaStream>,
     info: DeviceInfo,
+    modules: Arc<Mutex<HashMap<&'static str, Arc<Module>>>>,
 }
 
 impl CudaBackend {
@@ -100,7 +104,12 @@ impl CudaBackend {
             CudaContext::new(ordinal).map_err(|e| hardware(&format!("device {ordinal}"), e))?;
         let info = device_info(&ctx, driver).map_err(|e| hardware("device info", e))?;
         let stream = ctx.default_stream();
-        Ok(Self { ctx, stream, info })
+        Ok(Self {
+            ctx,
+            stream,
+            info,
+            modules: Arc::default(),
+        })
     }
 
     /// The device, as it was when the backend started.
@@ -114,9 +123,20 @@ impl CudaBackend {
         Ok((free as u64, total as u64))
     }
 
-    /// Its context, for kernels (P1.04b).
+    /// Its context.
     pub fn context(&self) -> &Arc<CudaContext> {
         &self.ctx
+    }
+
+    /// The module of `kernel`, loaded on first use and kept after.
+    pub fn module(&self, kernel: &KernelSource) -> Result<Arc<Module>> {
+        let mut modules = self.modules.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(module) = modules.get(kernel.name) {
+            return Ok(module.clone());
+        }
+        let module = Arc::new(Module::load(self, kernel)?);
+        modules.insert(kernel.name, module.clone());
+        Ok(module)
     }
 
     /// Its default stream: work on it runs in the order it was given.
@@ -129,12 +149,15 @@ impl CudaBackend {
         self.ctx.new_stream().map_err(|e| hardware("stream", e))
     }
 
-    /// `host` copied to the device.
+    /// `host` copied to the device. It returns once the copy has read `host`, so the caller
+    /// may change or reuse it: from pinned memory, the copy runs on after the call returns,
+    /// and is waited for.
     pub fn upload<T: DeviceRepr>(&self, host: &[T]) -> Result<DeviceBuffer<T>> {
         let slice = self
             .stream
             .clone_htod(host)
             .map_err(|e| hardware("upload", e))?;
+        self.synchronize()?;
         Ok(DeviceBuffer { slice })
     }
 
@@ -154,7 +177,8 @@ impl CudaBackend {
             .map_err(|e| hardware("download", e))
     }
 
-    /// The buffer copied into `host`, which must be its length.
+    /// The buffer copied into `host`, which must be its length. It returns once the copy has
+    /// written `host`.
     pub fn download_into<T: DeviceRepr>(
         &self,
         buffer: &DeviceBuffer<T>,
@@ -169,7 +193,8 @@ impl CudaBackend {
         }
         self.stream
             .memcpy_dtoh(&buffer.slice, host)
-            .map_err(|e| hardware("download", e))
+            .map_err(|e| hardware("download", e))?;
+        self.synchronize()
     }
 
     /// Waits until the default stream's work is done.
@@ -177,6 +202,22 @@ impl CudaBackend {
         self.stream
             .synchronize()
             .map_err(|e| hardware("synchronize", e))
+    }
+
+    /// How long the device takes over what `work` queues on the default stream, in
+    /// milliseconds, timed by events either side of it. It waits for the work to finish.
+    pub fn time_ms(&self, work: impl FnOnce() -> Result<()>) -> Result<f32> {
+        let flags = Some(sys::CUevent_flags::CU_EVENT_DEFAULT);
+        let start = self
+            .stream
+            .record_event(flags)
+            .map_err(|e| hardware("event", e))?;
+        work()?;
+        let end = self
+            .stream
+            .record_event(flags)
+            .map_err(|e| hardware("event", e))?;
+        start.elapsed_ms(&end).map_err(|e| hardware("timing", e))
     }
 
     /// An allocator of pinned host memory on this device's context, for frame pools: copies
@@ -205,12 +246,12 @@ impl<T> DeviceBuffer<T> {
         self.slice.len() == 0
     }
 
-    /// The `cudarc` slice, for kernels (P1.04b).
+    /// The `cudarc` slice, for kernels.
     pub fn slice(&self) -> &CudaSlice<T> {
         &self.slice
     }
 
-    /// The `cudarc` slice, to write, for kernels (P1.04b).
+    /// The `cudarc` slice, to write, for kernels.
     pub fn slice_mut(&mut self) -> &mut CudaSlice<T> {
         &mut self.slice
     }
@@ -359,6 +400,43 @@ mod tests {
     }
 
     #[test]
+    fn work_is_timed_on_the_device_and_its_errors_pass_through() {
+        let Some(gpu) = gpu() else { return };
+        let samples = vec![7u16; 1 << 24];
+        let mut copies = 0;
+        let ms = gpu
+            .time_ms(|| {
+                copies += 1;
+                gpu.upload(&samples).map(drop)
+            })
+            .unwrap();
+        assert_eq!(copies, 1);
+        assert!(ms > 0.0 && ms < 10_000.0, "32 MiB uploaded in {ms} ms");
+        let err = gpu
+            .time_ms(|| Err(Error::invalid_argument("no work")))
+            .unwrap_err();
+        assert_eq!(err.to_string(), "no work");
+    }
+
+    #[test]
+    fn a_module_is_loaded_once_and_shared_by_clones() {
+        let Some(gpu) = gpu() else { return };
+        let first = gpu.module(&crate::kernels::SCALE).unwrap();
+        let again = gpu.clone().module(&crate::kernels::SCALE).unwrap();
+        assert!(
+            Arc::ptr_eq(&first, &again),
+            "the clone found the loaded module"
+        );
+        let broken = KernelSource {
+            name: "broken",
+            source: "not CUDA",
+            fatbin: None,
+        };
+        assert!(gpu.module(&broken).is_err());
+        assert!(gpu.module(&broken).is_err(), "a failed load isn't kept");
+    }
+
+    #[test]
     fn pinned_buffers_are_aligned_zeroed_and_writable() {
         let Some(gpu) = gpu() else { return };
         let allocator = gpu.pinned_allocator();
@@ -371,6 +449,23 @@ mod tests {
         assert!(buffer.bytes().iter().all(|&b| b == 0));
         buffer.bytes_mut()[12_345] = 7;
         assert_eq!(buffer.bytes()[12_345], 7);
+    }
+
+    #[test]
+    fn copies_with_pinned_memory_are_done_when_they_return() {
+        let Some(gpu) = gpu() else { return };
+        let len = 64 << 20;
+        let allocator = gpu.pinned_allocator();
+        let mut source = allocator.allocate(len).unwrap();
+        source.bytes_mut().fill(1);
+        let on_device = gpu.upload(source.bytes()).unwrap();
+        // A copy reads from the start, so the last byte is read last: change it at once.
+        source.bytes_mut()[len - 1] = 2;
+        let mut back = allocator.allocate(len).unwrap();
+        gpu.download_into(&on_device, back.bytes_mut()).unwrap();
+        let last = back.bytes()[len - 1];
+        assert_ne!(last, 0, "the download returned before it wrote");
+        assert_eq!(last, 1, "the upload returned before it read");
     }
 
     #[test]
