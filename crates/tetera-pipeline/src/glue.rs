@@ -301,6 +301,13 @@ mod tests {
             panic!("a table")
         };
         assert_eq!((t["min.0"], t["max.0"], t["pixels"]), (200.0, 200.0, 1.0));
+        // Several rows: 2 × 3 pixels of 0 to 5.
+        let tall = Image::new(2, 3, 1, (0..6u16).collect()).unwrap();
+        let out = run(&Statistics, serde_json::json!({}), Value::U16(tall)).unwrap();
+        let Value::Table(t) = &out[0] else {
+            panic!("a table")
+        };
+        assert_eq!((t["pixels"], t["mean.0"]), (6.0, 2.5));
         assert!(
             run(
                 &Statistics,
