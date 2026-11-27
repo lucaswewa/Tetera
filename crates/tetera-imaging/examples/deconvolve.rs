@@ -1,17 +1,22 @@
-//! Richardson–Lucy on the CPU (P1.07b): a synthetic specimen of beads and discs, blurred by a
+//! Richardson–Lucy (P1.07b, P1.07c): a synthetic specimen of beads and discs, blurred by a
 //! widefield objective's PSF (NA 0.5, 550 nm, 0.12 µm a pixel), with noise. It prints the RMS
 //! error against the specimen as the iterations go, plain and with total variation, where the
-//! error is least, and each iteration's time; then the same for a 3D stack.
+//! error is least, and each iteration's time on the CPU; then the same for a 3D stack. With
+//! CUDA, it runs each on the GPU too, checks the two agree within the behaviour spec's
+//! tolerance, and times 20 iterations on a full 20 MP frame.
 //!
-//! Run it with `cargo run --release -p tetera-imaging --example deconvolve`. It writes the
-//! specimen, the image and the best estimate to `target/deconvolve` as JPEGs; `-- --out DIR`
-//! writes them elsewhere, and `-- --smoke` takes a small image and few iterations.
+//! Run it with `cargo run --release -p tetera-imaging --example deconvolve --features cuda`,
+//! or without the feature for the CPU alone. It writes the specimen, the image and the best
+//! estimate to `target/deconvolve` as JPEGs; `-- --out DIR` writes them elsewhere, and
+//! `-- --smoke` takes small images and few iterations.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tetera_compute::{Compute, CpuBackend};
 use tetera_core::{Error, Result};
 use tetera_imaging::deconvolve::{Deconvolution, convolve_cpu};
+#[cfg(feature = "cuda")]
+use tetera_imaging::deconvolve::{DeviceDeconvolution, RichardsonLucy, richardson_lucy_cpu};
 use tetera_imaging::pattern::noisy;
 use tetera_imaging::{Image, Optics, Psf, Volume};
 
@@ -129,6 +134,83 @@ fn run(
     ))
 }
 
+/// Each case deconvolved for 20 iterations on both backends, timed, the two checked to agree
+/// within the behaviour spec's tolerance; then 20 iterations on a frame of `full` on the GPU.
+#[cfg(feature = "cuda")]
+fn on_gpu(
+    gpu: &tetera_compute::CudaBackend,
+    cpu: &CpuBackend,
+    cases: &[(&str, &Volume, &Psf)],
+    full: (u32, u32),
+) -> Result<()> {
+    const ITERATIONS: u32 = 20;
+    println!("\nCUDA, {ITERATIONS} iterations, against the CPU:");
+    println!(
+        "{:<8}{:>16}{:>16}{:>16}{:>14}",
+        "", "CPU, an iter", "CUDA, an iter", "relative RMS", "worst"
+    );
+    for &(label, image, psf) in cases {
+        let start = Instant::now();
+        let on_cpu = richardson_lucy_cpu(cpu, image, psf, &RichardsonLucy::new(ITERATIONS))?;
+        let cpu_ms = start.elapsed().as_secs_f64() * 1e3 / f64::from(ITERATIONS);
+        DeviceDeconvolution::new(gpu, image, psf, 0.0)?.step()?; // loads the module
+        let mut run = DeviceDeconvolution::new(gpu, image, psf, 0.0)?;
+        let ms = gpu.time_ms(|| {
+            for _ in 0..ITERATIONS {
+                run.step()?;
+            }
+            Ok(())
+        })?;
+        let on_gpu = run.estimate()?;
+        let (mut squares, mut norm, mut worst) = (0.0, 0.0, 0.0f64);
+        for (&a, &b) in on_gpu.values().iter().zip(on_cpu.values()) {
+            let d = f64::from(a) - f64::from(b);
+            (squares, norm, worst) = (
+                squares + d * d,
+                norm + f64::from(b).powi(2),
+                worst.max(d.abs()),
+            );
+        }
+        let relative = (squares / norm).sqrt();
+        let largest = image.values().iter().fold(0.0f32, |a, &v| a.max(v));
+        if relative >= 1e-3 || worst >= 0.01 * f64::from(largest) {
+            return Err(Error::internal(format!(
+                "the backends disagree beyond the spec's tolerance: relative RMS {relative:e}, worst {worst}"
+            )));
+        }
+        println!(
+            "{label:<8}{cpu_ms:>13.1} ms{:>13.2} ms{relative:>16.1e}{worst:>14.4}",
+            ms / ITERATIONS as f32
+        );
+    }
+
+    let (w, h) = full;
+    let psf = Psf::widefield_2d(&OPTICS)?;
+    let image = image_of(cpu, &specimen(w, h, 1), &psf)?;
+    let (pw, ph, _) = psf.size();
+    let padding = tetera_compute::deconvolve::Padding::new(
+        [w as usize, h as usize, 1],
+        [pw as usize, ph as usize, 1],
+    )?;
+    let start = Instant::now();
+    let mut run = DeviceDeconvolution::new(gpu, &image, &psf, 0.0)?;
+    gpu.synchronize()?;
+    let setup = start.elapsed().as_secs_f64() * 1e3;
+    let ms = gpu.time_ms(|| {
+        for _ in 0..ITERATIONS {
+            run.step()?;
+        }
+        Ok(())
+    })?;
+    println!(
+        "\n{w} × {h}, padded to {} × {}: {ITERATIONS} iterations in {ms:.0} ms on CUDA, {:.1} ms each, after {setup:.0} ms to plan, upload and transform the PSF",
+        padding.padded[0],
+        padding.padded[1],
+        ms / ITERATIONS as f32
+    );
+    Ok(())
+}
+
 /// A volume of depth 1 as a grey JPEG, its values up to 4,095 scaled to 8 bits.
 fn write_jpeg(path: &Path, volume: &Volume) -> Result<()> {
     let (w, h, _) = volume.size();
@@ -201,6 +283,23 @@ fn main() -> Result<()> {
         &[],
     )?;
     println!("3D        least error {error:.1}, at iteration {at}; {ms:.1} ms an iteration");
+
+    #[cfg(feature = "cuda")]
+    if let Some(gpu) = compute.cuda() {
+        let full = if smoke { (640, 480) } else { (5_472, 3_648) };
+        on_gpu(
+            gpu,
+            cpu,
+            &[("2D", &image, &psf), ("3D", &image_3d, &psf_3d)],
+            full,
+        )?;
+    }
+    #[cfg(feature = "cuda")]
+    if compute.cuda().is_none() {
+        println!("\nCUDA: none here ({})", compute.why());
+    }
+    #[cfg(not(feature = "cuda"))]
+    println!("\nCUDA: not in this build");
 
     std::fs::create_dir_all(&out_dir)
         .map_err(|e| Error::internal(format!("couldn't make {}: {e}", out_dir.display())))?;

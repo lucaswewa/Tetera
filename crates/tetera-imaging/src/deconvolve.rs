@@ -1,6 +1,9 @@
-//! Richardson–Lucy deconvolution on the CPU (P1.07b; the behaviour spec is in its notes), in
-//! 2D and 3D: convolutions by FFTs over each axis in turn, the image padded by mirroring, and
-//! total-variation regularisation if asked for. P1.07c adds the GPU's twin.
+//! Richardson–Lucy deconvolution (P1.07b; the behaviour spec is in its notes), in 2D and 3D:
+//! convolutions by FFTs over each axis in turn, the image padded by mirroring, and
+//! total-variation regularisation if asked for. On the CPU through `rustfft`; on CUDA (P1.07c)
+//! through cuFFT, with each element-wise step a kernel whose twin is the CPU's step here. The
+//! two FFTs round differently, so the backends agree within the behaviour spec's tolerance,
+//! not exactly.
 
 use crate::image::Image;
 use crate::psf::Psf;
@@ -8,7 +11,8 @@ use rayon::prelude::*;
 use rustfft::num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
 use std::sync::Arc;
-use tetera_compute::CpuBackend;
+use tetera_compute::deconvolve::{Padding, reflect};
+use tetera_compute::{Compute, CpuBackend};
 use tetera_core::{Error, Result};
 
 /// The values a parallel task takes at least: below it, waking threads costs more than they
@@ -122,6 +126,24 @@ impl RichardsonLucy {
     }
 }
 
+/// `image` deconvolved by `psf` by Richardson–Lucy, on whichever backend `compute` chose.
+pub fn richardson_lucy(
+    compute: &Compute,
+    image: &Volume,
+    psf: &Psf,
+    settings: &RichardsonLucy,
+) -> Result<Volume> {
+    #[cfg(feature = "cuda")]
+    if let Some(gpu) = compute.cuda() {
+        let mut run = DeviceDeconvolution::new(gpu, image, psf, settings.total_variation)?;
+        for _ in 0..settings.iterations {
+            run.step()?;
+        }
+        return run.estimate();
+    }
+    richardson_lucy_cpu(compute.cpu(), image, psf, settings)
+}
+
 /// `image` deconvolved by `psf` on the CPU, by Richardson–Lucy.
 pub fn richardson_lucy_cpu(
     cpu: &CpuBackend,
@@ -140,7 +162,7 @@ pub fn richardson_lucy_cpu(
 /// image an objective of that PSF would make of it.
 pub fn convolve_cpu(cpu: &CpuBackend, image: &Volume, psf: &Psf) -> Result<Volume> {
     cpu.install(|| {
-        let mut convolver = Convolver::new(image.size, psf)?;
+        let mut convolver = Convolver::new(image, psf)?;
         let mut values = convolver.pad(image);
         convolver.blur(&mut values, false);
         // FFTs round a little either side of zero.
@@ -176,17 +198,13 @@ impl<'a> Deconvolution<'a> {
     /// A deconvolution of `image` by `psf`, its estimate the image itself, regularised by total
     /// variation of weight `lambda` (0 for none).
     pub fn new(cpu: &'a CpuBackend, image: &Volume, psf: &Psf, lambda: f32) -> Result<Self> {
-        if !(lambda.is_finite() && lambda >= 0.0) {
-            return Err(Error::invalid_argument(format!(
-                "total variation's weight is 0 or more, not {lambda}"
-            )));
-        }
+        check_lambda(lambda)?;
         let (convolver, data) = cpu.install(|| {
-            let convolver = Convolver::new(image.size, psf)?;
+            let convolver = Convolver::new(image, psf)?;
             let data = convolver.pad(image);
             Ok::<_, Error>((convolver, data))
         })?;
-        let largest = image.values.iter().fold(0.0f32, |a, &v| a.max(v));
+        let (floor, epsilon) = limits(image);
         let n = data.len();
         Ok(Self {
             cpu,
@@ -199,9 +217,9 @@ impl<'a> Deconvolution<'a> {
             } else {
                 Vec::new()
             },
-            floor: 1e-12 * largest,
+            floor,
             lambda,
-            epsilon: (1e-6 * largest).max(f32::MIN_POSITIVE),
+            epsilon,
             iterations: 0,
         })
     }
@@ -213,34 +231,21 @@ impl<'a> Deconvolution<'a> {
         cpu.install(|| {
             self.work.copy_from_slice(&self.estimate);
             self.convolver.blur(&mut self.work, false);
-            let floor = self.floor;
-            self.work
-                .par_iter_mut()
-                .zip(&self.data)
-                .with_min_len(GRAIN)
-                .for_each(|(w, &d)| *w = if *w > floor { d / *w } else { 1.0 });
+            ratio(&mut self.work, &self.data, self.floor);
             self.convolver.blur(&mut self.work, true);
-            if self.lambda > 0.0 {
+            let denominators = if self.lambda > 0.0 {
                 total_variation(
                     &self.estimate,
-                    self.convolver.padded,
+                    self.convolver.padding.padded,
                     self.lambda,
                     self.epsilon,
                     &mut self.denominators,
                 );
-                self.estimate
-                    .par_iter_mut()
-                    .zip(&self.work)
-                    .zip(&self.denominators)
-                    .with_min_len(GRAIN)
-                    .for_each(|((u, &c), &t)| *u = (*u * c / t).max(0.0));
+                Some(&self.denominators[..])
             } else {
-                self.estimate
-                    .par_iter_mut()
-                    .zip(&self.work)
-                    .with_min_len(GRAIN)
-                    .for_each(|(u, &c)| *u = (*u * c).max(0.0));
-            }
+                None
+            };
+            update(&mut self.estimate, &self.work, denominators);
         });
         self.iterations += 1;
     }
@@ -266,8 +271,80 @@ impl<'a> Deconvolution<'a> {
     }
 }
 
+/// Total variation's weight, checked: finite, and 0 or more.
+fn check_lambda(lambda: f32) -> Result<()> {
+    if lambda.is_finite() && lambda >= 0.0 {
+        Ok(())
+    } else {
+        Err(Error::invalid_argument(format!(
+            "total variation's weight is 0 or more, not {lambda}"
+        )))
+    }
+}
+
+/// The ratio's floor, 1e-12 of `image`'s largest value, and the least gradient total
+/// variation divides by, 1e-6 of it.
+fn limits(image: &Volume) -> (f32, f32) {
+    let largest = image.values.iter().fold(0.0f32, |a, &v| a.max(v));
+    (1e-12 * largest, (1e-6 * largest).max(f32::MIN_POSITIVE))
+}
+
+/// The ratio step, in place: each blurred value b becomes d / b where b is above `floor`, and
+/// 1 elsewhere, so nothing divides by zero. The GPU's twin is `CudaBackend::rl_ratio`.
+fn ratio(work: &mut [f32], data: &[f32], floor: f32) {
+    work.par_iter_mut()
+        .zip(data)
+        .with_min_len(GRAIN)
+        .for_each(|(w, &d)| *w = if *w > floor { d / *w } else { 1.0 });
+}
+
+/// The update step: each estimate value times its correction, over its denominator when total
+/// variation is on, held at 0 or more. The GPU's twin is `CudaBackend::rl_update`.
+fn update(estimate: &mut [f32], correction: &[f32], denominators: Option<&[f32]>) {
+    match denominators {
+        Some(t) => estimate
+            .par_iter_mut()
+            .zip(correction)
+            .zip(t)
+            .with_min_len(GRAIN)
+            .for_each(|((u, &c), &t)| *u = (*u * c / t).max(0.0)),
+        None => estimate
+            .par_iter_mut()
+            .zip(correction)
+            .with_min_len(GRAIN)
+            .for_each(|(u, &c)| *u = (*u * c).max(0.0)),
+    }
+}
+
+/// `buffer` times the PSF's transform `otf`, or its conjugate for `mirrored`, in place. The
+/// GPU's twin is `CudaBackend::rl_multiply`, which scales its transform as it goes.
+fn multiply(buffer: &mut [Complex32], otf: &[Complex32], mirrored: bool) {
+    buffer
+        .par_iter_mut()
+        .zip(otf)
+        .with_min_len(GRAIN)
+        .for_each(|(b, h)| *b *= if mirrored { h.conj() } else { *h });
+}
+
+/// The PSF's values with their places in the padded volume, its centre at the origin.
+fn placed<'p>(psf: &'p Psf, padding: &'p Padding) -> impl Iterator<Item = (usize, f32)> + 'p {
+    let (w, h, _) = psf.size();
+    let (w, h) = (w as usize, h as usize);
+    psf.values()
+        .iter()
+        .enumerate()
+        .map(move |(i, &v)| (padding.centred([i % w, i / w % h, i / (w * h)]), v))
+}
+
+/// The padding of `image` for `psf`.
+fn padding(image: &Volume, psf: &Psf) -> Result<Padding> {
+    let (w, h, d) = psf.size();
+    Padding::new(image.size, [w as usize, h as usize, d as usize])
+}
+
 /// `1 − λ div(∇u / |∇u|)` at each point of `u`, held at 0.1 or more, into `out`: the gradient
 /// by forward differences, the divergence by backward ones, both 0 across the volume's edges.
+/// The GPU's twin is `CudaBackend::rl_total_variation`.
 fn total_variation(u: &[f32], size: [usize; 3], lambda: f32, epsilon: f32, out: &mut [f32]) {
     let [nx, ny, nz] = size;
     let at = |x: usize, y: usize, z: usize| u[(z * ny + y) * nx + x];
@@ -304,12 +381,7 @@ fn total_variation(u: &[f32], size: [usize; 3], lambda: f32, epsilon: f32, out: 
 /// Convolution with one PSF by FFT, over an image padded on every side by the PSF's half-size
 /// or a little more, to a size the FFTs factor well.
 struct Convolver {
-    /// The image's size.
-    size: [usize; 3],
-    /// The padded size.
-    padded: [usize; 3],
-    /// Where the image's first pixel lies in the padded volume: the PSF's half-size.
-    offset: [usize; 3],
+    padding: Padding,
     /// The PSF's transform, centred on the origin, over the padded count to undo the inverse
     /// FFT's scale.
     otf: Vec<Complex32>,
@@ -318,45 +390,31 @@ struct Convolver {
 }
 
 impl Convolver {
-    fn new(size: [usize; 3], psf: &Psf) -> Result<Self> {
-        let (pw, ph, pd) = psf.size();
-        let psf_size = [pw as usize, ph as usize, pd as usize];
-        if size[2] == 1 && psf_size[2] > 1 {
-            return Err(Error::invalid_argument(
-                "a 3D PSF deconvolves a volume, not an image",
-            ));
-        }
-        let offset = psf_size.map(|n| n / 2);
-        let padded = [0, 1, 2].map(|a| smooth(size[a] + 2 * offset[a]));
-        let mut transform = Transform::new(padded);
-        let n: usize = padded.iter().product();
+    fn new(image: &Volume, psf: &Psf) -> Result<Self> {
+        let padding = padding(image, psf)?;
+        let mut transform = Transform::new(padding.padded);
+        let n = padding.count();
         let mut otf = vec![Complex32::default(); n];
-        for (i, &v) in psf.values().iter().enumerate() {
-            let at = [
-                i % psf_size[0],
-                i / psf_size[0] % psf_size[1],
-                i / (psf_size[0] * psf_size[1]),
-            ];
-            let [x, y, z] = [0, 1, 2].map(|a| (at[a] + padded[a] - offset[a]) % padded[a]);
-            otf[(z * padded[1] + y) * padded[0] + x] = Complex32::new(v, 0.0);
+        for (i, v) in placed(psf, &padding) {
+            otf[i] = Complex32::new(v, 0.0);
         }
         transform.run(&mut otf, false);
         let scale = 1.0 / n as f32;
         otf.iter_mut().for_each(|h| *h *= scale);
         Ok(Self {
-            size,
-            padded,
-            offset,
+            padding,
             otf,
             transform,
             buffer: vec![Complex32::default(); n],
         })
     }
 
-    /// `image`, padded by mirroring it about its edges.
+    /// `image`, padded by mirroring it about its edges. The GPU's twin is
+    /// `CudaBackend::rl_pad`.
     fn pad(&self, image: &Volume) -> Vec<f32> {
-        let ([w, h, d], [pw, ph, _], [ox, oy, oz]) = (self.size, self.padded, self.offset);
-        let mut out = vec![0.0; self.padded.iter().product()];
+        let p = &self.padding;
+        let ([w, h, d], [pw, ph, _], [ox, oy, oz]) = (p.size, p.padded, p.offset);
+        let mut out = vec![0.0; p.count()];
         out.par_chunks_mut(pw)
             .enumerate()
             .with_min_len(per_task(pw))
@@ -371,9 +429,10 @@ impl Convolver {
         out
     }
 
-    /// The image's part of padded `values`.
+    /// The image's part of padded `values`. The GPU's twin is `CudaBackend::rl_crop`.
     fn crop(&self, values: &[f32]) -> Volume {
-        let ([w, h, d], [pw, ph, _], [ox, oy, oz]) = (self.size, self.padded, self.offset);
+        let p = &self.padding;
+        let ([w, h, d], [pw, ph, _], [ox, oy, oz]) = (p.size, p.padded, p.offset);
         let mut out = Vec::with_capacity(w * h * d);
         for z in 0..d {
             for y in 0..h {
@@ -381,7 +440,7 @@ impl Convolver {
             }
         }
         Volume {
-            size: self.size,
+            size: p.size,
             values: out,
         }
     }
@@ -395,46 +454,13 @@ impl Convolver {
             .with_min_len(GRAIN)
             .for_each(|(b, &v)| *b = Complex32::new(v, 0.0));
         self.transform.run(&mut self.buffer, false);
-        self.buffer
-            .par_iter_mut()
-            .zip(&self.otf)
-            .with_min_len(GRAIN)
-            .for_each(|(b, h)| *b *= if mirrored { h.conj() } else { *h });
+        multiply(&mut self.buffer, &self.otf, mirrored);
         self.transform.run(&mut self.buffer, true);
         values
             .par_iter_mut()
             .zip(&self.buffer)
             .with_min_len(GRAIN)
             .for_each(|(v, b)| *v = b.re);
-    }
-}
-
-/// Index `i` reflected into `0..n` about its ends without repeating them, as often as it takes:
-/// …, 2, 1, 0, 1, 2, …, n − 2, n − 1, n − 2, ….
-fn reflect(i: i64, n: usize) -> usize {
-    if n == 1 {
-        return 0;
-    }
-    let period = 2 * (n as i64 - 1);
-    let i = i.rem_euclid(period);
-    (if i < n as i64 { i } else { period - i }) as usize
-}
-
-/// The least size from `n` up whose only prime factors are 2, 3, 5 and 7, which FFTs, cuFFT's
-/// among them, transform fastest.
-fn smooth(n: usize) -> usize {
-    let mut m = n;
-    loop {
-        let mut rest = m;
-        for p in [2, 3, 5, 7] {
-            while rest.is_multiple_of(p) {
-                rest /= p;
-            }
-        }
-        if rest == 1 {
-            return m;
-        }
-        m += 1;
     }
 }
 
@@ -524,6 +550,132 @@ fn along(
         });
 }
 
+#[cfg(feature = "cuda")]
+pub use device::DeviceDeconvolution;
+
+#[cfg(feature = "cuda")]
+mod device {
+    use super::{Padding, Psf, Volume, check_lambda, limits, padding, placed};
+    use tetera_compute::deconvolve::{Complex, DeviceFft};
+    use tetera_compute::{CudaBackend, DeviceBuffer};
+    use tetera_core::Result;
+
+    /// A Richardson–Lucy deconvolution under way on the GPU, one iteration at a time: the
+    /// CPU's `Deconvolution`, step for step, with cuFFT's transforms.
+    #[derive(Debug)]
+    pub struct DeviceDeconvolution<'a> {
+        gpu: &'a CudaBackend,
+        padding: Padding,
+        fft: DeviceFft,
+        /// The PSF's transform, centred on the origin, unscaled: each product scales it.
+        otf: DeviceBuffer<Complex>,
+        scale: f32,
+        data: DeviceBuffer<f32>,
+        estimate: DeviceBuffer<f32>,
+        /// The transforms' two buffers, in and out by turns.
+        a: DeviceBuffer<Complex>,
+        b: DeviceBuffer<Complex>,
+        denominators: Option<DeviceBuffer<f32>>,
+        floor: f32,
+        lambda: f32,
+        epsilon: f32,
+        iterations: u32,
+    }
+
+    impl<'a> DeviceDeconvolution<'a> {
+        /// A deconvolution of `image` by `psf` on `gpu`, its estimate the image itself,
+        /// regularised by total variation of weight `lambda` (0 for none).
+        pub fn new(gpu: &'a CudaBackend, image: &Volume, psf: &Psf, lambda: f32) -> Result<Self> {
+            check_lambda(lambda)?;
+            let padding = padding(image, psf)?;
+            let n = padding.count();
+            let fft = gpu.fft_plan(padding.padded)?;
+            let mut host = vec![Complex { x: 0.0, y: 0.0 }; n];
+            for (i, v) in placed(psf, &padding) {
+                host[i].x = v;
+            }
+            let mut a = gpu.upload(&host)?;
+            let mut otf = gpu.zeros(n)?;
+            fft.run(&mut a, &mut otf, false)?;
+            let on_device = gpu.upload(image.values())?;
+            let (mut data, mut estimate) = (gpu.zeros(n)?, gpu.zeros(n)?);
+            gpu.rl_pad(&on_device, &padding, &mut data)?;
+            gpu.rl_pad(&on_device, &padding, &mut estimate)?;
+            let (floor, epsilon) = limits(image);
+            Ok(Self {
+                gpu,
+                padding,
+                fft,
+                otf,
+                scale: 1.0 / n as f32,
+                data,
+                estimate,
+                a,
+                b: gpu.zeros(n)?,
+                denominators: if lambda > 0.0 {
+                    Some(gpu.zeros(n)?)
+                } else {
+                    None
+                },
+                floor,
+                lambda,
+                epsilon,
+                iterations: 0,
+            })
+        }
+
+        /// `a` convolved with the PSF, or correlated with it for `mirrored`, back into `a`.
+        fn blur(&mut self, mirrored: bool) -> Result<()> {
+            self.fft.run(&mut self.a, &mut self.b, false)?;
+            self.gpu
+                .rl_multiply(&mut self.b, &self.otf, self.scale, mirrored)?;
+            self.fft.run(&mut self.b, &mut self.a, true)
+        }
+
+        /// One iteration, as the CPU's `Deconvolution::step`.
+        pub fn step(&mut self) -> Result<()> {
+            let gpu = self.gpu;
+            gpu.rl_to_complex(&self.estimate, &mut self.a)?;
+            self.blur(false)?;
+            gpu.rl_ratio(&mut self.a, &self.data, self.floor)?;
+            self.blur(true)?;
+            if let Some(t) = &mut self.denominators {
+                gpu.rl_total_variation(
+                    &self.estimate,
+                    self.padding.padded,
+                    self.lambda,
+                    self.epsilon,
+                    t,
+                )?;
+            }
+            gpu.rl_update(&mut self.estimate, &self.a, self.denominators.as_ref())?;
+            self.iterations += 1;
+            Ok(())
+        }
+
+        /// The iterations run so far.
+        pub fn iterations(&self) -> u32 {
+            self.iterations
+        }
+
+        /// The estimate, cropped to the image, copied back.
+        pub fn estimate(&self) -> Result<Volume> {
+            let mut out = self.gpu.zeros(self.padding.image_count())?;
+            self.gpu.rl_crop(&self.estimate, &self.padding, &mut out)?;
+            Ok(Volume {
+                size: self.padding.size,
+                values: self.gpu.download(&out)?,
+            })
+        }
+
+        /// The estimate's flux over the padded domain, which each iteration keeps.
+        pub fn flux(&self) -> Result<f64> {
+            let values = self.gpu.download(&self.estimate)?;
+            Ok(values.iter().map(|&v| f64::from(v)).sum())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -560,22 +712,6 @@ mod tests {
             .map(|(&x, &y)| (f64::from(x) - f64::from(y)).powi(2))
             .sum();
         (squares / a.values().len() as f64).sqrt()
-    }
-
-    #[test]
-    fn reflection_mirrors_without_repeating_the_edge() {
-        let seen: Vec<usize> = (-5..9).map(|i| reflect(i, 4)).collect();
-        assert_eq!(seen, [1, 2, 3, 2, 1, 0, 1, 2, 3, 2, 1, 0, 1, 2]);
-        assert_eq!(reflect(-7, 1), 0);
-        assert_eq!(reflect(3, 1), 0);
-        assert_eq!(reflect(-1, 2), 1);
-    }
-
-    #[test]
-    fn padded_sizes_factor_into_2_3_5_and_7() {
-        let sizes: Vec<usize> = [1, 11, 13, 17, 23, 29, 31, 97, 121].map(smooth).to_vec();
-        assert_eq!(sizes, [1, 12, 14, 18, 24, 30, 32, 98, 125]);
-        assert_eq!(smooth(5_472 + 48), 5_600);
     }
 
     #[test]
@@ -863,5 +999,334 @@ mod tests {
                 .to_string(),
             "a 3D PSF deconvolves a volume, not an image"
         );
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "cuda")]
+mod cuda_tests {
+    use super::*;
+    use tetera_compute::deconvolve::Complex;
+
+    /// Seeded values in 0..1, by xorshift.
+    fn uniform(n: usize, seed: u64) -> Vec<f32> {
+        let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        (0..n)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state >> 40) as f32 / (1u64 << 24) as f32
+            })
+            .collect()
+    }
+
+    fn scaled(n: usize, seed: u64, scale: f32, offset: f32) -> Vec<f32> {
+        uniform(n, seed)
+            .iter()
+            .map(|v| v * scale + offset)
+            .collect()
+    }
+
+    fn same_bits(a: &[f32], b: &[f32]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+    }
+
+    fn complex(values: &[Complex32]) -> Vec<Complex> {
+        values
+            .iter()
+            .map(|c| Complex { x: c.re, y: c.im })
+            .collect()
+    }
+
+    /// A PSF of random values, so no symmetry hides a mirror image.
+    fn random_psf(size: [u32; 3], seed: u64) -> Psf {
+        let n = (size[0] * size[1] * size[2]) as usize;
+        Psf::new(size[0], size[1], size[2], scaled(n, seed, 1.0, 0.01)).unwrap()
+    }
+
+    #[test]
+    fn padding_and_cropping_match_the_cpu_exactly() {
+        let gpu = tetera_compute::cuda_or_skip!();
+        for (seed, (size, psf)) in [
+            ([7, 5, 1], [9, 3, 1]),
+            ([13, 11, 1], [25, 25, 1]),
+            ([6, 5, 4], [3, 5, 7]),
+            ([1, 1, 1], [1, 1, 1]),
+            ([1, 8, 3], [5, 3, 3]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let n = (size[0] * size[1] * size[2]) as usize;
+            let image = Volume::new(
+                size[0],
+                size[1],
+                size[2],
+                scaled(n, seed as u64, 4_095.0, 0.0),
+            )
+            .unwrap();
+            let convolver = Convolver::new(&image, &random_psf(psf, 9)).unwrap();
+            let padded = convolver.pad(&image);
+            let padding = convolver.padding;
+            let mut out = gpu.zeros(padding.count()).unwrap();
+            gpu.rl_pad(&gpu.upload(image.values()).unwrap(), &padding, &mut out)
+                .unwrap();
+            assert!(
+                same_bits(&gpu.download(&out).unwrap(), &padded),
+                "{size:?}, {psf:?}"
+            );
+            let mut cropped = gpu.zeros(n).unwrap();
+            gpu.rl_crop(&out, &padding, &mut cropped).unwrap();
+            assert_eq!(
+                gpu.download(&cropped).unwrap(),
+                convolver.crop(&padded).values
+            );
+            assert_eq!(convolver.crop(&padded), image);
+        }
+    }
+
+    #[test]
+    fn the_element_wise_kernels_match_their_cpu_twins_exactly() {
+        let gpu = tetera_compute::cuda_or_skip!();
+        let n = 10_007;
+        // The ratio, some blurred values at the floor or below it.
+        let floor = 1e-3;
+        let data = scaled(n, 1, 4_095.0, 0.0);
+        let mut blurred = scaled(n, 2, 4_000.0, -2.0);
+        blurred[..4].copy_from_slice(&[floor, 0.0, -0.5, 2.0 * floor]);
+        let mut on_device = gpu
+            .upload(
+                &blurred
+                    .iter()
+                    .map(|&x| Complex { x, y: 0.7 })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        gpu.rl_ratio(&mut on_device, &gpu.upload(&data).unwrap(), floor)
+            .unwrap();
+        ratio(&mut blurred, &data, floor);
+        let got = gpu.download(&on_device).unwrap();
+        assert!(same_bits(
+            &got.iter().map(|c| c.x).collect::<Vec<_>>(),
+            &blurred
+        ));
+        assert!(got.iter().all(|c| c.y == 0.0), "imaginary parts cleared");
+        assert_eq!(&blurred[..3], [1.0, 1.0, 1.0], "at the floor or below, 1");
+        // The update, plain and over denominators, some corrections negative.
+        let estimate = scaled(n, 3, 1_000.0, 0.0);
+        let correction = scaled(n, 4, 2.0, -0.1);
+        let denominators = scaled(n, 5, 1.0, 0.1);
+        let as_complex: Vec<Complex> = correction.iter().map(|&x| Complex { x, y: 3.0 }).collect();
+        for tv in [None, Some(&denominators[..])] {
+            let mut cpu = estimate.clone();
+            update(&mut cpu, &correction, tv);
+            let mut on_device = gpu.upload(&estimate).unwrap();
+            let t = tv.map(|t| gpu.upload(t).unwrap());
+            gpu.rl_update(
+                &mut on_device,
+                &gpu.upload(&as_complex).unwrap(),
+                t.as_ref(),
+            )
+            .unwrap();
+            assert!(
+                same_bits(&gpu.download(&on_device).unwrap(), &cpu),
+                "{}",
+                tv.is_some()
+            );
+            assert!(cpu.contains(&0.0), "some held at 0");
+        }
+        // The product with the PSF's transform, scaled, and with its conjugate.
+        let buffer: Vec<Complex32> = (0..n)
+            .map(|i| Complex32::new(data[i] - 2_000.0, estimate[i] - 500.0))
+            .collect();
+        let otf: Vec<Complex32> = (0..n)
+            .map(|i| Complex32::new(correction[i], denominators[i] - 0.5))
+            .collect();
+        let scale = 1.0 / 12_345.0;
+        let scaled_otf: Vec<Complex32> = otf.iter().map(|h| h * scale).collect();
+        for mirrored in [false, true] {
+            let mut cpu = buffer.clone();
+            multiply(&mut cpu, &scaled_otf, mirrored);
+            let mut on_device = gpu.upload(&complex(&buffer)).unwrap();
+            gpu.rl_multiply(
+                &mut on_device,
+                &gpu.upload(&complex(&otf)).unwrap(),
+                scale,
+                mirrored,
+            )
+            .unwrap();
+            let got = gpu.download(&on_device).unwrap();
+            let parts = |v: &[Complex]| v.iter().flat_map(|c| [c.x, c.y]).collect::<Vec<_>>();
+            assert!(
+                same_bits(&parts(&got), &parts(&complex(&cpu))),
+                "mirrored: {mirrored}"
+            );
+        }
+        // Real values as complex ones.
+        let mut out = gpu.zeros(n).unwrap();
+        gpu.rl_to_complex(&gpu.upload(&data).unwrap(), &mut out)
+            .unwrap();
+        let got = gpu.download(&out).unwrap();
+        assert!(got.iter().zip(&data).all(|(c, &d)| c.x == d && c.y == 0.0));
+    }
+
+    #[test]
+    fn total_variation_matches_its_cpu_twin_exactly() {
+        let gpu = tetera_compute::cuda_or_skip!();
+        for (seed, (size, lambda)) in [
+            ([17, 9, 1], 0.002),
+            ([8, 7, 5], 0.05),
+            ([1, 1, 1], 0.002),
+            ([33, 1, 2], 5.0),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let n: usize = size.iter().product();
+            let mut u = scaled(n, seed as u64 + 20, 1_000.0, 0.0);
+            // A flat patch, where the gradient is 0 and its length is held at epsilon.
+            for v in u.iter_mut().take(n / 3) {
+                *v = 250.0;
+            }
+            let epsilon = 1e-3;
+            let mut cpu = vec![0.0; n];
+            total_variation(&u, size, lambda, epsilon, &mut cpu);
+            let mut out = gpu.zeros(n).unwrap();
+            gpu.rl_total_variation(&gpu.upload(&u).unwrap(), size, lambda, epsilon, &mut out)
+                .unwrap();
+            assert!(same_bits(&gpu.download(&out).unwrap(), &cpu), "{size:?}");
+            if lambda > 1.0 {
+                assert!(cpu.contains(&0.1), "held at 0.1");
+            }
+        }
+    }
+
+    #[test]
+    fn cuffts_transforms_match_the_cpus() {
+        let gpu = tetera_compute::cuda_or_skip!();
+        for (seed, size) in [
+            [16, 12, 1],
+            [30, 7, 1],
+            [10, 6, 4],
+            [1, 1, 1],
+            [1, 5, 1],
+            [9, 1, 3],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let n: usize = size.iter().product();
+            let input: Vec<Complex32> = scaled(n, seed as u64, 2.0, -1.0)
+                .iter()
+                .zip(scaled(n, seed as u64 + 50, 2.0, -1.0))
+                .map(|(&re, im)| Complex32::new(re, im))
+                .collect();
+            let fft = gpu.fft_plan(size).unwrap();
+            assert_eq!(fft.count(), n);
+            let mut cpu = input.clone();
+            let mut transform = Transform::new(size);
+            let mut a = gpu.upload(&complex(&input)).unwrap();
+            let mut b = gpu.zeros(n).unwrap();
+            for inverse in [false, true] {
+                transform.run(&mut cpu, inverse);
+                if inverse {
+                    fft.run(&mut b, &mut a, true).unwrap();
+                } else {
+                    fft.run(&mut a, &mut b, false).unwrap();
+                }
+                let got = gpu.download(if inverse { &a } else { &b }).unwrap();
+                let largest = cpu.iter().map(|c| c.norm()).fold(0.0, f32::max);
+                for (g, c) in got.iter().zip(&cpu) {
+                    let error = (Complex32::new(g.x, g.y) - c).norm();
+                    assert!(
+                        error <= 1e-5 * largest,
+                        "{size:?}, inverse {inverse}: {error}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The relative RMS difference of `a` from `b`, and the largest difference.
+    fn differences(a: &Volume, b: &Volume) -> (f64, f64) {
+        let (mut squares, mut norm, mut largest) = (0.0, 0.0, 0.0f64);
+        for (&x, &y) in a.values().iter().zip(b.values()) {
+            let d = f64::from(x) - f64::from(y);
+            squares += d * d;
+            norm += f64::from(y) * f64::from(y);
+            largest = largest.max(d.abs());
+        }
+        ((squares / norm).sqrt(), largest)
+    }
+
+    #[test]
+    fn richardson_lucy_on_the_gpu_meets_the_specs_tolerance() {
+        let gpu = tetera_compute::cuda_or_skip!();
+        let cpu = CpuBackend::new(0).unwrap();
+        let compute = Compute::from_probe(&tetera_compute::SystemProbe).unwrap();
+        for (seed, (size, psf_size, lambda)) in [
+            ([64, 48, 1], [7, 9, 1], 0.0),
+            ([50, 41, 1], [15, 11, 1], 0.002),
+            ([24, 20, 10], [5, 7, 5], 0.0),
+            ([18, 22, 8], [7, 5, 3], 0.002),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let seed = seed as u64;
+            let psf = random_psf(psf_size, seed + 100);
+            // A 12-bit specimen of bright points on a dim background, blurred, with noise.
+            let n: usize = size.iter().product();
+            let points: Vec<f32> = uniform(n, seed + 200)
+                .iter()
+                .map(|&v| if v > 0.97 { 3_000.0 } else { 80.0 })
+                .collect();
+            let [w, h, d] = size.map(|v| v as u32);
+            let specimen = Volume::new(w, h, d, points).unwrap();
+            let blurred = convolve_cpu(&cpu, &specimen, &psf).unwrap();
+            let rounded: Vec<u16> = blurred.values().iter().map(|v| v.round() as u16).collect();
+            let noisy = crate::pattern::noisy(&rounded, 10.0, 4_095, seed);
+            let image =
+                Volume::new(w, h, d, noisy.iter().map(|&v| f32::from(v)).collect()).unwrap();
+            let largest = image.values().iter().fold(0.0f32, |a, &v| a.max(v));
+            let settings = RichardsonLucy::new(20).with_total_variation(lambda);
+            let on_cpu = richardson_lucy_cpu(&cpu, &image, &psf, &settings).unwrap();
+            let mut run = DeviceDeconvolution::new(&gpu, &image, &psf, lambda).unwrap();
+            let start = run.flux().unwrap();
+            for _ in 0..20 {
+                run.step().unwrap();
+            }
+            assert_eq!(run.iterations(), 20);
+            if lambda == 0.0 {
+                let drift = (run.flux().unwrap() - start).abs() / start;
+                assert!(drift < 1e-5, "{size:?}: the flux drifted by {drift}");
+            }
+            let on_gpu = run.estimate().unwrap();
+            let (relative, worst) = differences(&on_gpu, &on_cpu);
+            assert!(
+                relative < 1e-3 && worst < 0.01 * f64::from(largest),
+                "{size:?}, λ {lambda}: relative RMS {relative:e}, worst {worst} of {largest}"
+            );
+            // The dispatch takes the GPU when there is one.
+            assert_eq!(
+                richardson_lucy(&compute, &image, &psf, &settings).unwrap(),
+                on_gpu
+            );
+        }
+    }
+
+    #[test]
+    fn the_device_refuses_what_the_cpu_refuses() {
+        let gpu = tetera_compute::cuda_or_skip!();
+        let image = Volume::new(4, 4, 1, vec![1.0; 16]).unwrap();
+        let psf_3d = random_psf([3, 3, 3], 1);
+        assert_eq!(
+            DeviceDeconvolution::new(&gpu, &image, &psf_3d, 0.0)
+                .unwrap_err()
+                .to_string(),
+            "a 3D PSF deconvolves a volume, not an image"
+        );
+        assert!(DeviceDeconvolution::new(&gpu, &image, &random_psf([3, 3, 1], 1), -1.0).is_err());
     }
 }

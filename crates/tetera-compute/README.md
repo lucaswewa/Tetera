@@ -13,6 +13,7 @@ Tetera's compute backends, L1 ([ADR-0009](../../docs/adr/0009-compute-backends-t
 - **`isp`** holds the ISP's corrections (`isp.cu`): dark subtraction, the flat field, and colour, a fixed-point matrix then a table per channel.
 - **`fused`** launches the fused ISP kernel (`fused.cu`, [ADR-0011](../../docs/adr/0011-fused-kernels.md)): crop or bin, dark, flat, demosaic, resize and colour in one pass, matching the unfused chain exactly. The demosaic's device code is shared with `demosaic.cu` through `demosaic.cuh`, which `build.rs` inlines for NVRTC.
 - **`denoise`** holds temporal averaging's window on the device and the bilateral filter's tables and launch (`denoise.cu`).
+- **`deconvolve`** holds the `Padding` both backends share for FFTs, and, with the feature, Richardson–Lucy's GPU parts: cuFFT plans over a volume (`DeviceFft`), and each element-wise step as a launch of its own (`deconvolve.cu`): padding, cropping, the product with the PSF's transform, the ratio, the update and total variation. They round each operation on its own, as Rust does, so each matches its CPU twin in `tetera-imaging` bit for bit; only the FFTs differ.
 
 The `cuda` feature needs no toolkit to build. To run on the GPU, it needs the Windows NVIDIA driver, and for NVRTC, cuFFT and nvJPEG the CUDA toolkit 13.3 in WSL ([docs/setup/toolchain.md](../../docs/setup/toolchain.md)).
 

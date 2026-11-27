@@ -54,6 +54,13 @@ pub const DISPLAY: KernelSource = KernelSource {
     fatbin: generated::DISPLAY_FATBIN,
 };
 
+/// `kernels/deconvolve.cu`: Richardson–Lucy's element-wise steps.
+pub const DECONVOLVE: KernelSource = KernelSource {
+    name: "deconvolve",
+    source: generated::DECONVOLVE_SOURCE,
+    fatbin: generated::DECONVOLVE_FATBIN,
+};
+
 /// `kernels/denoise.cu`: temporal averaging and the bilateral filter.
 pub const DENOISE: KernelSource = KernelSource {
     name: "denoise",
