@@ -29,6 +29,10 @@
 //! - [`deconvolve`]: Richardson–Lucy, 2D and 3D, with total variation if asked for, on the
 //!   CPU.
 //!
+//! From P1.07c:
+//! - [`deconvolve`] runs on the GPU too, through cuFFT, within the behaviour spec's tolerance
+//!   of the CPU.
+//!
 //! Each operation runs on whichever backend a [`Compute`](tetera_compute::Compute) chose;
 //! `_cpu` runs its twin, and `_device` leaves data on the GPU.
 

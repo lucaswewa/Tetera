@@ -17,7 +17,7 @@ Tetera's imaging algorithms, L1 (plan §6.6). Each has a CPU twin here, and, wit
 - **`pattern::Sensor`:** a synthetic sensor with an offset, vignetting and unequal channels, for testing the ISP.
 - **`denoise`:** temporal averaging, the exact mean of the last N frames, reset when the stage moves; and the bilateral filter, weights from fixed-point tables, one range weight for all three channels. `pattern::noisy` adds seeded Gaussian noise for tests.
 - **`psf`:** point spread functions, each centred and summing to 1. The widefield PSF comes from the NA, the wavelength and the pixel size, in focus (the Airy pattern) or through focus (scalar diffraction), each pixel averaged over 5 × 5 points; a measured one comes from a NumPy `.npy` file.
-- **`deconvolve`:** Richardson–Lucy in 2D and 3D on the CPU, with total-variation regularisation if asked for. Its convolutions are FFTs (`rustfft`) over the image mirrored at its edges, padded to sizes of small primes. `convolve_cpu` blurs an image by a PSF the same way. The GPU's twin comes in P1.07c.
+- **`deconvolve`:** Richardson–Lucy in 2D and 3D on the CPU, with total-variation regularisation if asked for. Its convolutions are FFTs (`rustfft`) over the image mirrored at its edges, padded to sizes of small primes. `convolve_cpu` blurs an image by a PSF the same way. On the GPU (P1.07c), `DeviceDeconvolution` runs the same steps through cuFFT, each element-wise step a kernel matching its CPU twin bit for bit. The two FFTs round differently, so the backends agree within the behaviour spec's tolerance: about 1e-6 relative after 20 iterations, against the 1e-3 allowed. `richardson_lucy` runs on whichever backend was chosen.
 
 Each operation runs on whichever backend a `Compute` chose. `_cpu` runs its twin, and `_device` leaves data on the GPU.
 
@@ -63,9 +63,9 @@ cargo run --release -p tetera-imaging --example denoise --features cuda
 `denoise` adds noise of σ 80 to a full 12-bit frame. Averaging 8 frames raises its PSNR by 9.0 dB, as √8 predicts, in 1.0 ms a frame on the GPU. The bilateral filter on one demosaicked frame raises it by 1.3 dB, in 18 ms on the GPU and 290 ms on the CPU.
 
 ```bash
-cargo run --release -p tetera-imaging --example deconvolve
+cargo run --release -p tetera-imaging --example deconvolve --features cuda
 ```
 
-`deconvolve` blurs a synthetic specimen of beads and discs, 1,024 × 1,024, by a widefield PSF (NA 0.5, 550 nm, 0.12 µm a pixel), adds noise of σ 15, and deconvolves it. It prints the RMS error against the specimen as the iterations go, plain and with total variation. The error falls, then rises again as Richardson–Lucy fits the noise: plain, from 63.2 to 59.0 at iteration 28; with total variation, to 57.9 at iteration 53. An iteration takes 23 to 29 ms on 16 threads. It does the same for a 192 × 192 × 48 stack, then writes the specimen, the image and the best estimate to `target/deconvolve`.
+`deconvolve` blurs a synthetic specimen of beads and discs, 1,024 × 1,024, by a widefield PSF (NA 0.5, 550 nm, 0.12 µm a pixel), adds noise of σ 15, and deconvolves it. It prints the RMS error against the specimen as the iterations go, plain and with total variation. The error falls, then rises again as Richardson–Lucy fits the noise: plain, from 63.2 to 59.0 at iteration 28; with total variation, to 57.9 at iteration 53. An iteration takes 23 to 29 ms on 16 threads. It does the same for a 192 × 192 × 48 stack. With CUDA, it runs both again on the GPU and checks the two backends agree: 1.2 ms an iteration in 2D and 3.0 ms in 3D, against 25 ms and 94 ms on the CPU. Then it times 20 iterations on a full 5,472 × 3,648 frame: about 350 ms, 17.6 ms each. It writes the specimen, the image and the best estimate to `target/deconvolve`.
 
 The CUDA tests run with `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda`.
