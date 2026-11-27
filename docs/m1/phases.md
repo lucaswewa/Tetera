@@ -50,24 +50,27 @@ Each phase has:
 | [P1.07a](#p107a-denoise) | Denoise | P1.05b | 1,020 | Yes | G1, G1c |
 | [P1.07b](#p107b-psfs-and-richardsonlucy) | PSFs and Richardson–Lucy | P1.07a | 1,395 | Yes | G1 |
 | [P1.07c](#p107c-richardsonlucy-on-the-gpu) | Richardson–Lucy on the GPU | P1.07b | 1,430 | — | G1, G1c |
-| [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06b, P1.07c | 1,880 | — | G1, G1c |
+| [P1.08a](#p108a-the-pipeline-model) | The pipeline model | P1.07c | 1,510 | — | G1 |
+| [P1.08b](#p108b-the-stock-nodes-and-live-runs) | The stock nodes and live runs | P1.08a | 1,330 | — | G1, G1c |
+| [P1.08c](#p108c-gpu-residency-and-fusion) | GPU residency and fusion | P1.08b | 1,490 | — | G1, G1c |
+| [P1.08d](#p108d-batch-runs-and-tiling) | Batch runs and tiling | P1.08c | 740 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
 | [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09 | 1,350 | — | G1 |
 | [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
 | [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10, P1.11 | 1,920 | — | G1, G1c, G2 |
 | [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12 | 1,980 | — | G1 |
-| [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08, P1.13 | 1,050 | — | G1, G1c |
+| [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08c, P1.13 | 1,050 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13 | 800 | — | G1 |
 | [P1.15b](#p115b-datasets-and-capture) | Datasets and capture | P1.14a, P1.15a | 1,550 | — | G1 |
 | [P1.16](#p116-autofocus) | Autofocus | P1.15b | 1,300 | Yes | G1 |
 | [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16 | 1,530 | — | G1 |
 | [P1.18](#p118-calibration) | Calibration (**Checkpoint C**) | P1.17 | 1,900 | Yes | G1, G1c, G2 |
-| [P1.19](#p119-batch-processing) | Batch processing | P1.15b, P1.08 | 1,400 | — | G1, G1c |
+| [P1.19](#p119-batch-processing) | Batch processing | P1.15b, P1.08d | 1,400 | — | G1, G1c |
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 28 phases since P1.04 to P1.07 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 31 phases since P1.04 to P1.08 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -441,7 +444,7 @@ Each phase has:
 - **The unfused chain:** crop or bin → dark → flat → demosaic → white balance and CCM → gamma → 8 bits → resize, stage by stage on either backend: P1.06b's reference. *Built resizing before colour, in linear light (see P1.06a's notes).*
 - **CUDA kernels** for each new stage, each with its CPU twin.
 
-**Out of scope.** The fused kernel (P1.06b); calibrating darks, flats and CCMs (P1.18); recipes (P1.08).
+**Out of scope.** The fused kernel (P1.06b); calibrating darks, flats and CCMs (P1.18); recipes (P1.08a).
 
 **Try it.** `isp`: the unfused chain on each backend, from 20 MP and from a binned mode to 1920 × 1280, with each stage's time and the images.
 
@@ -471,7 +474,7 @@ Each phase has:
 - **The fused kernel** (D7): crop or bin → dark → flat → demosaic (either method) → resize → white balance and CCM → gamma → 8 bits, in one CUDA pass: P1.06a's order.
 - **Its reference** is P1.06a's unfused chain on the CPU. The tolerance: within 1 level in 8 bits for 99.9 % of pixels, and 2 levels for all.
 
-**Out of scope.** Recipes, and the pass that finds the chain in one (P1.08).
+**Out of scope.** Recipes, and the pass that finds the chain in one (P1.08c).
 
 **Try it.** `isp` gains the fused chain: fused against unfused, CPU against GPU, with timings and the images.
 
@@ -582,42 +585,127 @@ Each phase has:
 
 ---
 
-## P1.08: The pipeline engine
+## P1.08a: The pipeline model
 
 | | |
 |---|---|
 | Crates | `tetera-pipeline` (new, L3) |
-| Depends on | P1.06b, P1.07c |
+| Depends on | P1.07c |
 | ADRs | 0012 the pipeline model |
-| Gates | G1, G1c |
-| First estimate | code 1,200 · tests 500 · examples 100 · docs-as-code 80 = **1,880** |
-| Ready split | P1.08a: the model, recipes, validation, the registry and the executor (~1,050) · P1.08b: GPU residency, fusion and tiling (~830) |
+| Gates | G1 |
+| Spec-first | — |
+| Second estimate | code 700 (ports, values, descriptors and the `Node` trait 180; recipes and their schema 110; validation and the order 230; the registry and two glue nodes 80; the CPU executor 100) · tests 700 · examples 60 · docs-as-code 30 · glue 20 = **1,510** (1,960 at ×1.3). The agent split P1.08 (second estimate about 5,070) on 2026-11-27, under the owner's standing approval, into P1.08a, P1.08b, P1.08c and P1.08d: the ready split's halves came to about 3,950 and 2,640 at ×1.3 |
 
-**Goal.** Describe image processing as a graph of nodes, and run it on a live stream or over data, on the best backend.
+**Goal.** Describe image processing as a graph of typed nodes, check a recipe precisely, and run it.
 
 **Scope.**
 
 - **`Node`:** a descriptor (id, version, input and output ports with types, parameters as JSON Schema, backends, fusable), and its run function.
-- **Port types:** raw frame, image (its format), scalar, table.
-- **Recipes:** JSON, with a schema. Validation reports exactly what is wrong: an unknown node, mismatched ports, a cycle, a missing or invalid parameter.
-- **The registry:** the stock nodes of P1.05–P1.07 and the glue nodes, under stable ids.
-- **The executor:** topological order; data kept on the GPU between consecutive CUDA nodes, copied only at the boundaries; copies counted.
-- **The fusion pass:** finds the live chain in a recipe and runs P1.06b's fused kernel in its place, when the backend and the parameters allow.
-- **Live mode:** one frame at a time; a frame that arrives while one is running replaces the waiting one.
-- **Batch mode:** over a list of inputs; large images in tiles, with a halo for neighbourhood operations.
+- **Port types:** raw frame, image (its channels and sample type), scalar, table.
+- **Recipes:** JSON, with a schema. Validation reports exactly what is wrong: an unknown node or version, an unknown port, mismatched port types, an input left unfed or fed twice, a cycle, a missing or invalid parameter.
+- **The registry,** under stable ids, with the first glue nodes: crop, and statistics.
+- **The executor,** on the CPU: topological order, each value handed from port to port.
 
-**Out of scope.** Batch over datasets as jobs (P1.19); extension nodes (M2).
+**Out of scope.** The stock nodes and live runs (P1.08b); GPU residency and fusion (P1.08c); batch runs and tiling (P1.08d).
 
-**Try it.** `recipe`: a JSON recipe run on a synthetic frame, then live at 14.5 fps, then over a folder of frames.
+**Try it.** `recipe`: a JSON recipe validated, a broken one refused with its messages, and the good one run on a synthetic frame.
 
 **Done when.**
 
 - Every invalid recipe in the test set is refused with a precise message.
+- The executor runs a recipe's nodes in topological order, and gives its outputs.
+- ADR-0012 records the model.
+
+**Tests.** Validation, a case for each error; topological order; the executor on test nodes. **Broken on purpose:** the validator's type check.
+
+---
+
+## P1.08b: The stock nodes and live runs
+
+| | |
+|---|---|
+| Crates | `tetera-pipeline` |
+| Depends on | P1.08a |
+| ADRs | — |
+| Gates | G1, G1c |
+| Estimate | code 600 (the stock nodes, about 30 lines each, 450; live runs 150) · tests 600 · examples 100 · docs-as-code 20 · glue 10 = **1,330** (1,730 at ×1.3), from P1.08's split; its own second estimate comes before its code |
+
+**Goal.** Every stock algorithm as a node, and recipes run on a live stream.
+
+**Scope.**
+
+- **The stock nodes** of P1.05–P1.07 in the registry, under stable ids: the Bayer split, the superpixel, binning, demosaicking, resizing, the display transform, JPEG, dark, flat, colour, temporal averaging, the bilateral filter, and Richardson–Lucy. Each runs on whichever backend `Compute` chose.
+- **Live mode:** one frame at a time; a frame that arrives while one is running replaces the waiting one.
+
+**Out of scope.** Keeping data on the GPU between nodes, and fusion (P1.08c).
+
+**Try it.** `recipe` runs the live chain as separate nodes, live at 14.5 fps.
+
+**Done when.**
+
+- Every stock node is in the registry, with its descriptor and its parameters' schema.
+- Live mode never queues more than one frame.
+
+**Tests.** Each node against the function it wraps; live mode under a source faster than the recipe. **Broken on purpose:** live mode keeping every frame.
+
+---
+
+## P1.08c: GPU residency and fusion
+
+| | |
+|---|---|
+| Crates | `tetera-pipeline` |
+| Depends on | P1.08b |
+| ADRs | — |
+| Gates | G1, G1c |
+| Estimate | code 700 (values on the device and the copies counted 150; the nodes' device paths 300; the executor's residency 100; the fusion pass 150) · tests 700 · examples 60 · docs-as-code 20 · glue 10 = **1,490** (1,940 at ×1.3), from P1.08's split; its own second estimate comes before its code |
+
+**Goal.** Run recipes on the GPU without needless copies, and with the fused kernel where it fits.
+
+**Scope.**
+
+- **GPU residency:** data kept on the GPU between consecutive CUDA nodes, copied only at the boundaries; copies counted.
+- **The fusion pass:** finds the live chain in a recipe, and runs P1.06b's fused kernel in its place, when the backend and the parameters allow.
+
+**Out of scope.** Batch runs and tiling (P1.08d).
+
+**Try it.** `recipe` on the GPU: the copies it made, and the live chain fused against unfused.
+
+**Done when.**
+
 - Fusion triggers, and its output matches the unfused recipe's.
 - A chain of CUDA nodes makes only the boundary copies.
+
+**Tests.** The fusion matcher; copy counts. **Broken on purpose:** the fusion matcher.
+
+---
+
+## P1.08d: Batch runs and tiling
+
+| | |
+|---|---|
+| Crates | `tetera-pipeline` |
+| Depends on | P1.08c |
+| ADRs | — |
+| Gates | G1, G1c |
+| Estimate | code 330 (batch runs over a list of inputs 80; tiles with halos, each node's reach declared, 250) · tests 330 · examples 60 · docs-as-code 15 · glue 5 = **740**, from P1.08's split; its own second estimate comes before its code |
+
+**Goal.** Run a recipe over many inputs, and over images too large to take whole.
+
+**Scope.**
+
+- **Batch mode:** over a list of inputs.
+- **Tiling:** large images in tiles, with a halo for neighbourhood operations. Each node declares how far it reaches, or that it needs the whole image.
+
+**Out of scope.** Batch over datasets as jobs (P1.19); extension nodes (M2).
+
+**Try it.** `recipe` over a folder of frames, tiled and untiled.
+
+**Done when.**
+
 - Tiled and untiled results are the same.
 
-**Tests.** Validation cases; topological order; the fusion matcher; copy counts; tiles with halos; live mode never queueing more than one frame. **Broken on purpose:** the validator's type check, and the fusion matcher.
+**Tests.** Tiles with halos at edges and corners; a node that needs the whole image; batch order. **Broken on purpose:** a halo one pixel short.
 
 ---
 
@@ -834,7 +922,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-acquire` (new, L4) |
-| Depends on | P1.08, P1.13 |
+| Depends on | P1.08c, P1.13 |
 | ADRs | — (the frame bus's design is in ADR-0008, from P1.03) |
 | Gates | G1, G1c |
 | First estimate | code 700 · tests 300 · examples 50 = **1,050** (the owner split P1.14 on 2026-11-26) |
@@ -1107,7 +1195,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-workflows`, `tetera-pipeline`, `tetera-store`, `tetera-api` |
-| Depends on | P1.15b, P1.08 |
+| Depends on | P1.15b, P1.08d |
 | ADRs | — |
 | Gates | G1, G1c |
 | First estimate | code 900 · tests 400 · examples 80 · docs-as-code 20 = **1,400** |

@@ -149,3 +149,14 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-imaging --example deconvolve -- --smoke` — expect `CUDA: not in this build` and `smoke: ok`.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda deconvolve` and the same for `tetera-compute` — expect every test to pass.
 - **Result:** see the [notes](notes/P1.07c-richardson-lucy-on-the-gpu.md#manual-test).
+
+## P1.08a: The pipeline model
+
+- **Prerequisites:** the phase's branch.
+- [ ] `cargo run --release -p tetera-pipeline --example recipe` — expect:
+  - the registry's two nodes, `tetera.crop` and `tetera.statistics`;
+  - `broken on purpose` refused with six problems, each naming where it is: bad parameters, an unknown node, an unfed input, a cycle, a type mismatch, an output from nowhere;
+  - `crop and measure` run, crop before measure, with each channel's statistics.
+- [ ] `cargo run -p tetera-pipeline --example recipe -- crates/tetera-pipeline/recipes/broken.json` — expect the six problems and an error exit; with `crop-and-measure.json`, its order.
+- [ ] `cargo test -p tetera-pipeline` — expect every test to pass.
+- **Result:** see the [notes](notes/P1.08a-the-pipeline-model.md#manual-test).

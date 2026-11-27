@@ -768,6 +768,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tetera-pipeline"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "tetera-compute",
+ "tetera-core",
+ "tetera-imaging",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"

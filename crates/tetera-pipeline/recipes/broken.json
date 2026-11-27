@@ -1,0 +1,50 @@
+{
+  "name": "broken on purpose",
+  "summary": "A recipe with something wrong in each node, to show what validation says.",
+  "inputs": {
+    "frame": { "kind": "image", "channels": 3, "sample": "u16" }
+  },
+  "nodes": [
+    {
+      "id": "crop",
+      "node": "tetera.crop",
+      "params": { "x": 64, "y": 64, "width": 256 },
+      "inputs": { "image": "frame" }
+    },
+    {
+      "id": "blur",
+      "node": "tetera.gaussian",
+      "inputs": { "image": "frame" }
+    },
+    {
+      "id": "stats",
+      "node": "tetera.statistics",
+      "inputs": { "image": "frame" }
+    },
+    {
+      "id": "crop_the_table",
+      "node": "tetera.crop",
+      "params": { "x": 0, "y": 0, "width": 8, "height": 8 },
+      "inputs": { "image": "stats.table" }
+    },
+    {
+      "id": "measure",
+      "node": "tetera.statistics",
+      "inputs": { "image": "again.table" }
+    },
+    {
+      "id": "again",
+      "node": "tetera.statistics",
+      "inputs": { "image": "measure.table" }
+    },
+    {
+      "id": "second",
+      "node": "tetera.crop",
+      "params": { "x": 0, "y": 0, "width": 8, "height": 8 }
+    }
+  ],
+  "outputs": {
+    "statistics": "measure.table",
+    "small": "second.picture"
+  }
+}
