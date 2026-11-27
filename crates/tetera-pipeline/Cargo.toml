@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# The nodes' CUDA paths, through tetera-imaging. Without it, every node runs on the CPU.
+cuda = ["tetera-compute/cuda", "tetera-imaging/cuda"]
+
 [dependencies]
 schemars.workspace = true
 serde.workspace = true

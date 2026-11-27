@@ -9,11 +9,11 @@
 - **The plan describes processing as a graph** (§6.7): a recipe is a DAG of nodes with typed ports, written as JSON with a schema. It runs per frame on the live stream, or in batch over a dataset. Each node declares its ports, its parameters as JSON Schema, its backends, and whether it can fuse.
 - **Recipes come from outside the code:** the web app's editor (M4), extensions (M2), and people writing JSON by hand. A mistake must be refused before anything runs, with a message saying where and what, not found halfway through a scan.
 - **The stock algorithms exist** (P1.05–P1.07), each a function on the CPU and on CUDA. Some keep state between frames: temporal averaging keeps a window, and the bilateral filter its tables.
-- **The pipeline engine was split in four** (P1.08a–d). This ADR fixes the model the other three build on: GPU residency and fusion (P1.08c), and tiling (P1.08d), change how a plan runs, not what a recipe says.
+- **The pipeline engine was split in five** (P1.08a–e). This ADR fixes the model the others build on: GPU residency and fusion (P1.08c), live runs (P1.08d) and tiling (P1.08e) change how a plan runs, not what a recipe says.
 
 ## Decision
 
-1. **Port types:** a raw frame (a Bayer mosaic), an image (channels, and a sample type of `u8`, `u16` or `f32`), a scalar, or a table of named numbers. A node's input may leave an image's channels or sample type open, to take any. An output may *follow* an input, taking what it leaves open from what that input is given, so `tetera.crop` gives what it was given.
+1. **Port types:** a raw frame (a Bayer mosaic), an image (channels, and a sample type of `u8`, `u16` or `f32`), an encoded image (bytes in a format, JPEG first; added in P1.08b for the JPEG node), a scalar, or a table of named numbers. A node's input may leave an image's channels or sample type open, to take any. An output may *follow* an input, taking what it leaves open from what that input is given, so `tetera.crop` gives what it was given.
 2. **A node is a descriptor and a factory:**
    - the `Descriptor` holds a stable dotted id (`tetera.crop`), a version, the ports, the parameters' JSON Schema, the backends, and whether it can fuse;
    - `Node::prepare` reads the parameters into the node's own typed struct, and gives a `Step`;
@@ -51,7 +51,7 @@
   - serde's message names a parameter but not its path in nested parameters. No stock node nests them.
 - **To watch:**
   - values are kept until the run ends, which costs memory on long recipes of large images. P1.08c's residency work frees each when its last reader is done;
-  - the type system has no variants beyond these four kinds, and a node that takes "a raw frame or an image" must be two nodes, or take an image.
+  - the type system has no variants beyond these kinds, and a node that takes "a raw frame or an image" must be two nodes, or take an image.
 
 ## Alternatives considered
 

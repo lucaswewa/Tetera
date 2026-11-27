@@ -31,7 +31,10 @@ impl Registry {
     /// Tetera's own nodes.
     pub fn stock() -> Self {
         let mut registry = Self::new();
-        for node in crate::glue::nodes() {
+        for node in crate::glue::nodes()
+            .into_iter()
+            .chain(crate::stock::nodes())
+        {
             registry
                 .register(node)
                 .expect("the stock nodes are sound and distinct");
@@ -125,21 +128,51 @@ mod tests {
     }
 
     #[test]
-    fn the_stock_registry_holds_the_glue_nodes() {
+    fn the_stock_registry_holds_the_glue_and_raw_path_nodes() {
         let registry = Registry::stock();
         let ids: Vec<(&str, u32)> = registry.descriptors().map(|d| (d.id, d.version)).collect();
-        assert_eq!(ids, [("tetera.crop", 1), ("tetera.statistics", 1)]);
+        let expected = [
+            "tetera.bayer_split",
+            "tetera.bin",
+            "tetera.colour",
+            "tetera.crop",
+            "tetera.dark",
+            "tetera.demosaic",
+            "tetera.display",
+            "tetera.flat",
+            "tetera.jpeg",
+            "tetera.resize",
+            "tetera.statistics",
+            "tetera.superpixel",
+        ];
+        assert_eq!(ids, expected.map(|id| (id, 1)));
         let catalogue = registry.catalogue();
-        assert_eq!(catalogue[0]["id"], "tetera.crop");
+        let entry = |id: &str| {
+            catalogue
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|d| d["id"] == id)
+                .unwrap()
+                .clone()
+        };
         assert_eq!(
-            catalogue[0]["parameters"]["required"],
+            entry("tetera.crop")["parameters"]["required"],
             serde_json::json!(["x", "y", "width", "height"])
         );
-        assert_eq!(catalogue[1]["outputs"][0]["type"]["kind"], "table");
         assert_eq!(
-            format!("{registry:?}"),
-            "Registry { nodes: [\"tetera.crop 1\", \"tetera.statistics 1\"] }"
+            entry("tetera.statistics")["outputs"][0]["type"]["kind"],
+            "table"
         );
+        assert_eq!(entry("tetera.demosaic")["backends"]["cuda"], true);
+        assert_eq!(
+            entry("tetera.jpeg")["backends"]["cuda"],
+            false,
+            "libjpeg-turbo is on the CPU"
+        );
+        assert_eq!(entry("tetera.crop")["backends"]["cuda"], false);
+        let debug = format!("{registry:?}");
+        assert!(debug.starts_with("Registry { nodes: [\"tetera.bayer_split 1\", \"tetera.bin 1\""));
         assert_eq!(Registry::new().descriptors().count(), 0);
     }
 

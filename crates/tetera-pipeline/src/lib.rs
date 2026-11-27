@@ -10,6 +10,11 @@
 //!   nodes in the order they run; and running it;
 //! - [`registry`]: the nodes by stable id and version;
 //! - [`glue`]: the first nodes, crop and statistics.
+//!
+//! From P1.08b:
+//! - [`port`] carries encoded images too, JPEG first;
+//! - [`stock`]: the raw path's nodes, from binning to JPEG, each on the backend chosen; and
+//!   the live chain as a recipe, `recipes/live-chain.json`.
 
 pub mod glue;
 pub mod node;
@@ -17,9 +22,10 @@ pub mod plan;
 pub mod port;
 pub mod recipe;
 pub mod registry;
+pub mod stock;
 
 pub use node::{Backends, Context, Descriptor, Node, Step};
 pub use plan::{Plan, Problem};
-pub use port::{PortSpec, PortType, SampleType, Table, Value};
+pub use port::{Encoding, PortSpec, PortType, SampleType, Table, Value};
 pub use recipe::{NodeUse, Recipe};
 pub use registry::Registry;

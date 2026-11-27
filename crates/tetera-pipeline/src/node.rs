@@ -74,6 +74,12 @@ impl Descriptor {
         self
     }
 
+    /// The same, on CUDA as well as the CPU.
+    pub fn on_cuda(mut self) -> Self {
+        self.backends.cuda = true;
+        self
+    }
+
     /// The same, its parameters those of `P`.
     pub fn parameters<P: JsonSchema>(mut self) -> Self {
         self.parameters = schema::<P>();

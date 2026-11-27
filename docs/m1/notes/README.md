@@ -17,10 +17,11 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.07a | Denoise | Done | [P1.07a](P1.07a-denoise.md) |
 | P1.07b | PSFs and Richardson–Lucy | Done | [P1.07b](P1.07b-psfs-and-richardson-lucy.md) |
 | P1.07c | Richardson–Lucy on the GPU | Done | [P1.07c](P1.07c-richardson-lucy-on-the-gpu.md) |
-| P1.08a | The pipeline model | In review | [P1.08a](P1.08a-the-pipeline-model.md) |
-| P1.08b | The stock nodes and live runs | Not started | — |
+| P1.08a | The pipeline model | Done | [P1.08a](P1.08a-the-pipeline-model.md) |
+| P1.08b | The raw path's nodes | In review | [P1.08b](P1.08b-the-raw-paths-nodes.md) |
 | P1.08c | GPU residency and fusion | Not started | — |
-| P1.08d | Batch runs and tiling | Not started | — |
+| P1.08d | Denoise and deconvolution nodes, and live runs | Not started | — |
+| P1.08e | Batch runs and tiling | Not started | — |
 | P1.09 | The HAL | Not started | — |
 | P1.10 | The simulated clock and the virtual stage | Not started | — |
 | P1.11 | The H&E sample on the GPU | Not started | — |

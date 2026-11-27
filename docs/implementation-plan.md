@@ -68,7 +68,7 @@ OScope is the owner's previous build of the same instrument software. It ran thr
 
 | OScope's lesson | Source | What Tetera does |
 |---|---|---|
-| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 31 phases each. Extensions get their own two milestones |
+| Milestones were huge: 65 phases in M1, 52 in M2 | Plan §12, both retrospectives | **Five milestones** of 7 to 32 phases each. Extensions get their own two milestones |
 | Line budgets (300/600/900) never fit. Estimates in parts, committed before the code, did fit: median 1.04 in M1 | M1 retrospective | **No budgets.** A five-part estimate, committed before the code, with a cap that triggers a question to the owner ([§7](#7-how-phases-work)) |
 | The simulator on the CPU was the live view's bottleneck: about 160 ms a frame, 2 s while jogging. It moved to the GPU late | ADR-0062, performance notes | **The simulator is GPU-first from its first phase**, with the CPU path as reference and fallback |
 | Full replays took about an hour per phase. Change-reach gates cut that | ADR-0038, ADR-0061 | **Tiered gates from day one:** quick, phase, checkpoint, milestone ([§8](#8-local-ci-gates)). Each phase runs only what its change reaches |
@@ -279,7 +279,7 @@ Tetera/
 | `autofocus` | Autofocus as a job | P1.16 |
 | `scan` | Planners, plan preview, start, live progress | P1.17 |
 | `calibration` | Per-objective calibration sets, routines, the wizard's steps | P1.18 |
-| `pipeline` | The node catalogue, recipes, runs on datasets | P1.08a–d, P1.19 |
+| `pipeline` | The node catalogue, recipes, runs on datasets | P1.08a–e, P1.19 |
 | `status` | Each subsystem's health, rolled up into one status | P1.20 |
 | `logs` | Records, filters, live tail | P1.20 |
 | `power` | Restart the service or WSL; reboot or shut down the host | P1.20 |
@@ -591,9 +591,10 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 | P1.07b | PSFs and Richardson–Lucy *(spec-first)* | Theoretical and measured PSFs; Richardson–Lucy, 2D and 3D, on the CPU | `ex-deconvolve`, against a blurred ground truth | — |
 | P1.07c | Richardson–Lucy on the GPU | Richardson–Lucy on cuFFT, matching the CPU | `ex-deconvolve` on the GPU | — |
 | P1.08a | The pipeline model | DAG, typed ports, JSON recipes and their schema, validation, the registry, the CPU executor | `ex-recipe`: a recipe validated and run on a frame | 0012 |
-| P1.08b | The stock nodes and live runs | The stock nodes of P1.05–P1.07 in the registry; live runs, the latest frame kept | `ex-recipe`, live | — |
+| P1.08b | The raw path's nodes | An encoded image as a port type; the raw path's nodes, from binning to JPEG; the live chain as a recipe | `ex-recipe`: the live chain, node by node | — |
 | P1.08c | GPU residency and fusion | Data kept on the GPU between CUDA nodes, copies counted; the fusion pass | `ex-recipe` on the GPU, fused | — |
-| P1.08d | Batch runs and tiling | Runs over a list of inputs; tiles with halos | `ex-recipe` over a folder, tiled | — |
+| P1.08d | Denoise and deconvolution nodes, and live runs | Temporal averaging, the bilateral filter and Richardson–Lucy as nodes; live runs, the latest frame kept | `ex-recipe`, live | — |
+| P1.08e | Batch runs and tiling | Runs over a list of inputs; tiles with halos | `ex-recipe` over a folder, tiled | — |
 
 #### Stage 1C: Hardware abstraction and simulation (ends with Checkpoint A)
 
@@ -693,7 +694,7 @@ Each driver phase is *Done* only after the owner has run its manual test on the 
 | P5.06 | Performance | The raw path at the camera's rate to scratch; preview latency and rate; GPU tuning; memory; several clients; H.264 only if needed | — |
 | P5.07 | Packaging and release 1.0 | A `.deb` and the systemd unit for WSL; a Windows bootstrap (`.wslconfig`, the task, usbipd); a 24-hour soak; the user's guide; the release; the retrospective | 0042 |
 
-**In all:** 68 phases, plus the spike: M1 31, M2 8, M3 10, M4 12, M5 7.
+**In all:** 69 phases, plus the spike: M1 32, M2 8, M3 10, M4 12, M5 7.
 
 **Each phase's status** is in [`m1/notes/README.md`](m1/notes/README.md): *Not started*, *In review* or *Done*.
 
@@ -924,7 +925,7 @@ A first draft. **From P1.01, [`setup/toolchain.md`](setup/toolchain.md) is the g
 | R5 | **CUDA under WSL2 has limits** that native Linux doesn't. NVIDIA's WSL guide lists them | A feature Tetera plans to use may not work, such as pinned memory at size, or IPC to Python workers | P1.04 checks each feature Tetera uses. Python workers get frames through host shared memory, not CUDA IPC |
 | R6 | **Disk:** OScope's phases built 60–70 GB each. WSL's virtual disk grows and doesn't shrink by itself | Full disks break WSL | `doctor` checks before G2 and G3; `sparseVhd`; the distro on D: (§12.1); cleaning between milestones |
 | R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
-| R8 | **Scope:** 68 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
+| R8 | **Scope:** 69 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
 | R9 | **The extension ABI** must stay stable across SDK versions | Old extensions break, or crash the server | A versioned C ABI checked at install; panics caught; tests against the previous SDK version; Python in separate processes |
 | R10 | **Extensions as the only home** of stitching, deep zoom, depth from focus and volumes | The SDK must be rich enough for heavy, GPU-bound nodes | P2.03 gives Rust extensions the GPU; P3.01 is a small extension that proves the path before P3.02 |
 | R11 | **The host's sleep, and WSL's clock drift** | Wrong wall-clock times in metadata | A monotonic clock; UTC mapped at start-up and re-checked; a status warning on drift |
@@ -1126,3 +1127,5 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-27 | **P1.08's second estimate,** before its code, counting tests at the code's size: about 5,070 (code 2,330 · tests 2,330 · examples 280 · docs-as-code 85 · glue 45), against 1,880 at first. The stock nodes need a wrapper each, and GPU residency a device path for each. Over 2,000, and its ready split's halves still about 3,950 and 2,640 at ×1.3: **split by the agent** under the owner's standing approval into P1.08a (the model, recipes, validation and the CPU executor), P1.08b (the stock nodes and live runs), P1.08c (GPU residency and fusion) and P1.08d (batch runs and tiling). P1.14a now depends on P1.08c, and P1.19 on P1.08d. 68 phases, M1 31 |
 | 2026-11-27 | **P1.08a's second estimate:** code 700 (ports, values, descriptors and the `Node` trait 180; recipes and their schema 110; validation and the order 230; the registry and two glue nodes 80; the CPU executor 100) · tests 700 · examples 60 · docs-as-code 30 · glue 20 = **1,510**, 1,960 at ×1.3 |
 | 2026-11-27 | **P1.08a measured 2,447 lines against its second estimate of 1,510 (×1.62),** over the 2,000 cap: code 1,245, tests 945. Validation that says every problem once, precisely, took 459 lines alone. P1.08b–d's second estimates count messages and checks at this rate ([notes](m1/notes/P1.08a-the-pipeline-model.md#size)) |
+| 2026-11-27 | **P1.08b's second estimate,** before its code, at P1.08a's rate: every stock node and live runs came to about 1,760 (code 785 · tests 785 · examples 150 · docs-as-code 25 · glue 15), 2,290 at ×1.3. Over 2,000: **re-split by the agent** under the owner's standing approval. P1.08b keeps the raw path's ten nodes, with an encoded image as a port type: code 620 · tests 620 · examples 120 · docs-as-code 20 · glue 10 = **1,390**, 1,810 at ×1.3. The denoise and deconvolution nodes join live runs in a new P1.08d (900), after P1.08c; batch runs and tiling become P1.08e. P1.14a now depends on P1.08d, and P1.19 on P1.08e. 69 phases, M1 32 |
+| 2026-11-27 | **P1.08b measured 1,346 lines against its second estimate of 1,390 (×0.97):** code 577, tests 591. The live chain's recipe gives exactly the preview `Isp::run` gives, on either backend; on CUDA it is slower than the CPU until P1.08c keeps data on the GPU ([notes](m1/notes/P1.08b-the-raw-paths-nodes.md#size)) |

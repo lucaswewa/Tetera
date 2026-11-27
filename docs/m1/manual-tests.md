@@ -160,3 +160,14 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-pipeline --example recipe -- crates/tetera-pipeline/recipes/broken.json` — expect the six problems and an error exit; with `crop-and-measure.json`, its order.
 - [ ] `cargo test -p tetera-pipeline` — expect every test to pass.
 - **Result:** see the [notes](notes/P1.08a-the-pipeline-model.md#manual-test).
+
+## P1.08b: The raw path's nodes
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3, `cmake` and `nasm` in WSL.
+- [ ] `cargo run --release -p tetera-pipeline --example recipe --features cuda` — expect, after P1.08a's output:
+  - the live chain's nodes in order, from `less_dark` to `jpeg`;
+  - a time on the CPU and on CUDA, each saying the preview is the ISP's own, exactly, with no error;
+  - `target/recipe/preview.jpg`: the test pattern, its corners as bright as its centre, its colours balanced.
+- [ ] `cargo run -p tetera-pipeline --example recipe -- --smoke` — expect the live chain on the CPU alone and `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-pipeline --features cuda` — expect every test to pass.
+- **Result:** see the [notes](notes/P1.08b-the-raw-paths-nodes.md#manual-test).
