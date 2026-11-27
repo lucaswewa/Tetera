@@ -54,6 +54,13 @@ pub const DISPLAY: KernelSource = KernelSource {
     fatbin: generated::DISPLAY_FATBIN,
 };
 
+/// `kernels/fused.cu`: the fused ISP, one pass from a raw frame to a preview.
+pub const FUSED: KernelSource = KernelSource {
+    name: "fused",
+    source: generated::FUSED_SOURCE,
+    fatbin: generated::FUSED_FATBIN,
+};
+
 /// `kernels/isp.cu`: dark subtraction, the flat field, and colour.
 pub const ISP: KernelSource = KernelSource {
     name: "isp",

@@ -14,6 +14,7 @@ pub mod cpu;
 #[cfg(feature = "cuda")]
 pub mod cuda;
 pub mod features;
+pub mod fused;
 pub mod imaging;
 pub mod isp;
 #[cfg(feature = "cuda")]

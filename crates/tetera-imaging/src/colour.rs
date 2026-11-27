@@ -140,8 +140,8 @@ pub fn colour(compute: &Compute, image: &Image<u16>, colour: &Colour) -> Result<
 #[cfg(feature = "cuda")]
 #[derive(Debug)]
 pub struct DeviceColour {
-    matrix: tetera_compute::DeviceBuffer<i32>,
-    tables: tetera_compute::DeviceBuffer<u8>,
+    pub(crate) matrix: tetera_compute::DeviceBuffer<i32>,
+    pub(crate) tables: tetera_compute::DeviceBuffer<u8>,
 }
 
 #[cfg(feature = "cuda")]

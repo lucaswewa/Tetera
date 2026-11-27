@@ -6,7 +6,7 @@
 //! interleaved, three values a pixel.
 
 use tetera_core::frame::format::BayerPattern;
-use tetera_core::{Error, Result};
+use tetera_core::{Error, Rect, Result};
 
 /// A demosaicking method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -97,6 +97,42 @@ impl MosaicLayout {
             pattern: self.pattern,
             significant_bits: bits,
         })
+    }
+}
+
+/// How the ISP reduces a raw frame first (P1.06a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reduce {
+    /// The whole frame.
+    Full,
+    /// A region of it, its pattern moved for an odd column or row.
+    Crop(Rect),
+    /// Binned by 2, 3 or 4, by the mean, keeping the Bayer layout.
+    Bin(u32),
+}
+
+impl MosaicLayout {
+    /// The layout after `reduce`.
+    pub fn reduced(&self, reduce: Reduce) -> Result<Self> {
+        match reduce {
+            Reduce::Full => Ok(*self),
+            Reduce::Crop(roi) => {
+                let whole = Rect::new(0, 0, self.width, self.height);
+                if roi.is_empty() || !whole.contains_rect(&roi) {
+                    return Err(Error::invalid_argument(format!(
+                        "{roi:?} isn't inside the {} × {} frame",
+                        self.width, self.height
+                    )));
+                }
+                Ok(Self {
+                    width: roi.width,
+                    height: roi.height,
+                    pattern: self.pattern.cropped(roi.x, roi.y),
+                    ..*self
+                })
+            }
+            Reduce::Bin(factor) => self.binned(factor, BinMode::Mean),
+        }
     }
 }
 
@@ -311,8 +347,8 @@ mod device {
         input: u32,
         output: u32,
         taps: u32,
-        start: DeviceBuffer<i32>,
-        weights: DeviceBuffer<u16>,
+        pub(crate) start: DeviceBuffer<i32>,
+        pub(crate) weights: DeviceBuffer<u16>,
     }
 
     impl DeviceAxis {
@@ -659,6 +695,49 @@ mod tests {
             0,
             "no whole block"
         );
+    }
+
+    #[test]
+    fn reducing_crops_moving_the_pattern_or_bins_by_the_mean() {
+        let raw = MosaicLayout {
+            width: 20,
+            height: 12,
+            pattern: BayerPattern::Rggb,
+            significant_bits: 12,
+        };
+        assert_eq!(raw.reduced(Reduce::Full).unwrap(), raw);
+        let crop = raw.reduced(Reduce::Crop(Rect::new(3, 1, 10, 8))).unwrap();
+        assert_eq!(
+            (crop.width, crop.height, crop.pattern, crop.significant_bits),
+            (10, 8, BayerPattern::Bggr, 12)
+        );
+        assert_eq!(
+            raw.reduced(Reduce::Crop(Rect::new(0, 0, 20, 12))).unwrap(),
+            raw,
+            "the whole frame"
+        );
+        let err = raw
+            .reduced(Reduce::Crop(Rect::new(15, 0, 10, 8)))
+            .unwrap_err();
+        assert!(
+            err.to_string().ends_with("isn't inside the 20 × 12 frame"),
+            "{err}"
+        );
+        assert!(
+            raw.reduced(Reduce::Crop(Rect::new(0, 0, 0, 8))).is_err(),
+            "empty"
+        );
+        assert!(
+            raw.reduced(Reduce::Crop(Rect::new(0, 0, 8, 0))).is_err(),
+            "empty"
+        );
+        let bin = raw.reduced(Reduce::Bin(2)).unwrap();
+        assert_eq!(
+            (bin.width, bin.height, bin.significant_bits),
+            (10, 6, 12),
+            "the mean keeps the bits"
+        );
+        assert!(raw.reduced(Reduce::Bin(5)).is_err());
     }
 
     #[cfg(feature = "cuda")]

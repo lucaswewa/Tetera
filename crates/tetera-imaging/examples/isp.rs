@@ -1,5 +1,6 @@
 //! The ISP's unfused chain on each backend, from a full 20 MP frame and from a 2 × 2 binned
-//! one, to a 1920 × 1280 preview: each stage's time, and whether the CPU and CUDA agree.
+//! one, to a 1920 × 1280 preview: each stage's time, and whether the CPU and CUDA agree. Then
+//! the fused kernel (P1.06b), the whole chain in one pass on the GPU, against the chain.
 //!
 //! The frame is the test pattern through a synthetic sensor with an offset, vignetting and
 //! unequal channels. Its master dark and flat field come from the same sensor, and white
@@ -205,6 +206,44 @@ fn stages_gpu(
     Ok((last.expect("it ran").download(gpu)?, times))
 }
 
+/// The fused kernel's time, the best of `passes` after one that loads its module, its output's
+/// allocation included; checked against the chain's preview.
+#[cfg(feature = "cuda")]
+fn time_fused(
+    gpu: &tetera_compute::CudaBackend,
+    isp: &Isp,
+    raw: &Mosaic,
+    passes: u32,
+    preview: &Image<u8>,
+) -> Result<f64> {
+    let on_device = tetera_imaging::DeviceMosaic::upload(gpu, raw)?;
+    let prepared = tetera_imaging::isp::DeviceIsp::upload(gpu, isp)?;
+    let mut best = f64::INFINITY;
+    let mut last = None;
+    for pass in 0..=passes {
+        let mut out = None;
+        let ms = gpu.time_ms(|| {
+            out = Some(prepared.run_fused(gpu, isp, &on_device)?);
+            Ok(())
+        })?;
+        if pass > 0 {
+            best = best.min(f64::from(ms));
+        }
+        last = out;
+    }
+    let fused = last.expect("it ran").download(gpu)?;
+    let d = tetera_imaging::compare_previews(&fused, preview)?;
+    if !d.meets_tolerance() {
+        return Err(Error::internal(format!(
+            "the fused kernel misses its tolerance: {d:?}"
+        )));
+    }
+    if d.max > 0 {
+        println!("Fused:      within the tolerance: {d:?}");
+    }
+    Ok(best)
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let smoke = args.iter().any(|arg| arg == "--smoke");
@@ -241,6 +280,8 @@ fn main() -> Result<()> {
         let (preview, cpu) = stages_cpu(&compute, &isp, &raw, passes)?;
         #[allow(unused_mut)]
         let mut gpu_times: Option<[f64; 6]> = None;
+        #[allow(unused_mut)]
+        let mut fused: Option<f64> = None;
         #[cfg(feature = "cuda")]
         if let Some(gpu) = compute.cuda() {
             let (on_gpu, times) = stages_gpu(gpu, &isp, &raw, passes)?;
@@ -250,6 +291,7 @@ fn main() -> Result<()> {
                 )));
             }
             gpu_times = Some(times);
+            fused = Some(time_fused(gpu, &isp, &raw, passes, &preview)?);
         }
         let show = |ms: f64| {
             if ms.is_nan() {
@@ -265,8 +307,11 @@ fn main() -> Result<()> {
         }
         let on_gpu = gpu_times.map_or_else(|| String::from("-"), |t| show(total(&t)));
         println!("{:<12}{:>12}{on_gpu:>12}", "In all", show(total(&cpu)));
+        if let Some(ms) = fused {
+            println!("{:<12}{:>12}{:>12}", "Fused", "-", format!("{ms:.2} ms"));
+        }
         if gpu_times.is_some() {
-            println!("Twins:      the previews identical");
+            println!("Twins:      the previews identical, fused and unfused");
         }
         let path = out_dir.join(format!("isp-{name}.jpg"));
         std::fs::write(&path, encoder.encode(&preview)?)

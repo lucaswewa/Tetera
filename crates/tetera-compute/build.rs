@@ -41,7 +41,9 @@ fn main() {
             .and_then(|s| s.to_str())
             .expect("kernel names are UTF-8");
         let name = stem.to_uppercase();
-        let source = fs::canonicalize(path).expect("the kernel exists");
+        // NVRTC compiles the source as one string, so its headers are inlined into it.
+        let source = out.join(format!("{stem}.inlined.cu"));
+        fs::write(&source, inline_includes(path)).expect("OUT_DIR is writable");
         generated += &format!(
             "pub const {name}_SOURCE: &str = include_str!({:?});\n",
             source.display().to_string()
@@ -58,6 +60,37 @@ fn main() {
         };
     }
     fs::write(out.join("kernels.rs"), generated).expect("OUT_DIR is writable");
+}
+
+/// `path`'s source with each `#include "header"` replaced by the header beside it, itself
+/// inlined, and each header inlined once (they are `#pragma once`).
+fn inline_includes(path: &Path) -> String {
+    fn inline(path: &Path, seen: &mut Vec<PathBuf>, out: &mut String) {
+        let text = fs::read_to_string(path).expect("the kernel exists");
+        for line in text.lines() {
+            let header = line
+                .trim()
+                .strip_prefix("#include \"")
+                .and_then(|rest| rest.strip_suffix('"'));
+            match header {
+                Some(header) => {
+                    let header = path.with_file_name(header);
+                    if !seen.contains(&header) {
+                        seen.push(header.clone());
+                        inline(&header, seen, out);
+                    }
+                }
+                None if line.trim() == "#pragma once" => {}
+                None => {
+                    out.push_str(line);
+                    out.push('\n');
+                }
+            }
+        }
+    }
+    let mut out = String::new();
+    inline(path, &mut Vec::new(), &mut out);
+    out
 }
 
 /// `nvcc`: the one `NVCC` names, when it is set; otherwise on the path, or in CUDA's usual
