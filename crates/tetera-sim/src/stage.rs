@@ -406,22 +406,23 @@ impl Shared {
     }
 
     /// Waits until a report taken after the last command shows the stage still: that report.
-    /// `None` if `timeout` passes first.
+    /// A report taken at the very time of a command came before it. `None` if `timeout`
+    /// passes first.
     fn settle(&self, timeout: Duration) -> Option<Report> {
         let deadline = Instant::now() + timeout;
         loop {
             let due = {
                 let (s, _) = self.now();
                 let last = *s.track.back().expect("a report");
-                if last.at >= s.commanded
-                    && matches!(last.state, GrblState::Idle | GrblState::Alarm)
+                if last.at > s.commanded && matches!(last.state, GrblState::Idle | GrblState::Alarm)
                 {
                     return Some(last);
                 }
-                // The next report from the last command on.
+                // The next report after both the command and the last report.
                 self.arrives(
                     s.commanded
-                        .max(last.at.saturating_add(Duration::from_nanos(1))),
+                        .max(last.at)
+                        .saturating_add(Duration::from_nanos(1)),
                 )
             };
             let left = deadline.saturating_duration_since(Instant::now());
@@ -940,6 +941,17 @@ mod tests {
             (report.state, report.position),
             (GrblState::Idle, StagePos::default())
         );
+        // A command at the very time a report is taken comes after it.
+        let stage = stepped();
+        step(&stage, ms(1), 40);
+        stage.move_to(at(1_000.0, 0.0, 0.0), None).unwrap();
+        step(&stage, ms(1), 5);
+        let report = stage.track()[2];
+        assert_eq!(report.at.as_duration(), ms(40));
+        assert_eq!(
+            (report.state, report.position),
+            (GrblState::Idle, StagePos::default())
+        );
     }
 
     #[test]
@@ -1061,6 +1073,10 @@ mod tests {
         ] {
             assert_eq!(refused.unwrap_err().kind(), ErrorKind::Busy);
         }
+        // Nobody steps the clock: a wait lasts no longer than asked.
+        let host = Instant::now();
+        assert_eq!(stage.wait(ms(50)).unwrap_err().kind(), ErrorKind::Timeout);
+        assert!(host.elapsed() < Duration::from_secs(5));
         stepping(&stage, || stage.stop()).unwrap();
         assert_eq!(stage.grbl_state(), GrblState::Idle);
         stage.home().unwrap();
