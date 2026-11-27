@@ -214,3 +214,11 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-hal --example hal-fakes -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-hal` — expect 52 tests to pass.
 - **Result:** see the [notes](notes/P1.09b-the-stage-the-objectives-and-the-light.md#manual-test).
+
+## P1.10a: The simulated clock and motion profiles
+
+- **Prerequisites:** the phase's branch.
+- [ ] `cargo run -p tetera-sim --example sim-clock` — expect about 100 ms on the clock for 100 ms of the host's at 1×, and about 1,000 ms at 10×; a thread woken at 50 ms by five steps of 10 ms; a move of 2,256 µm in 300 ms, sampled every 20 ms: speeding up, cruising at 11.28 mm/s, slowing, and at (2000, 1000, 300) µm at the end; held at 100 ms, at rest at (1000, 500, 150) µm.
+- [ ] `cargo run -p tetera-sim --example sim-clock -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-sim` — expect 15 tests to pass.
+- **Result:** see the [notes](notes/P1.10a-the-simulated-clock-and-motion-profiles.md#manual-test).
