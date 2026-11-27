@@ -885,6 +885,120 @@ mod tests {
     }
 
     #[test]
+    fn motion_is_sampled_along_each_rows_exposure() {
+        let m = Motion {
+            velocity: (300.0, -400.0),
+            exposure: 0.01,
+            line_time: 1e-5,
+        };
+        // Row 0's four samples at the middles of their quarters of 10 ms; row 100 a ms later.
+        let (x, y) = m.offset(0.0, 0, 4);
+        assert!(near(x, 300.0 * 0.00125, 1e-12) && near(y, -400.0 * 0.00125, 1e-12));
+        let (x, _) = m.offset(100.0, 3, 4);
+        assert!(near(x, 300.0 * (0.001 + 0.00875), 1e-12), "{x}");
+        // 5 µm over the exposure: one sample a pixel, at most 16.
+        assert_eq!(m.samples(1.0), 5);
+        assert_eq!(m.samples(1.25), 4);
+        assert_eq!(m.samples(0.1), 16);
+        assert_eq!(Motion::STILL.samples(0.1), 1);
+        assert!(near(m.extent(100), 500.0 * (100.0 * 1e-5 + 0.01), 1e-9));
+        assert_eq!(Motion::STILL.extent(3_648), 0.0);
+    }
+
+    #[test]
+    fn motion_averages_the_field_along_its_path() {
+        let sample = HeSample::new(7, SectionConfig::default()).unwrap();
+        let light = Light::default();
+        let optics = small(20.0, 0.42, 0.3);
+        let fov = FieldOfView {
+            centre: (1_000.0, 1_000.0),
+            optics,
+        };
+        let pixel = optics.pixel();
+        // 11.5 pixels over 10 ms, aslant: twelve samples.
+        let speed = 11.5 * pixel / 0.01;
+        let motion = Motion {
+            velocity: (0.6 * speed, 0.8 * speed),
+            exposure: 0.01,
+            line_time: 0.0,
+        };
+        assert_eq!(motion.samples(pixel), 12);
+        let moving = field_moving(&sample, &fov, &motion, &light, 2.0).unwrap();
+        let still: Vec<Field> = (0..12)
+            .map(|k| {
+                let (dx, dy) = motion.offset(0.0, k, 12);
+                let at = FieldOfView {
+                    centre: (1_000.0 + dx, 1_000.0 + dy),
+                    optics,
+                };
+                field(&sample, &at, &light, 2.0).unwrap()
+            })
+            .collect();
+        // Beer–Lambert's light is linear in the stains in its log, and the path averages them.
+        let mut worst = 0.0f32;
+        for (k, m) in moving.rgb.iter().enumerate() {
+            for (c, v) in m.iter().enumerate() {
+                let mean = still.iter().map(|f| f.rgb[k][c].ln()).sum::<f32>() / 12.0;
+                worst = worst.max((v.ln() - mean).abs());
+            }
+        }
+        assert!(worst < 1e-4, "the path's average, within {worst}");
+        assert!(
+            sharpness(&moving) < 0.8 * sharpness(&still[0]),
+            "smeared: {} against {}",
+            sharpness(&moving),
+            sharpness(&still[0])
+        );
+        assert_eq!(
+            field_moving(&sample, &fov, &Motion::STILL, &light, 2.0).unwrap(),
+            field(&sample, &fov, &light, 2.0).unwrap(),
+            "still is still"
+        );
+    }
+
+    /// The whole-pixel shift that best lays row `row` of `a` over `b`'s: a's pixel c shows
+    /// what b's c + shift does.
+    fn shift(a: &Field, b: &Field, row: u32) -> i32 {
+        let w = a.width as usize;
+        let at = |f: &Field, c: usize| f.rgb[row as usize * w + c][1];
+        (-4..=8)
+            .map(|s: i32| {
+                let d: f32 = (12..w - 12)
+                    .map(|c| (at(a, c) - at(b, (c as i32 + s) as usize)).abs())
+                    .sum();
+                (s, d)
+            })
+            .min_by(|x, y| x.1.total_cmp(&y.1))
+            .expect("shifts")
+            .0
+    }
+
+    #[test]
+    fn a_rolling_shutter_skews_the_field() {
+        let sample = HeSample::new(7, SectionConfig::default()).unwrap();
+        let light = Light::default();
+        let optics = small(20.0, 0.42, 0.0);
+        let fov = FieldOfView {
+            centre: (1_000.0, 1_000.0),
+            optics,
+        };
+        // Each row 10 µs after the one above, at no exposure, the stage moving along x: a
+        // pixel every 40 rows.
+        let motion = Motion {
+            velocity: (optics.pixel() / (40.0 * 1e-5), 0.0),
+            exposure: 0.0,
+            line_time: 1e-5,
+        };
+        assert_eq!(motion.samples(optics.pixel()), 1);
+        let skewed = field_moving(&sample, &fov, &motion, &light, 2.0).unwrap();
+        let still = field(&sample, &fov, &light, 2.0).unwrap();
+        for (row, expected) in [(0, 0), (40, 1), (80, 2), (120, 3)] {
+            assert_eq!(shift(&skewed, &still, row), expected, "row {row}");
+            assert_eq!(shift(&still, &still, row), 0);
+        }
+    }
+
+    #[test]
     fn changing_the_objective_changes_the_field_and_its_blur() {
         let sample = HeSample::new(7, SectionConfig::default()).unwrap();
         let light = Light::default();

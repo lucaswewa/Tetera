@@ -536,6 +536,13 @@ impl VirtualStage {
         s.plan.position(now)
     }
 
+    /// Where its plan puts it at `t`, ahead of now or behind it, back to its last command:
+    /// where a camera over it looks during a frame's exposure.
+    pub fn position_at(&self, t: Timestamp) -> StagePos {
+        let (s, _) = self.shared.now();
+        s.plan.position(t)
+    }
+
     /// The reports that have arrived, the oldest first, as many as the track keeps.
     pub fn track(&self) -> Vec<Report> {
         let (s, _) = self.shared.now();
@@ -984,6 +991,28 @@ mod tests {
             ]
         );
         assert!(stage.position().x.um() < 50_000.0);
+    }
+
+    #[test]
+    fn the_stage_says_where_it_will_be_during_a_frame() {
+        let stage = stepped();
+        let now = stage.clock().now();
+        assert_eq!(stage.position_at(now), stage.position(), "still");
+        assert_eq!(
+            stage.position_at(now.saturating_add(ms(500))),
+            stage.position()
+        );
+        stage.jog(Axis::X, 2_000.0).unwrap();
+        step(&stage, ms(1), 100);
+        let now = stage.clock().now();
+        assert_eq!(stage.position_at(now), stage.position());
+        // At its speed, 2 mm/s: 20 µm over the next 10 ms.
+        let ahead = stage.position_at(now.saturating_add(ms(10))).x.um() - stage.position().x.um();
+        assert!((ahead - 20.0).abs() < 1e-6, "{ahead} µm ahead");
+        let behind =
+            stage.position().x.um() - stage.position_at(Timestamp(now.0 - 5_000_000)).x.um();
+        assert!((behind - 10.0).abs() < 1e-6, "{behind} µm behind");
+        assert_eq!(stage.position_at(now).y, stage.position().y, "along x only");
     }
 
     #[test]

@@ -2,14 +2,17 @@
 //! `render`, and the GPU's tiles in their cache, within a VRAM budget.
 
 use crate::he::{HeSample, Stains};
+use crate::noise::Seed;
 use crate::optics::{Field, FieldOfView, Grid, Light, Motion, blackbody, depth_groups, gaussian};
 use crate::render::{Depth, Region, Rendered};
+use crate::sensor::{Exposure, SensorModel};
 use crate::tiles::{CacheStats, TILE, TileCache, TileDepth, TileKey};
 use std::sync::{Arc, Mutex, PoisonError};
 use tetera_compute::budget::{Budget, Grant};
 use tetera_compute::field::{FieldLight, FieldPlanes, SensorView, TileGrid};
 use tetera_compute::half;
 use tetera_compute::he::{HeParams, HeRegion};
+use tetera_compute::sensor::SensorParams;
 use tetera_compute::{CudaBackend, DeviceBuffer};
 use tetera_core::Result;
 
@@ -69,6 +72,67 @@ pub fn stains(halves: &[u16]) -> Vec<Stains> {
         .collect()
 }
 
+/// What the sensor's kernel takes of `model` and `exposure`, for frame `frame` from `seed`.
+pub fn sensor_params(
+    model: &SensorModel,
+    exposure: &Exposure,
+    seed: u64,
+    frame: u64,
+) -> SensorParams {
+    SensorParams {
+        seed: Seed::new(seed).0,
+        frame,
+        quantum_efficiency: model.quantum_efficiency,
+        full_well: model.full_well,
+        read_noise: model.read_noise,
+        dark_current: model.dark_current,
+        black_level: f32::from(model.black_level),
+        electrons_per_count: model.electrons_per_count,
+        ms: exposure.time.as_secs_f32() * 1e3,
+        gain: exposure.gain,
+        bits: exposure.bits,
+        binning: exposure.binning,
+    }
+}
+
+/// A raw frame on the GPU from a `width` × `height` field there, into `raw`: the twin of
+/// `sensor::expose`.
+#[allow(clippy::too_many_arguments)]
+pub fn expose_on(
+    gpu: &CudaBackend,
+    rgb: &DeviceBuffer<f32>,
+    width: u32,
+    height: u32,
+    model: &SensorModel,
+    exposure: &Exposure,
+    seed: u64,
+    frame: u64,
+    raw: &mut DeviceBuffer<u16>,
+) -> Result<()> {
+    exposure.check()?;
+    gpu.sensor_expose(
+        rgb,
+        width,
+        height,
+        &sensor_params(model, exposure, seed, frame),
+        raw,
+    )
+}
+
+/// What a raw frame is made of besides its field: the sensor, the exposure, the seed and the
+/// frame's number.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shot {
+    /// The sensor.
+    pub model: SensorModel,
+    /// How the frame is exposed.
+    pub exposure: Exposure,
+    /// The noise's seed.
+    pub seed: u64,
+    /// The frame's number.
+    pub frame: u64,
+}
+
 /// A tile on the GPU, and the part of the VRAM budget it holds until it goes.
 #[derive(Debug)]
 pub struct DeviceTile {
@@ -85,6 +149,7 @@ pub struct HeTiles {
     budget: Budget,
     cache: Mutex<TileCache<Arc<DeviceTile>>>,
     planes: Mutex<Option<FieldPlanes>>,
+    raw: Mutex<Option<DeviceBuffer<u16>>>,
 }
 
 impl std::fmt::Debug for HeTiles {
@@ -106,6 +171,7 @@ impl HeTiles {
             budget,
             cache: Mutex::new(cache),
             planes: Mutex::new(None),
+            raw: Mutex::new(None),
         })
     }
 
@@ -227,9 +293,59 @@ impl HeTiles {
         with(planes)
     }
 
+    /// A raw frame, row by row: the field made on the GPU, the stage moving as `motion` says,
+    /// and exposed there as `shot` says, its buffer kept for the next frame. The twin of
+    /// `optics::field_moving` then `sensor::expose`.
+    pub fn frame(
+        &self,
+        fov: &FieldOfView,
+        motion: &Motion,
+        light: &Light,
+        focus: f64,
+        shot: &Shot,
+    ) -> Result<Vec<u16>> {
+        shot.exposure.check()?;
+        let mut raw =
+            vec![0u16; fov.optics.sensor.width as usize * fov.optics.sensor.height as usize];
+        self.field_moving_with(fov, motion, light, focus, |planes| {
+            let mut kept = self.raw.lock().unwrap_or_else(PoisonError::into_inner);
+            if kept.as_ref().is_none_or(|r| r.len() != raw.len()) {
+                *kept = None;
+                *kept = Some(self.gpu.zeros(raw.len())?);
+            }
+            let buffer = kept.as_mut().expect("raw made");
+            expose_on(
+                &self.gpu,
+                &planes.rgb,
+                planes.width,
+                planes.height,
+                &shot.model,
+                &shot.exposure,
+                shot.seed,
+                shot.frame,
+                buffer,
+            )?;
+            self.gpu.download_into(buffer, &mut raw)
+        })?;
+        Ok(raw)
+    }
+
     /// The field, brought back to the host.
     pub fn field(&self, fov: &FieldOfView, light: &Light, focus: f64) -> Result<Field> {
-        let rgb = self.field_with(fov, light, focus, |planes| self.gpu.download(&planes.rgb))?;
+        self.field_moving(fov, &Motion::STILL, light, focus)
+    }
+
+    /// The field, the stage moving as `motion` says, brought back to the host.
+    pub fn field_moving(
+        &self,
+        fov: &FieldOfView,
+        motion: &Motion,
+        light: &Light,
+        focus: f64,
+    ) -> Result<Field> {
+        let rgb = self.field_moving_with(fov, motion, light, focus, |planes| {
+            self.gpu.download(&planes.rgb)
+        })?;
         Ok(Field {
             width: fov.optics.sensor.width,
             height: fov.optics.sensor.height,
@@ -480,6 +596,181 @@ mod tests {
                 "{m}×, focus {focus}: {worst}"
             );
         }
+    }
+
+    #[test]
+    fn the_moving_gpu_field_is_the_cpu_fields_twin() {
+        use crate::optics::{FieldOfView, Light, Optics, Sensor, field_moving};
+        let gpu = tetera_compute::cuda_or_skip!();
+        let tiles = tiles_on(gpu, sample(false), 256);
+        let light = Light::default();
+        for (m, angle, velocity, exposure, line_time) in [
+            (20.0, 0.3, (2_000.0, 500.0), 0.004, 0.0),
+            (50.0, 0.0, (-800.0, 300.0), 0.002, 2e-5),
+            (5.0, -0.2, (5_000.0, 0.0), 0.0, 5e-5),
+        ] {
+            let fov = FieldOfView {
+                centre: (1_000.0, 1_000.0),
+                optics: Optics {
+                    sensor: Sensor {
+                        width: 128,
+                        height: 96,
+                        pixel: 2.4,
+                    },
+                    ..Optics::new(m, 0.42, angle).unwrap()
+                },
+            };
+            let motion = Motion {
+                velocity,
+                exposure,
+                line_time,
+            };
+            let cpu = field_moving(&sample(false), &fov, &motion, &light, 2.0).unwrap();
+            let on_gpu = tiles.field_moving(&fov, &motion, &light, 2.0).unwrap();
+            let worst = cpu
+                .rgb
+                .iter()
+                .zip(&on_gpu.rgb)
+                .flat_map(|(a, b)| (0..3).map(move |c| (a[c] - b[c]).abs()))
+                .fold(0.0, f32::max);
+            eprintln!(
+                "{m}×, {} samples: within {:.2e} of the light",
+                motion.samples(fov.optics.pixel()),
+                worst / light.intensity
+            );
+            assert!(worst <= 3e-3 * light.intensity, "{m}×: {worst}");
+            assert_ne!(on_gpu, tiles.field(&fov, &light, 2.0).unwrap(), "it moved");
+        }
+    }
+
+    /// An exposure of `ms` ms at `gain`, in `bits`, binned `binning`.
+    fn exposure(ms: u64, gain: f32, bits: u8, binning: u32) -> Exposure {
+        Exposure {
+            time: std::time::Duration::from_millis(ms),
+            gain,
+            bits,
+            binning,
+        }
+    }
+
+    #[test]
+    fn the_gpu_sensor_is_the_cpu_sensors_twin() {
+        use crate::sensor::expose;
+        let gpu = tetera_compute::cuda_or_skip!();
+        let (w, h) = (256u32, 192u32);
+        // A ramp from dark to bright, unlike in each colour.
+        let field: Vec<[f32; 3]> = (0..w * h)
+            .map(|k| {
+                let t = (k % w) as f32 / w as f32;
+                [300.0 * t, 500.0 * t * t, 2.0 + 100.0 * (1.0 - t)]
+            })
+            .collect();
+        let flat: Vec<f32> = field.iter().flatten().copied().collect();
+        let rgb = gpu.upload(&flat).unwrap();
+        let mut raw = gpu.zeros::<u16>((w * h) as usize).unwrap();
+        let model = SensorModel::default();
+        for e in [
+            exposure(10, 1.0, 12, 1),
+            exposure(1, 1.0, 12, 1),
+            exposure(4, 2.0, 12, 2),
+            exposure(10, 1.0, 8, 1),
+        ] {
+            let cpu = expose(&field, w, h, &model, &e, 21, 9).unwrap();
+            expose_on(&gpu, &rgb, w, h, &model, &e, 21, 9, &mut raw).unwrap();
+            let on_gpu = gpu.download(&raw).unwrap();
+            let differ = cpu.iter().zip(&on_gpu).filter(|(a, b)| a != b).count();
+            let worst = cpu
+                .iter()
+                .zip(&on_gpu)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            eprintln!(
+                "{e:?}: {differ} of {} differ, by {worst} at most",
+                cpu.len()
+            );
+            // Single precision's functions round a draw across a count's edge now and then.
+            assert!(
+                worst <= 1 && differ * 200 < cpu.len(),
+                "{e:?}: {differ}, {worst}"
+            );
+            expose_on(&gpu, &rgb, w, h, &model, &e, 21, 9, &mut raw).unwrap();
+            assert_eq!(gpu.download(&raw).unwrap(), on_gpu, "the same bits again");
+            expose_on(&gpu, &rgb, w, h, &model, &e, 21, 10, &mut raw).unwrap();
+            assert_ne!(
+                gpu.download(&raw).unwrap(),
+                on_gpu,
+                "the next frame's noise"
+            );
+        }
+        assert!(
+            expose_on(
+                &gpu,
+                &rgb,
+                w,
+                h,
+                &model,
+                &exposure(1, 0.5, 12, 1),
+                1,
+                0,
+                &mut raw
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_raw_frame_is_made_on_the_gpu() {
+        use crate::optics::{FieldOfView, Light, Optics, Sensor, field_moving};
+        use crate::sensor::{bayer, expose};
+        let gpu = tetera_compute::cuda_or_skip!();
+        let tiles = tiles_on(gpu, sample(false), 256);
+        let light = Light::default();
+        let fov = FieldOfView {
+            centre: (1_000.0, 1_000.0),
+            optics: Optics {
+                sensor: Sensor {
+                    width: 160,
+                    height: 120,
+                    pixel: 2.4,
+                },
+                ..Optics::new(20.0, 0.42, 0.0).unwrap()
+            },
+        };
+        let motion = Motion {
+            velocity: (1_000.0, 0.0),
+            exposure: 0.005,
+            line_time: 1e-5,
+        };
+        let shot = Shot {
+            model: SensorModel::default(),
+            exposure: exposure(5, 1.0, 12, 1),
+            seed: 3,
+            frame: 1,
+        };
+        let raw = tiles.frame(&fov, &motion, &light, 2.0, &shot).unwrap();
+        assert_eq!(raw, tiles.frame(&fov, &motion, &light, 2.0, &shot).unwrap());
+        let field = field_moving(&sample(false), &fov, &motion, &light, 2.0).unwrap();
+        let cpu = expose(&field.rgb, 160, 120, &shot.model, &shot.exposure, 3, 1).unwrap();
+        for colour in 0..3 {
+            let mean = |r: &[u16]| {
+                let v: Vec<f64> = (0..160 * 120)
+                    .filter(|k| bayer(k % 160, k / 160) == colour)
+                    .map(|k| f64::from(r[k as usize]))
+                    .collect();
+                v.iter().sum::<f64>() / v.len() as f64
+            };
+            let (a, b) = (mean(&cpu), mean(&raw));
+            assert!(
+                (a - b).abs() < 0.01 * a,
+                "colour {colour}: {a} on the CPU, {b} on the GPU"
+            );
+        }
+        let bad = Shot {
+            exposure: exposure(5, 1.0, 10, 1),
+            ..shot
+        };
+        assert!(tiles.frame(&fov, &motion, &light, 2.0, &bad).is_err());
     }
 
     #[test]

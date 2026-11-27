@@ -96,6 +96,13 @@ pub const HE: KernelSource = KernelSource {
     fatbin: generated::HE_FATBIN,
 };
 
+/// `kernels/sensor.cu`: the sensor's raw frame from the field (P1.12b).
+pub const SENSOR: KernelSource = KernelSource {
+    name: "sensor",
+    source: generated::SENSOR_SOURCE,
+    fatbin: generated::SENSOR_FATBIN,
+};
+
 /// `kernels/demosaic.cu`: bilinear and Malvar-He-Cutler demosaicking.
 pub const DEMOSAIC: KernelSource = KernelSource {
     name: "demosaic",
