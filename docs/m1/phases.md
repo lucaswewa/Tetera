@@ -56,7 +56,7 @@ Each phase has:
 | [P1.08d](#p108d-denoise-and-deconvolution-nodes-and-live-runs) | Denoise and deconvolution nodes, and live runs | P1.08c | 900 | — | G1, G1c |
 | [P1.08e](#p108e-batch-runs-and-tiling) | Batch runs and tiling | P1.08d | 780 | — | G1, G1c |
 | [P1.09a](#p109a-the-camera) | The camera | P1.03 | 1,150 | — | G1 |
-| [P1.09b](#p109b-the-stage-the-objectives-and-the-light) | The stage, the objectives and the light | P1.09a | 1,170 | — | G1 |
+| [P1.09b](#p109b-the-stage-the-objectives-and-the-light) | The stage, the objectives and the light | P1.09a | 1,490 | — | G1 |
 | [P1.10](#p110-the-simulated-clock-and-the-virtual-stage) | The simulated clock and the virtual stage | P1.09b | 1,350 | — | G1 |
 | [P1.11](#p111-the-he-sample-on-the-gpu) | The H&E sample on the GPU | P1.04b | 1,800 | Yes | G1, G1c |
 | [P1.12](#p112-optics-light-and-the-virtual-camera) | Optics, light and the virtual camera (**Checkpoint A**) | P1.06b, P1.10, P1.11 | 1,920 | — | G1, G1c, G2 |
@@ -784,7 +784,7 @@ Each phase has:
 | Depends on | P1.09a |
 | ADRs | — |
 | Gates | G1 |
-| Estimate | code 550 (the `Stage` trait and its capabilities 200; the fake stage 200; the objectives and their catalogue 90; illumination 60) · tests 500 · examples 80 · docs-as-code 20 · glue 20 = **1,170**, from P1.09's split; its own second estimate comes before its code |
+| Second estimate | code 600 (the `Stage` trait, its capabilities, readings and events 180; the fake stage, its timed moves, jogs, homing and faults 250; the objective catalogue and mount 100; illumination 70) · tests 750 (the stage's contract suite 250; a stage flawed on purpose for each check, 200; unit tests 300) · examples 80 · docs-as-code 20 · glue 40 (the `toml` dependency, `configs/objectives.toml`) = **1,490** (1,937 at ×1.3). P1.09a's contract suite needed tests of its own, so this one has them from the start |
 
 **Goal.** One interface for the stage, and the objectives and the light described.
 
