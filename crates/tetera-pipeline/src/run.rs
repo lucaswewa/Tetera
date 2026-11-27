@@ -683,6 +683,12 @@ mod cuda_tests {
             }
             plan.hold("dark", dark.clone()).unwrap();
             plan.hold("flat", flat.clone()).unwrap();
+            // Worked on the GPU, then the same plan on the CPU works its held steps again,
+            // there, though nothing was held since.
+            assert_eq!(
+                plan.run(&Context { compute: &gpu }, frame.clone()).unwrap(),
+                on_cpu
+            );
             // The same plan on the CPU works its held steps again, there.
             assert_eq!(plan.run(&Context { compute: &cpu }, frame).unwrap(), on_cpu);
             assert_eq!(plan.copies(), Copies::default());
