@@ -16,7 +16,7 @@ Tetera's pipeline engine, L3 (plan §6.7, [ADR-0012](../../docs/adr/0012-the-pip
 **On the GPU** (P1.08c), with the `cuda` feature and `Compute` choosing it:
 - **Values stay where their readers are.** A node that runs on the GPU takes its frames and images there, and gives its own there. A value goes to or from the host only where a step on the other side reads it, once, however many steps read it there. `Plan::copies` counts each run's copies. A value is freed after its last reader.
 - **Held inputs:** `Plan::hold` keeps an input, such as a master dark, from run to run. The steps it alone feeds run once and keep their outputs, unless a node is stateful, so a master flat's dark subtraction and its flat field are worked once.
-- **The fusion pass** finds the live chain, `[bin →] [dark →] [flat →] demosaic → resize → colour`, each step feeding only the next. On the GPU it runs P1.06b's fused kernel in the chain's place, and gives exactly what the chain gives. `Plan::fused` names the nodes it replaces; `Plan::set_fusion(false)` turns it off.
+- **The fusion pass** finds the live chain, `[bin →] [dark →] [flat →] demosaic → resize → colour`, each step feeding only the next. On the GPU it runs P1.06b's fused kernel in the chain's place, and gives exactly what the chain gives. `Plan::fused` names the nodes it replaces; `Plan::set_fusion(false)` turns it off; `Plan::ran` names the steps a run ran.
 
 ## How to try it
 
