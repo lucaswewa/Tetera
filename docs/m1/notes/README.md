@@ -18,8 +18,8 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.07b | PSFs and Richardson–Lucy | Done | [P1.07b](P1.07b-psfs-and-richardson-lucy.md) |
 | P1.07c | Richardson–Lucy on the GPU | Done | [P1.07c](P1.07c-richardson-lucy-on-the-gpu.md) |
 | P1.08a | The pipeline model | Done | [P1.08a](P1.08a-the-pipeline-model.md) |
-| P1.08b | The raw path's nodes | In review | [P1.08b](P1.08b-the-raw-paths-nodes.md) |
-| P1.08c | GPU residency and fusion | Not started | — |
+| P1.08b | The raw path's nodes | Done | [P1.08b](P1.08b-the-raw-paths-nodes.md) |
+| P1.08c | GPU residency and fusion | In progress | [P1.08c](P1.08c-gpu-residency-and-fusion.md) |
 | P1.08d | Denoise and deconvolution nodes, and live runs | Not started | — |
 | P1.08e | Batch runs and tiling | Not started | — |
 | P1.09 | The HAL | Not started | — |
