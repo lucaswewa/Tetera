@@ -75,7 +75,7 @@ impl Motion {
 struct State {
     motion: Motion,
     state: StageState,
-    /// Bumped as each motion starts and ends, so a motion's finisher knows it is stale.
+    /// Changed when a motion is cut short, or the stage dropped, so its finisher ends.
     generation: u64,
     /// The motion under way ends in alarm: a stall.
     stalls: bool,
@@ -120,7 +120,6 @@ impl Shared {
     fn finish(&self, s: &mut State) {
         let at = s.motion.to;
         s.motion = Motion::still(at);
-        s.generation += 1;
         s.state = if std::mem::take(&mut s.stalls) {
             self.events.emit(StageEvent::Error {
                 kind: ErrorKind::Hardware,
@@ -151,7 +150,7 @@ impl Shared {
         self.changed.notify_all();
     }
 
-    /// Ends motion `generation` when its time is up, unless something ended it first.
+    /// Ends the motion under way when its time is up, unless it is cut short first.
     fn finish_on_time(&self, generation: u64) {
         let mut s = lock(&self.state);
         while s.generation == generation {
@@ -285,7 +284,6 @@ impl FakeStage {
             takes,
         };
         s.state = state;
-        s.generation += 1;
         self.shared.events.emit(StageEvent::State {
             state,
             position: from,
@@ -473,15 +471,32 @@ mod tests {
             "no faster than y allows"
         );
         assert_eq!(
-            stage.duration(&at(1_000.0, 0.0, 0.0), &origin, None),
-            Duration::from_millis(100),
-            "back again"
+            stage.duration(&at(3_000.0, 0.0, 0.0), &at(1_000.0, 0.0, 0.0), None),
+            Duration::from_millis(200),
+            "back 2 mm"
         );
         let instant = fake(Pace::Instant);
         assert_eq!(
             instant.duration(&origin, &at(1_000.0, 0.0, 0.0), None),
             Duration::ZERO
         );
+    }
+
+    #[test]
+    fn a_motion_is_on_its_line_in_proportion_to_the_time() {
+        let started = Instant::now();
+        let motion = Motion {
+            from: at(1_000.0, 0.0, 100.0),
+            to: at(3_000.0, 1_000.0, 500.0),
+            started,
+            takes: Duration::from_millis(200),
+        };
+        let after = |ms| motion.at(started + Duration::from_millis(ms));
+        assert_eq!(after(0), motion.from);
+        assert_eq!(after(50), at(1_500.0, 250.0, 200.0), "a quarter of the way");
+        assert_eq!(after(200), motion.to);
+        assert_eq!(after(900), motion.to, "and there it stays");
+        assert_eq!(motion.at(started - Duration::from_millis(5)), motion.from);
     }
 
     #[test]
@@ -576,10 +591,10 @@ mod tests {
             stage.move_to(at(10.0, 0.0, 0.0), None).unwrap_err().kind(),
             ErrorKind::Hardware
         );
-        stage.move_to(at(10.0, 0.0, 0.0), None).unwrap();
+        stage.move_to(at(10.0, 0.0, 100.0), None).unwrap();
         // A stall: halfway, in alarm, refusing all but homing.
         stage.inject(StageFault::Stall);
-        stage.move_to(at(1_010.0, 200.0, 0.0), None).unwrap();
+        stage.move_to(at(1_010.0, 200.0, 300.0), None).unwrap();
         assert_eq!(
             stage.wait(Duration::from_secs(1)).unwrap_err().kind(),
             ErrorKind::Hardware
@@ -587,7 +602,7 @@ mod tests {
         let stalled = stage.reading().unwrap();
         assert_eq!(
             (stalled.position, stalled.state),
-            (at(510.0, 100.0, 0.0), StageState::Alarm)
+            (at(510.0, 100.0, 200.0), StageState::Alarm)
         );
         assert!(events.try_iter().any(|e| matches!(
             e,
@@ -634,6 +649,29 @@ mod tests {
         stage.inject(StageFault::Reconnect);
         assert!(stage.reading().is_ok());
         assert!(format!("{stage:?}").contains("Tetera fake stage"));
+    }
+
+    #[test]
+    fn an_alarm_holds_until_homing() {
+        // On a fresh stage, and during a jog: the jog's end doesn't clear it.
+        let stage = fake(Pace::Timed);
+        stage.inject(StageFault::Alarm);
+        assert_eq!(stage.reading().unwrap().state, StageState::Alarm);
+        stage.home().unwrap();
+        stage.wait(Duration::from_secs(1)).unwrap();
+        let events = stage.subscribe();
+        stage.jog(Axis::X, 10_000.0).unwrap();
+        stage.inject(StageFault::Alarm);
+        std::thread::sleep(Duration::from_millis(20));
+        assert_eq!(stage.reading().unwrap().state, StageState::Alarm);
+        let states: Vec<StageState> = events
+            .try_iter()
+            .filter_map(|e| match e {
+                StageEvent::State { state, .. } => Some(state),
+                StageEvent::Error { .. } => None,
+            })
+            .collect();
+        assert_eq!(states, [StageState::Jogging, StageState::Alarm]);
     }
 
     #[test]

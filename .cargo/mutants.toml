@@ -45,4 +45,10 @@ exclude_re = [
     # The contract's snap at 1 ms becomes one at 1 s: an exposure the camera takes too, and
     # the snap's checks are the same.
     "replace / with % in camera::a_snap_is_the_configured_frame",
+    # The stage contract's step: `from × 100` or `from / 100` for `from + 100` or `from - 100`
+    # is another target within the travel, which tests a move as well.
+    "replace \\+ with \\* in step_from",
+    "replace - with / in step_from",
+    # The fake stage's jog: a speed of zero is refused before its direction is chosen.
+    "replace > with >= in <impl Stage for FakeStage>::jog",
 ]

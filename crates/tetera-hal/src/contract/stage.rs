@@ -254,7 +254,7 @@ pub fn stopping_a_still_stage_does_nothing(stage: &dyn Stage) {
 mod tests {
     //! The suite's own tests: a stage flawed on purpose, in one way for each check, fails it.
     use super::*;
-    use crate::fake::stage::{FakeStage, Pace};
+    use crate::fake::stage::{FakeStage, Pace, StageFault};
     use std::sync::Arc;
     use std::sync::mpsc::{Receiver, channel};
     use tetera_core::{Error, Result, SystemClock};
@@ -374,6 +374,32 @@ mod tests {
             }
             self.stage.subscribe()
         }
+    }
+
+    fn instant() -> FakeStage {
+        FakeStage::new(Arc::new(SystemClock::new()), Pace::Instant)
+    }
+
+    #[test]
+    fn the_suite_homes_a_stage_in_alarm_first() {
+        all(&|| {
+            let stage = instant();
+            stage.inject(StageFault::Alarm);
+            Box::new(stage)
+        });
+    }
+
+    #[test]
+    fn the_suite_works_from_the_far_end_of_the_travel() {
+        all(&|| {
+            let stage = instant();
+            let caps = stage.capabilities();
+            let far = Axis::ALL.iter().fold(StagePos::default(), |pos, &axis| {
+                axis.with(pos, Um(caps.axis(axis).unwrap().travel.max))
+            });
+            stage.move_to(far, None).unwrap();
+            Box::new(stage)
+        });
     }
 
     #[test]

@@ -250,6 +250,10 @@ working_distance_mm = 33.5"#;
             (one(&with("numerical_aperture", "1.0")), "between 0 and 1"),
             (one(&with("numerical_aperture", "nan")), "between 0 and 1"),
             (
+                one(&with("working_distance_mm", "0.0")),
+                "working distance is above zero",
+            ),
+            (
                 one(&with("working_distance_mm", "-1.0")),
                 "working distance is above zero",
             ),
