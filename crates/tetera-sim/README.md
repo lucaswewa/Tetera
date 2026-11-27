@@ -23,9 +23,11 @@ Tetera's simulated world, L2 (plan §8, [ADR-0014](../../docs/adr/0014-the-simul
   - a section 3 to 5 µm thick, tilted or folded.
 
   It is built from improved noise and cellular noise on integer hashes (`noise`), so the same seed gives the same bits. `nuclei` lists its nuclei, the ground truth. Colour is by absorbance: Ruifrok and Johnston's stain vectors and Beer–Lambert.
-- **`render`:** a region at any pixel size and range of depth, each pixel averaging points at most 0.25 µm apart and summing its depth in 0.5 µm layers; on all cores, the same bits whole or in tiles. This is the CPU twin the GPU will match (P1.11b).
+- **`render`:** a region at any pixel size and range of depth, each pixel averaging points at most 0.25 µm apart and summing its depth in 0.5 µm layers; on all cores, the same bits whole or in tiles. This is the CPU twin the GPU matches.
+- **On the GPU,** with the `cuda` feature: `render_gpu` and `render_on` run `tetera-compute`'s `he.cu`, the same functions, within 2e-3 OD of the CPU twin. In practice it is within 6e-4, half precision's rounding. A 512 × 512 region at 50× takes about 2 ms on the RTX 3070 Ti Laptop GPU.
+- **Tiles:** 256 × 256 pixels, keyed by level of detail (0.04 × 2^ℓ µm a pixel), column, row and depth (`TileKey`). `TileCache` keeps the most recently used within a budget of bytes; `HeTiles` keeps them on the GPU in half precision, each holding a grant from a VRAM budget until it goes.
 
-The GPU and its tiles join in P1.11b; the optics and the virtual camera in P1.12.
+The optics and the virtual camera join in P1.12.
 
 ## How to try it
 
@@ -39,4 +41,4 @@ cargo run --release -p tetera-sim --example he-sample
 
 `virtual-stage` moves the virtual stage in stepped time, printing every 50 ms where the stage is and its latest report, which lags. Then, at 1× (10× with `-- --smoke`), through the `Stage` trait: a move, a jog, homing, a stall, a hard limit and a target beyond its soft limits, and every event.
 
-`he-sample` renders the sample from seed 7 (or the seed given) as PNGs in `target/he-sample/`: a 2 mm overview at 2 µm; fields at the sampling of the camera's 2.4 µm pixels through 5×, 20× and 50×; three depth slices through a nucleus at 50×; and a fold at 5×. Each with its time. `-- --smoke` renders them small.
+`he-sample` renders the sample from seed 7 (or the seed given) as PNGs in `target/he-sample/`: a 2 mm overview at 2 µm; fields at the sampling of the camera's 2.4 µm pixels through 5×, 20× and 50×; three depth slices through a nucleus at 50×; and a fold at 5×. Each with its time. `-- --smoke` renders them small. With `--features cuda` and a GPU, it renders each view on the GPU too, timed and compared with the CPU's, and writes it as `-gpu.png`. It then moves a field of 3 × 3 tiles across the slide through a cache of 12, saying what it made, found and let go.
