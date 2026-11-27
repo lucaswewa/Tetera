@@ -257,32 +257,29 @@ impl Plan {
         }
     }
 
-    fn end(&self) -> Option<Timestamp> {
-        self.legs.last().map(Leg::end)
+    /// The leg under way at `t`, if any.
+    fn leg(&self, t: Timestamp) -> Option<&Leg> {
+        self.legs.iter().find(|leg| t < leg.end())
     }
 
     fn position(&self, t: Timestamp) -> StagePos {
-        for leg in &self.legs {
-            if t < leg.end() {
-                return leg.position(t);
-            }
+        match self.leg(t) {
+            Some(leg) => leg.position(t),
+            None => self
+                .legs
+                .last()
+                .map_or(self.rest, |leg| leg.position(leg.end())),
         }
-        self.legs
-            .last()
-            .map_or(self.rest, |leg| leg.position(leg.end()))
     }
 
     fn state(&self, t: Timestamp) -> GrblState {
-        self.legs
-            .iter()
-            .find(|leg| t < leg.end())
-            .map_or(self.after, |leg| leg.state)
+        self.leg(t).map_or(self.after, |leg| leg.state)
     }
 
     /// The plan held at `t`: a move or a jog slows to rest from there, as a feed hold or a
     /// jog cancel does, a move in the hold state.
     fn hold(&self, t: Timestamp) -> Plan {
-        let Some(leg) = self.legs.iter().find(|leg| t < leg.end()) else {
+        let Some(leg) = self.leg(t) else {
             return self.clone();
         };
         let into = leg.into + t.saturating_since(leg.start);
@@ -408,22 +405,27 @@ impl Shared {
         (s, now)
     }
 
-    /// Waits until a report taken after the last command, and after its plan ends, shows the
-    /// stage still: that report. `None` if `timeout` passes first.
+    /// Waits until a report taken after the last command shows the stage still: that report.
+    /// `None` if `timeout` passes first.
     fn settle(&self, timeout: Duration) -> Option<Report> {
         let deadline = Instant::now() + timeout;
         loop {
             let due = {
                 let (s, _) = self.now();
                 let last = *s.track.back().expect("a report");
-                let settled = s.plan.end().map_or(s.commanded, |end| end.max(s.commanded));
-                if last.at >= settled && matches!(last.state, GrblState::Idle | GrblState::Alarm) {
+                if last.at >= s.commanded
+                    && matches!(last.state, GrblState::Idle | GrblState::Alarm)
+                {
                     return Some(last);
                 }
-                self.arrives(settled.max(last.at.saturating_add(Duration::from_nanos(1))))
+                // The next report from the last command on.
+                self.arrives(
+                    s.commanded
+                        .max(last.at.saturating_add(Duration::from_nanos(1))),
+                )
             };
             let left = deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() || !self.clock.wait_until(due, left) {
+            if !self.clock.wait_until(due, left) {
                 return None;
             }
         }
@@ -989,14 +991,20 @@ mod tests {
         let near_the_end = make(
             Rate::Stepped,
             VirtualStageConfig {
-                start: at(99_900.0, 0.0, 0.0),
+                start: at(99_900.0, 0.0, 9_900.0),
                 ..VirtualStageConfig::default()
             },
         );
-        near_the_end.jog(Axis::X, 1e9).unwrap();
-        until(&near_the_end, GrblState::Idle);
-        assert_eq!(near_the_end.position(), at(100_000.0, 0.0, 0.0));
-        near_the_end.jog(Axis::Z, -1_000.0).unwrap();
+        for (axis, end) in [
+            (Axis::X, at(100_000.0, 0.0, 9_900.0)),
+            (Axis::Y, at(100_000.0, 75_000.0, 9_900.0)),
+            (Axis::Z, at(100_000.0, 75_000.0, 10_000.0)),
+        ] {
+            near_the_end.jog(axis, 1e9).unwrap();
+            until(&near_the_end, GrblState::Idle);
+            assert_eq!(near_the_end.position(), end, "{axis:?} to its own end");
+        }
+        near_the_end.jog(Axis::Z, 1_000.0).unwrap();
         assert_eq!(
             near_the_end.grbl_state(),
             GrblState::Idle,
@@ -1174,6 +1182,7 @@ mod tests {
                 ..VirtualStageConfig::default()
             },
         );
+        assert_eq!(stage.config().track_length, 5, "as made");
         step(&stage, ms(1), 205);
         let times: Vec<u64> = stage.track().iter().map(|r| r.at.0 / 1_000_000).collect();
         assert_eq!(times, [120, 140, 160, 180, 200]);
