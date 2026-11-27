@@ -21,17 +21,24 @@
 //!   boundaries, counted, and freed after their last reader; held inputs, and the steps they
 //!   alone feed run once;
 //! - the fusion pass, which runs the fused ISP kernel in the live chain's place on the GPU.
+//!
+//! From P1.08d:
+//! - [`restore`]: temporal averaging, the bilateral filter and Richardson–Lucy as nodes;
+//! - [`live`]: a plan run live on a thread of its own, one frame waiting at most, the latest.
 
 mod fuse;
 pub mod glue;
+pub mod live;
 pub mod node;
 pub mod plan;
 pub mod port;
 pub mod recipe;
 pub mod registry;
+pub mod restore;
 pub mod run;
 pub mod stock;
 
+pub use live::{Live, LiveStats};
 pub use node::{Backends, Context, Descriptor, Node, Step};
 pub use plan::{Plan, Problem};
 pub use port::{Encoding, PortSpec, PortType, SampleType, Table, Value};

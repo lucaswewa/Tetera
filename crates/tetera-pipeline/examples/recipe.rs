@@ -1,7 +1,9 @@
-//! A JSON recipe checked and run (P1.08a, P1.08b): the registry's nodes, a broken recipe
-//! refused with each of its problems, and a good one put in order and run on a synthetic full
-//! frame. Then the live chain, node by node, from a synthetic sensor's raw frame to a JPEG, on
-//! the CPU and, with the `cuda` feature, on the GPU, each checked against the ISP's own preview.
+//! A JSON recipe checked and run (P1.08a–d): the registry's nodes, a broken recipe refused
+//! with each of its problems, and a good one put in order and run on a synthetic full frame.
+//! Then the live chain, node by node, from a synthetic sensor's raw frame to a JPEG, on the CPU
+//! and, with the `cuda` feature, on the GPU, node by node and fused, each checked against the
+//! ISP's own preview. Then live: a synthetic camera's frames at 14.5 fps, the recipe running
+//! each as it can, a frame that comes while one waits taking its place.
 //!
 //! Run it with `cargo run --release -p tetera-pipeline --example recipe --features cuda`. It
 //! writes the preview to `target/recipe/preview.jpg`. With a path,
@@ -10,13 +12,16 @@
 //! `-- --smoke` takes a 640 × 480 frame.
 
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::time::Instant;
 use tetera_compute::Compute;
 use tetera_core::{Error, Result};
 use tetera_imaging::correct::subtract_dark;
+use tetera_imaging::pattern::noisy;
 use tetera_imaging::pattern::{Sensor, test_pattern};
 use tetera_imaging::{ColourCorrection, FlatField, Image, Isp, IspParams};
-use tetera_pipeline::{Context, Plan, Recipe, Registry, Value};
+use tetera_pipeline::{Context, Live, Plan, Recipe, Registry, Value};
 
 const GOOD: &str = include_str!("../recipes/crop-and-measure.json");
 const BROKEN: &str = include_str!("../recipes/broken.json");
@@ -107,6 +112,15 @@ fn live_chain(registry: &Registry, width: u32, height: u32) -> Result<()> {
             c.bytes as f64 / 1e6
         );
     }
+    live(
+        registry,
+        &recipe,
+        &raw,
+        &dark,
+        &flat,
+        &detected,
+        smoke_seconds(width),
+    )?;
     let dir = std::path::Path::new("target/recipe");
     std::fs::create_dir_all(dir)
         .map_err(|e| Error::internal(format!("couldn't make {}: {e}", dir.display())))?;
@@ -114,6 +128,86 @@ fn live_chain(registry: &Registry, width: u32, height: u32) -> Result<()> {
     std::fs::write(&path, &jpeg)
         .map_err(|e| Error::internal(format!("couldn't write {}: {e}", path.display())))?;
     println!("  wrote {} ({} KB)", path.display(), jpeg.len() / 1_024);
+    Ok(())
+}
+
+/// How long the live run takes: 2 s, or half a second for the smoke run's small frame.
+fn smoke_seconds(width: u32) -> f64 {
+    if width < 1_000 { 0.5 } else { 2.0 }
+}
+
+/// The live chain run live, on each backend: frames from a synthetic camera at 14.5 fps for
+/// `seconds`, each with its own noise.
+fn live(
+    registry: &Registry,
+    recipe: &Recipe,
+    raw: &tetera_imaging::Mosaic,
+    dark: &tetera_imaging::Mosaic,
+    flat: &tetera_imaging::Mosaic,
+    detected: &Compute,
+    seconds: f64,
+) -> Result<()> {
+    const PERIOD: Duration = Duration::from_micros(68_966);
+    let frames: Vec<Value> = (0..4)
+        .map(|seed| {
+            let sites = noisy(raw.sites(), 20.0, 4_095, seed);
+            tetera_imaging::Mosaic::new(*raw.layout(), sites).map(Value::Raw)
+        })
+        .collect::<Result<_>>()?;
+    let count = (seconds / PERIOD.as_secs_f64()).round() as u32;
+    println!(
+        "\nLive, {count} frames from a camera at 14.5 fps, each run as the recipe can, after one to start:"
+    );
+    let gpu = detected.kind() != tetera_compute::BackendKind::Cpu;
+    let mut runs = vec![("CPU, node by node", false, false)];
+    if gpu {
+        runs.push(("CUDA, node by node", true, false));
+        runs.push(("CUDA, fused", true, true));
+    }
+    for (label, on_gpu, fuse) in runs {
+        let compute = Arc::new(if on_gpu {
+            Compute::detect()?
+        } else {
+            Compute::cpu_only()?
+        });
+        let mut plan = Plan::new(recipe, registry)?;
+        plan.set_fusion(fuse);
+        plan.hold("dark", Value::Raw(dark.clone()))?;
+        plan.hold("flat", Value::Raw(flat.clone()))?;
+        // One frame first, so the live run starts with its tables made and masters uploaded.
+        let first = BTreeMap::from([("raw".to_string(), frames[0].clone())]);
+        plan.run(&Context { compute: &compute }, first)?;
+        let errors = Arc::new(Mutex::new(Vec::new()));
+        let seen = errors.clone();
+        let live = Live::start(plan, compute, "raw", move |out| {
+            if let Err(e) = out {
+                seen.lock().expect("the list of errors").push(e.to_string());
+            }
+        })?;
+        let start = Instant::now();
+        for i in 0..count {
+            live.offer(frames[i as usize % frames.len()].clone())?;
+            let next = PERIOD * (i + 1);
+            if let Some(wait) = next.checked_sub(start.elapsed()) {
+                std::thread::sleep(wait);
+            }
+        }
+        while !live.is_idle() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let elapsed = start.elapsed().as_secs_f64();
+        let (_, stats) = live.stop()?;
+        if let Some(e) = errors.lock().expect("the list of errors").first() {
+            return Err(Error::internal(format!("{label}: a live run failed: {e}")));
+        }
+        println!(
+            "  {label:<19} {} of {} run, {} gave way to a later one; {:.1} fps out",
+            stats.ran,
+            stats.offered,
+            stats.replaced,
+            stats.ran as f64 / elapsed
+        );
+    }
     Ok(())
 }
 
