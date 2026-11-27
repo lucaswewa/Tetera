@@ -33,6 +33,20 @@ pub const SCALE: KernelSource = KernelSource {
     fatbin: generated::SCALE_FATBIN,
 };
 
+/// `kernels/bayer.cu`: the Bayer split and the superpixel.
+pub const BAYER: KernelSource = KernelSource {
+    name: "bayer",
+    source: generated::BAYER_SOURCE,
+    fatbin: generated::BAYER_FATBIN,
+};
+
+/// `kernels/demosaic.cu`: bilinear and Malvar-He-Cutler demosaicking.
+pub const DEMOSAIC: KernelSource = KernelSource {
+    name: "demosaic",
+    source: generated::DEMOSAIC_SOURCE,
+    fatbin: generated::DEMOSAIC_FATBIN,
+};
+
 /// Where a loaded module's code came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {

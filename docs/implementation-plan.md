@@ -221,10 +221,10 @@ A crate depends only on crates in lower layers, plus the few edges within a laye
 | Layer | Crate | What it holds | From |
 |---|---|---|---|
 | L0 Foundation | `tetera-core` | Units, geometry (rects, 2D affines), the monotonic clock, IDs, frame and metadata types, the buffer pool's interface, errors. No I/O, no async | P1.02 |
-| L1 Compute | `tetera-compute` | CPU and CUDA backends, device buffers, pinned memory, streams, the kernel build, fused kernels *(unsafe)* | P1.04a |
+| L1 Compute | `tetera-compute` | CPU and CUDA backends, device buffers, pinned memory, streams, the kernel build, every CUDA kernel and its launch, fused kernels *(unsafe)* | P1.04a |
 | | `tetera-log` | The `tracing` set-up: the ring's layer, rolling JSON files, journald. Added by M1's specs: `tetera-core` does no I/O | P1.02 |
 | | `tetera-shm` | Named shared memory and the frame-ring layout, for Python workers *(unsafe)* | P2.04 |
-| L1 Algorithms | `tetera-imaging` | The stock algorithms, each with a CPU and a CUDA path: Bayer, demosaic, dark, flat, CCM, denoise, deconvolution, resize, encode, focus measures, registration | P1.05a |
+| L1 Algorithms | `tetera-imaging` | The stock algorithms, each with a CPU twin here and a CUDA kernel in `tetera-compute`: Bayer, demosaic, dark, flat, CCM, denoise, deconvolution, resize, encode, focus measures, registration | P1.05a |
 | L2 Devices | `tetera-hal` | Device traits (`Camera`, `Stage`, `ObjectiveMount`, `Illumination`), capabilities and fakes | P1.09 |
 | | `tetera-sim` | The simulated world: the H&E sample, optics, illumination, the virtual camera and the virtual stage | P1.10 |
 | | `tetera-grbl` | The grblHAL driver and its protocol fake | P5.02 |

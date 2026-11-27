@@ -7,12 +7,14 @@
 //!
 //! Every operation in [`ops`] has a CPU twin and, with the `cuda` feature, a CUDA kernel
 //! (ADR-0010): [`twin`] proves the two agree, and [`budget`] shares out the GPU's memory.
+//! [`imaging`] holds the imaging kernels, whose CPU twins are in `tetera-imaging`.
 
 pub mod budget;
 pub mod cpu;
 #[cfg(feature = "cuda")]
 pub mod cuda;
 pub mod features;
+pub mod imaging;
 #[cfg(feature = "cuda")]
 pub mod kernels;
 pub mod ops;

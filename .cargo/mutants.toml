@@ -19,4 +19,12 @@ exclude_re = [
     # compute_info with TETERA_FORCE_CPU=1.
     "replace cuda_tests_enabled -> bool",
     "replace <impl Probe for SystemProbe>::force_cpu -> bool",
+    # A tile kernel's grid made larger: the kernel's own bounds check idles the extra threads.
+    "replace / with \\* in device::CudaBackend::tiles_kernel",
+    # Reading (x - dx, y - dy) for (x + dx, y + dy): every demosaic filter is point-symmetric,
+    # so the taps sum the same.
+    "replace \\+ with - in demosaic_cpu",
+    # The test pattern's bands: a pixel's centre, y + 0.5, never falls on a third of a whole
+    # height, so < and <= draw the same bands.
+    "replace < with <= in test_pattern",
 ]

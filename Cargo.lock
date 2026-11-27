@@ -655,6 +655,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tetera-imaging"
+version = "0.1.0"
+dependencies = [
+ "rayon",
+ "tetera-compute",
+ "tetera-core",
+]
+
+[[package]]
 name = "tetera-log"
 version = "0.1.0"
 dependencies = [
