@@ -48,7 +48,7 @@ Each phase has:
 | [P1.06a](#p106a-dark-flat-and-colour) | Dark, flat and colour | P1.05b | 1,730 | — | G1, G1c |
 | [P1.06b](#p106b-the-fused-kernel) | The fused kernel | P1.06a | 1,270 | — | G1, G1c |
 | [P1.07a](#p107a-denoise) | Denoise | P1.05b | 1,020 | Yes | G1, G1c |
-| [P1.07b](#p107b-psfs-and-richardsonlucy) | PSFs and Richardson–Lucy | P1.07a | 1,235 | Yes | G1 |
+| [P1.07b](#p107b-psfs-and-richardsonlucy) | PSFs and Richardson–Lucy | P1.07a | 1,395 | Yes | G1 |
 | [P1.07c](#p107c-richardsonlucy-on-the-gpu) | Richardson–Lucy on the GPU | P1.07b | 650 | — | G1, G1c |
 | [P1.08](#p108-the-pipeline-engine) | The pipeline engine | P1.06b, P1.07c | 1,880 | — | G1, G1c |
 | [P1.09](#p109-the-hal) | The HAL | P1.03 | 1,540 | — | G1 |
@@ -529,7 +529,7 @@ Each phase has:
 | ADRs | — |
 | Gates | G1 |
 | Spec-first | Yes |
-| Estimate | code 550 · tests 520 · examples 120 · docs-as-code 25 · glue 20 = **1,235**, from P1.07's split; its own second estimate comes before its code |
+| Second estimate | code 610 · tests 610 · examples 130 · docs-as-code 25 · glue 20 = **1,395**, against 1,235 from P1.07's split |
 
 **Goal.** Restore detail the optics blurred, on the CPU.
 
