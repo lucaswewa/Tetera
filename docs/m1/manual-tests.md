@@ -84,3 +84,16 @@ Every entry runs in WSL, in `~/repos/Tetera`, on the phase's branch.
 - [ ] `cargo run -p tetera-imaging --example demosaic -- --smoke --out target/demosaic-smoke` — expect `CPU: this build has no `cuda` feature`, `-` for CUDA, the PSNRs, and `smoke: ok`. Its files hold the whole 640 × 480 frame: hue ramps, the zone plate, and colour bars.
 - [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda` — expect every test to pass, with none saying `skipped`.
 - **Result:** see the [notes](notes/P1.05a-bayer-and-demosaic.md#manual-test).
+
+## P1.05b: Binning, resize, display transform and JPEG
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3, `cmake` and `nasm` in WSL ([toolchain.md](../setup/toolchain.md#in-wsl-ubuntu-2404)).
+- [ ] `cargo xtask doctor` — expect `cmake` and `nasm` to say `ok`.
+- [ ] `cargo run --release -p tetera-imaging --example demosaic --features cuda` — expect, after P1.05a's table, the preview's:
+  - a time on the CPU and on CUDA for binning, demosaicking, resizing and the display transform;
+  - JPEG at 10 ms or less;
+  - `Twins:   the 8-bit previews identical`.
+- [ ] Open `target/demosaic/preview.jpg` — expect 1920 × 1280: the hue ramps, the zone plate, and the colour bars, brighter than linear (sRGB). The zone plate's finest rings fade to grey, without moiré.
+- [ ] `cargo run -p tetera-imaging --example demosaic -- --smoke` — expect `-` for every CUDA time, a JPEG's size, and `smoke: ok`.
+- [ ] `TETERA_CUDA=1 cargo test -p tetera-imaging --features cuda` — expect every test to pass, with none saying `skipped`.
+- **Result:** see the [notes](notes/P1.05b-binning-resize-display-transform-and-jpeg.md#manual-test).

@@ -16,6 +16,10 @@ cuda = ["tetera-compute/cuda"]
 rayon.workspace = true
 tetera-compute.workspace = true
 tetera-core.workspace = true
+turbojpeg.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

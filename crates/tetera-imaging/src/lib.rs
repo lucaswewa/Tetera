@@ -9,15 +9,28 @@
 //! - [`demosaic`]: bilinear and Malvar-He-Cutler, to RGB in 16 bits or floats;
 //! - [`pattern`]: a test pattern, and the PSNR of an image against it.
 //!
+//! From P1.05b:
+//! - [`bayer`] bins a mosaic by 2, 3 or 4, keeping its layout;
+//! - [`resize`]: area averaging to shrink, bilinear to enlarge, by integer weight tables;
+//! - [`display`]: black and white levels and a tone curve, to 8 bits, by lookup tables;
+//! - [`jpeg`]: JPEG on the CPU, through libjpeg-turbo.
+//!
 //! Each operation runs on whichever backend a [`Compute`](tetera_compute::Compute) chose;
 //! `_cpu` runs its twin, and `_device` leaves data on the GPU.
 
 pub mod bayer;
 pub mod demosaic;
+pub mod display;
 pub mod image;
+pub mod jpeg;
 pub mod pattern;
+pub mod resize;
 
+pub use bayer::BinMode;
 pub use demosaic::{Demosaic, Sample};
+pub use display::{Curve, DisplayTransform, Levels};
 pub use image::{BayerPlanes, Image, Mosaic, MosaicLayout};
 #[cfg(feature = "cuda")]
 pub use image::{DeviceImage, DeviceMosaic};
+pub use jpeg::JpegEncoder;
+pub use resize::Resize;
