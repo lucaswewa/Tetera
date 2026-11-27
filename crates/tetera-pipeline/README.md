@@ -21,6 +21,6 @@ With the `cuda` feature, the nodes run on the GPU when `Compute` chose it. Each 
 cargo run --release -p tetera-pipeline --example recipe --features cuda
 ```
 
-`recipe` lists the registry, refuses [`recipes/broken.json`](recipes/broken.json) with each of its six problems, then runs [`recipes/crop-and-measure.json`](recipes/crop-and-measure.json) on a full-frame test pattern, in about 5 ms. Then it runs the live chain's recipe on a 20 MP raw frame from a synthetic sensor, to a 1920 × 1280 preview and a JPEG, on each backend. Each preview is checked to be the ISP's own, and the JPEG goes to `target/recipe/preview.jpg`. On this PC, 170 ms on the CPU and 215 ms on CUDA, where each node copies its data to the GPU and back.
+`recipe` lists the registry, refuses [`recipes/broken.json`](recipes/broken.json) with each of its six problems, then runs [`recipes/crop-and-measure.json`](recipes/crop-and-measure.json) on a full-frame test pattern, in about 5 ms. Then it runs the live chain's recipe on a 20 MP raw frame from a synthetic sensor, to a 1920 × 1280 preview and a JPEG, on each backend. Each preview is checked to be the ISP's own, and the JPEG goes to `target/recipe/preview.jpg`. On this PC, about 190 ms on the CPU and 230 ms on CUDA, where each node copies its data to the GPU and back.
 
 `-- PATH.json` checks another recipe; `-- --schema` prints the recipe schema; `-- --catalogue` prints every node's descriptor; and `-- --smoke` takes a 640 × 480 frame.
