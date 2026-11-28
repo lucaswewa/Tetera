@@ -312,3 +312,13 @@ The owner runs this at Checkpoint C, with B's and C's; the agent ran and recorde
 - [ ] `cargo run --release -p tetera-acquire --example preview-pipeline -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-acquire` — expect 16 tests to pass.
 - **Result:** see the [notes](notes/P1.14a-the-frame-bus-and-the-preview-pipeline.md#manual-test).
+
+## P1.14b: The preview stream
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU; port 8310 free.
+- [ ] `cargo run --release -p tetera-api --features cuda --example preview-stream` — expect the camera on the GPU in its binned live mode; the quick client at the camera's rate, 30 frames a second or more, 100 ms or less from each frame's exposure to its receipt; the slow client at about five a second, its link lowered (quality 60 or 40).
+- [ ] `cargo run --release -p tetera-api --example preview-stream -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo run --release -p tetera-server`, then from Windows: `curl.exe http://localhost:8310/preview/` — expect the Thing Description, with `defaults`, `sessions` and the `stream`'s link (`subprotocol` `websocket`); `curl.exe http://localhost:8310/preview/defaults` — the 1920 × 1280 viewport, quality 80, 60 a second.
+- [ ] With the server running and the camera streaming (`POST /camera/start_streaming`), connect to `ws://localhost:8310/preview/stream` from Windows (the browser's console: `new WebSocket(...)`, `binaryType = "arraybuffer"`), send `{"width": 640, "height": 480}`, and expect two binary messages, each beginning `TPV1`, then none until an `ack`; send `{"quality": 0}` and expect `{"error": …}`.
+- [ ] `cargo test -p tetera-acquire -p tetera-api` — expect 20 and 29 tests to pass.
+- **Result:** see the [notes](notes/P1.14b-the-preview-stream.md#manual-test).

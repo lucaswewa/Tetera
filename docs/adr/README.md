@@ -24,3 +24,4 @@ The [plan's §10](../implementation-plan.md#10-planned-adrs) lists the ADRs stil
 | [0016](0016-the-virtual-cameras-model.md) | The virtual camera's model | Accepted | P1.12a |
 | [0017](0017-control-plane-and-media-plane.md) | Control plane and media plane | Accepted | P1.13a |
 | [0018](0018-the-service-in-wsl2-systemd-start-up-networking-and-devices.md) | The service in WSL2: systemd, start-up, networking and devices | Accepted | P1.13a |
+| [0019](0019-the-preview-protocol.md) | The preview protocol | Accepted | P1.14b |

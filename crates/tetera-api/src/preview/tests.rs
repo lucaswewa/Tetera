@@ -65,10 +65,30 @@ impl Served {
 
     /// `GET path`'s JSON, over a plain socket.
     async fn get(&self, path: &str) -> Value {
+        self.http("GET", path, "").await
+    }
+
+    /// `PUT path` with `body`, over a plain socket: its answer's status line.
+    async fn put(&self, path: &str, body: &Value) -> String {
+        let answer = self.raw("PUT", path, &body.to_string()).await;
+        answer.lines().next().unwrap_or_default().to_string()
+    }
+
+    async fn http(&self, method: &str, path: &str, body: &str) -> Value {
+        let answer = self.raw(method, path, body).await;
+        let body = answer.split_once("\r\n\r\n").expect("a body").1;
+        serde_json::from_str(body).unwrap_or_else(|e| panic!("{e}: {answer}"))
+    }
+
+    async fn raw(&self, method: &str, path: &str, body: &str) -> String {
         use std::io::{Read, Write};
         let addr = self.addr;
-        let request = format!("GET {path} HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n");
-        let answer = tokio::task::spawn_blocking(move || {
+        let request = format!(
+            "{method} {path} HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\
+             Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        tokio::task::spawn_blocking(move || {
             let mut s = std::net::TcpStream::connect(addr).unwrap();
             s.write_all(request.as_bytes()).unwrap();
             let mut answer = String::new();
@@ -76,9 +96,7 @@ impl Served {
             answer
         })
         .await
-        .unwrap();
-        let body = answer.split_once("\r\n\r\n").expect("a body").1;
-        serde_json::from_str(body).unwrap_or_else(|e| panic!("{e}: {answer}"))
+        .unwrap()
     }
 }
 
@@ -199,9 +217,18 @@ async fn a_client_gets_two_frames_until_it_acknowledges_them() {
     )
     .await;
     let publisher = Publisher::start(&served.instrument, Duration::from_millis(10));
-    let (a, jpeg) = frame(&mut socket, Duration::from_secs(10))
-        .await
-        .expect("a frame");
+    // The state applies from the session's next preview: one made before it came takes the
+    // defaults, and is acknowledged here.
+    let (a, jpeg) = loop {
+        let (h, jpeg) = frame(&mut socket, Duration::from_secs(10))
+            .await
+            .expect("a frame");
+        if h.width == 64 {
+            break (h, jpeg);
+        }
+        let ack = json!({"width": 64, "height": 64, "quality": 70, "ack": h.seq});
+        send(&mut socket, ack).await;
+    };
     let (b, _) = frame(&mut socket, Duration::from_secs(10))
         .await
         .expect("a second");
@@ -286,6 +313,7 @@ async fn a_slow_client_never_gets_a_stale_frame_and_its_link_steps_down() {
     );
     let sessions = served.get("/preview/sessions").await;
     assert_eq!(sessions.as_array().map(Vec::len), Some(1), "{sessions}");
+    assert_eq!(sessions[0]["id"], 1, "numbered from 1");
     assert!(sessions[0]["link_step"].as_u64() >= Some(1));
     assert!(sessions[0]["latency"].as_f64().is_some_and(|ms| ms > 100.0));
     drop(socket);
@@ -296,6 +324,44 @@ async fn a_slow_client_never_gets_a_stale_frame_and_its_link_steps_down() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     panic!("the session outlived its socket");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_says_nothing_gets_the_defaults_and_the_cameras_white_balance() {
+    let served = Served::start().await;
+    let defaults = json!({"width": 96, "height": 96, "quality": 55});
+    assert!(
+        served
+            .put("/preview/defaults", &defaults)
+            .await
+            .contains(" 20")
+    );
+    let warm = json!({"red": 2.0, "green": 1.0, "blue": 1.0});
+    assert!(
+        served
+            .put("/camera/white_balance", &warm)
+            .await
+            .contains(" 20")
+    );
+    let mut socket = served.socket().await;
+    let _publisher = Publisher::start(&served.instrument, Duration::from_millis(10));
+    let (h, jpeg) = frame(&mut socket, Duration::from_secs(10)).await.unwrap();
+    assert_eq!((h.width, h.height, h.quality), (96, 72, 55));
+    let rgb = tetera_imaging::jpeg::decode_rgb(&jpeg).unwrap();
+    let sum = |c: usize| -> f64 {
+        rgb.data()
+            .iter()
+            .skip(c)
+            .step_by(3)
+            .map(|&v| f64::from(v))
+            .sum()
+    };
+    assert!(
+        sum(0) > 1.2 * sum(1),
+        "red's gain: {} against {}",
+        sum(0),
+        sum(1)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

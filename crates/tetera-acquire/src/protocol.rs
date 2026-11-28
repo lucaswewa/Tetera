@@ -474,6 +474,11 @@ mod tests {
             assert_eq!(up.record(at(ms), false), 3, "{ms} ms");
         }
         assert_eq!(up.record(at(4_000), false), 2);
+        // At its best, a quick link stays there.
+        let mut best = LinkControl::new(t0);
+        for ms in (20..=3_000).step_by(20) {
+            assert_eq!(best.record(at(ms), false), 0, "{ms} ms");
+        }
         // Exactly half held back is not more than half.
         let mut half = LinkControl::new(t0);
         half.record(at(990), true);
