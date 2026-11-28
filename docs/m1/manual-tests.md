@@ -403,3 +403,11 @@ The owner runs this at Checkpoint C, with A's and C's; the agent ran and recorde
 - [ ] `cargo run --release -p tetera-api --example scan -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-workflows -p tetera-hal -p tetera-sim -p tetera-store` — expect 38, 53, 99 and 10 tests to pass.
 - **Result:** see the [notes](notes/P1.17a-scan-planning-and-the-stop-and-go-engine.md#manual-test).
+
+## P1.17b: z-stacks and the `scan` Thing
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU.
+- [ ] `cargo run --release -p tetera-api --features cuda --example scan` — expect P1.17a's 5 × 5 snake; then a 21-plane z-scan read back as one 3D array of 21 × 3648 × 5472, its planes 1 µm apart; then a 3 × 3 snake through the `scan` Thing, paused after its fourth tile, its progress unchanged a second on, resumed to its end. Run it twice: the first run after a build can wait on WSL2's disk.
+- [ ] `cargo run --release -p tetera-api --example scan -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-store -p tetera-workflows -p tetera-api` — expect 11, 38 and 44 tests to pass.
+- **Result:** see the [notes](notes/P1.17b-z-stacks-and-the-scan-thing.md#manual-test).
