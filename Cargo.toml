@@ -27,6 +27,7 @@ tetera-log = { path = "crates/tetera-log" }
 tetera-pipeline = { path = "crates/tetera-pipeline" }
 tetera-sim = { path = "crates/tetera-sim" }
 tetera-store = { path = "crates/tetera-store" }
+tetera-workflows = { path = "crates/tetera-workflows" }
 
 # Each at least two weeks old when added (ADR-0002).
 # Errors at the HTTP boundary, as teta-wot's actions and hooks take them (P1.13a).

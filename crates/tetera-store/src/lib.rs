@@ -19,7 +19,7 @@ pub mod store;
 pub use dataset::{DatasetReader, DatasetSpec, Metadata, Samples};
 pub use framelog::{FrameLog, FrameLogWriter, LogEntry, LogHeader};
 pub use index::{DatasetInfo, FileInfo, Index, Project};
-pub use ingest::ingest;
+pub use ingest::{ingest, ingest_first};
 pub use store::{DatasetWriter, Store};
 
 #[cfg(test)]

@@ -1,0 +1,25 @@
+[package]
+name = "tetera-workflows"
+description = "Tetera's workflows: capture, and later autofocus, scans and calibration, run as jobs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tetera-acquire.workspace = true
+tetera-core.workspace = true
+tetera-hal.workspace = true
+tetera-store.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tetera-sim.workspace = true
+
+[lints]
+workspace = true
