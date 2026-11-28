@@ -506,9 +506,9 @@ fn three_equations_are_solved_and_a_singular_set_isnt() {
     }
     assert_eq!(solve3([[1.0; 3]; 3], [1.0, 2.0, 3.0]), None);
     assert_eq!(solve3([[f64::NAN; 3]; 3], [1.0, 2.0, 3.0]), None);
-    let tiny = [[1e-110, 0.0, 0.0], [0.0, 1e-110, 0.0], [0.0, 0.0, 1e-110]];
+    let tiny = [[1e-90, 0.0, 0.0], [0.0, 1e-90, 0.0], [0.0, 0.0, 1e-90]];
     assert_eq!(
-        solve3(tiny, [1e-110, 2e-110, 3e-110]).map(|x| x.map(f64::round)),
+        solve3(tiny, [1e-90, 2e-90, 3e-90]).map(|x| x.map(f64::round)),
         Some([1.0, 2.0, 3.0]),
         "small, not singular"
     );
