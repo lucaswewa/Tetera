@@ -17,8 +17,12 @@ Tetera's HTTP interface, L5 (plan §6.2, [ADR-0017](../../docs/adr/0017-control-
   |---|---|---|
   | `system` | `version`; `platform` (the kernel, the distribution, WSL's version); `compute` (the GPU or the CPU, and the camera's sensor); `memory`; `disks` (the data and scratch roots') | — |
   | `simulation` | `sample` (its seed and section, or `null`) | `load` (`seed`, `thickness`, `folds`), `unload`, `inject` (`stage_stall`, `stage_alarm`, `stage_limit`) |
+  | `camera` | `capabilities`; `config`, and each of its settings: `mode`, `exposure` (ms), `gain`, `bit_depth`, `binning`, `roi`; `pixel_format`; `white_balance`, for the preview; `streaming`, `frames` (delivered and dropped), `last_frame` (its metadata) | `start_streaming`, `stop_streaming` |
+  | `stage` | `capabilities`; `position` (µm), `state`, `moving`, kept current as it moves, so they can be watched; `speed`, the speed of moves that name none, a setting | `move_to`, `move_by` (each ends when the stage is still, and stops it if cancelled), `jog`, `stop_jog`, `halt`, `home` |
+  | `objective` | `catalogue`; `fitted`, by name, written to say which is fitted; `objective`, in full | `remove`, to say none is |
+  | `illumination` | `capabilities`; `on`, `intensity` (0 to 1), `colour_temperature` (K) | — |
 
-  The device Things, `camera`, `stage`, `objective` and `illumination`, join in P1.13b.
+  teta-wot takes a `null` body as a missing one, as FastAPI does, so a property can't be written to `null`: an action does that, as `remove` does for the objective.
 - **`error`** maps Tetera's errors to teta-wot's.
   - **An action:** an anticipated failure ends its invocation as `error`, with a message led by its kind, such as `invalid_argument: …`. A cancellation ends it `cancelled`.
   - **A property:** a value a device refuses is a 422; anything else is a 500.
@@ -40,5 +44,36 @@ curl -X POST -H 'Content-Type: application/json' -d '{"imperfection": "stage_ala
 ```
 
 An action's `POST` answers `201 Created` at once, with its invocation's URL in `Location`; `curl` that URL to follow it to `completed`.
+
+The devices:
+
+```bash
+curl http://127.0.0.1:8310/camera/config
+curl -X PUT -H 'Content-Type: application/json' -d '20' http://127.0.0.1:8310/camera/exposure   # 20 ms
+curl -X PUT -H 'Content-Type: application/json' -d '2' http://127.0.0.1:8310/camera/mode        # binned 3 × 3
+curl -X POST http://127.0.0.1:8310/camera/start_streaming
+curl http://127.0.0.1:8310/camera/frames                       # {"delivered":…,"dropped":0}
+curl http://127.0.0.1:8310/camera/last_frame                   # its number, times, where the stage was
+curl -X POST http://127.0.0.1:8310/camera/stop_streaming
+
+curl http://127.0.0.1:8310/objective/catalogue
+curl -X PUT -H 'Content-Type: application/json' -d '"50x"' http://127.0.0.1:8310/objective/fitted
+
+curl -X PUT -H 'Content-Type: application/json' -d '0.5' http://127.0.0.1:8310/illumination/intensity
+curl -X PUT -H 'Content-Type: application/json' -d '5000' http://127.0.0.1:8310/illumination/colour_temperature
+```
+
+A move, and its time: 10 mm along x at 20 mm/s takes 0.6 s, with 0.1 s each to speed up and slow down at 200 mm/s²:
+
+```bash
+curl http://127.0.0.1:8310/stage/position                      # {"x":2000.0,"y":2000.0,"z":1002.0}
+href=$(curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"x": 12000, "y": 2000, "z": 1002, "speed": 20000}' \
+  http://127.0.0.1:8310/stage/move_to | python3 -c 'import json,sys; print(json.load(sys.stdin)["href"])')
+sleep 1; curl -s $href                                          # "status":"completed", and its times
+curl -N http://127.0.0.1:8310/stage/position -H 'Accept: text/event-stream'   # watch it, in another shell
+```
+
+The invocation's `timeStarted` and `timeCompleted` are about 0.6 s apart, plus up to 25 ms for the stage's next report. Over WebSocket, `/stage/ws` with `{"messageType": "addPropertyObservation", "data": {"position": true}}` sends the position as it changes.
 
 The tests run each Thing through teta-wot's in-process test client: `cargo test -p tetera-api`.
