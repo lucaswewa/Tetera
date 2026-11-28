@@ -183,6 +183,7 @@ fn a_single_frame_is_taken_at_full_resolution_and_the_live_view_comes_back() {
         "full resolution, not 96 × 64"
     );
     assert_eq!(spec.format.bytes_per_sample(), 2, "12 bits in 16");
+    assert_eq!(spec.pixel_size_um, 0.24);
     assert_eq!(spec.instrument["camera"]["mode"], 0);
     assert_eq!(spec.instrument["instrument"]["objective"], "20x");
     assert_eq!(steps.first().map(|s| s.0), Some(0.0));
@@ -251,13 +252,16 @@ fn a_series_keeps_its_interval_and_a_burst_its_rate_and_count() {
     assert_eq!(r.missing, told);
     assert_eq!(s.scratch_left(), 0, "the frame log removed");
     assert!(!s.camera.is_streaming(), "it wasn't streaming before");
-    // At 8 bits and its own exposure, when asked.
+    // In the binned mode, at 8 bits and its own exposure, when asked.
     let mut asked = request(CaptureKind::Single);
+    asked.mode = Some(1);
     asked.bit_depth = Some(8);
     asked.exposure_ms = Some(2.5);
     let r = capture(&s.rig(), &asked, &mut going).unwrap();
     let read = s.store.read(&r.dataset.id).unwrap();
-    let format = read.metadata().spec.format;
+    let spec = &read.metadata().spec;
+    assert_eq!((spec.width, spec.pixel_size_um), (96, 0.48), "binned 2 × 2");
+    let format = spec.format;
     // 8 bits in 16, as the camera lays them out.
     assert_eq!(
         (format.significant_bits(), format.bytes_per_sample()),
@@ -336,12 +340,14 @@ fn bad_requests_are_refused_and_a_failed_switch_puts_the_camera_back() {
     assert!(capture(&s.rig(), &nine, &mut going).is_err());
     assert_eq!(s.camera.config(), before);
     // An unknown project: refused, and put back.
-    let mut nowhere = request(CaptureKind::Single);
+    let published = s.bus.published();
+    let mut nowhere = request(CaptureKind::Burst { count: 3 });
     nowhere.project = "none".into();
     assert_eq!(
         capture(&s.rig(), &nowhere, &mut going).unwrap_err().kind(),
         ErrorKind::NotFound
     );
     assert_eq!(s.camera.config(), before);
+    assert_eq!(s.bus.published(), published, "nothing recorded");
     assert_eq!(CaptureKind::Single.frames(), 1);
 }

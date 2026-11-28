@@ -2062,6 +2062,8 @@ dependencies = [
  "tetera-imaging",
  "tetera-jobs",
  "tetera-sim",
+ "tetera-store",
+ "tetera-workflows",
  "tokio",
  "tokio-tungstenite",
  "tracing",

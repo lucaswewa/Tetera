@@ -76,6 +76,15 @@ impl CameraThing {
             .ok_or_else(|| PropertyError::failed(anyhow::anyhow!("not started")))
     }
 
+    /// Where its stream's frames go, as `start_streaming` makes it: counted, their metadata
+    /// kept, and into the frame bus. A capture restarts the live view with it.
+    pub(crate) fn live_sink(&self) -> Arc<dyn FrameSink> {
+        Arc::new(Counter {
+            thing: self.me.get().cloned().unwrap_or_default(),
+            bus: self.bus.get().cloned().unwrap_or_else(FrameBus::new),
+        })
+    }
+
     /// The white balance's gains, red's, green's and blue's, for the preview.
     pub(crate) fn gains(&self) -> [f64; 3] {
         let w = self.white_balance.get();
@@ -250,10 +259,7 @@ impl CameraThing {
             .get()
             .cloned()
             .ok_or_else(|| ActionError::handled("the camera hasn't started"))?;
-        let sink = Arc::new(Counter {
-            thing: self.me.get().cloned().unwrap_or_default(),
-            bus: self.bus.get().cloned().unwrap_or_else(FrameBus::new),
-        });
+        let sink = self.live_sink();
         self.frames.set(FrameCount::default())?;
         camera.start(sink).map_err(error::action)?;
         self.streaming.set(true)?;

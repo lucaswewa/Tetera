@@ -25,6 +25,8 @@ tetera-core.workspace = true
 tetera-hal.workspace = true
 tetera-jobs.workspace = true
 tetera-sim.workspace = true
+tetera-store.workspace = true
+tetera-workflows.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 

@@ -92,7 +92,8 @@ pub struct Rig<'a> {
     pub scratch: &'a Path,
     /// Where the live view's frames go, to restart it after the capture.
     pub live: Option<Arc<dyn FrameSink>>,
-    /// A pixel's size at the sample, µm, as the fitted objective makes it.
+    /// A sensor pixel's size at the sample, µm, unbinned, through the objective fitted: a
+    /// binned mode's pixels are larger.
     pub pixel_size_um: f64,
     /// The instrument as it is, for the dataset's metadata.
     pub instrument: serde_json::Value,
@@ -129,6 +130,8 @@ pub fn capture(
     step: &mut dyn FnMut(f64, &str) -> Result<()>,
 ) -> Result<CaptureResult> {
     request.check()?;
+    // Before the camera is touched: a burst would be recorded only to be refused.
+    rig.store.project(&request.project)?;
     let camera = rig.camera;
     let before = camera.config();
     let streaming = camera.is_streaming();
@@ -192,7 +195,11 @@ fn restore(rig: &Rig<'_>, before: &CameraConfig, streaming: bool) -> Result<()> 
 
 /// The dataset's description.
 fn spec(rig: &Rig<'_>, request: &CaptureRequest, config: &CameraConfig) -> Result<DatasetSpec> {
-    let layout = rig.camera.capabilities().layout(config)?;
+    let capabilities = rig.camera.capabilities();
+    let layout = capabilities.layout(config)?;
+    // The first mode reads the whole sensor; a binned one's pixels cover more of the sample.
+    let whole = capabilities.modes.first().map_or(layout.width, |m| m.width);
+    let pixel_size_um = rig.pixel_size_um * f64::from(whole) / f64::from(layout.width);
     let interval_s = match request.kind {
         CaptureKind::Series { interval_ms, .. } => interval_ms / 1e3,
         _ => 0.0,
@@ -204,7 +211,7 @@ fn spec(rig: &Rig<'_>, request: &CaptureRequest, config: &CameraConfig) -> Resul
         width: layout.width,
         height: layout.height,
         frames: u64::from(request.kind.frames()),
-        pixel_size_um: rig.pixel_size_um,
+        pixel_size_um,
         interval_s,
         instrument: serde_json::json!({
             "instrument": rig.instrument,

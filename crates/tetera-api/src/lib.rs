@@ -8,8 +8,12 @@
 //! - [`simulation`]: the `simulation` Thing, the sample and imperfections on demand.
 //! - [`camera`], [`stage`], [`objective`] and [`illumination`]: the device Things.
 //! - [`preview`]: the `preview` Thing, the live preview's stream (ADR-0019).
-//! - [`media`]: Tetera's own routes: the preview as MJPEG, and the `live-view` page.
+//! - [`media`]: Tetera's own routes: the preview as MJPEG, the `live-view` page, and a
+//!   dataset's thumbnail.
 //! - [`jobs`]: the `jobs` Thing (ADR-0020), and the job service's options.
+//! - [`capture`]: the `capture` Thing: a frame, a series or a burst into a dataset, as a job.
+//! - [`datasets`]: the `datasets` Thing: projects, datasets, their metadata, and delete
+//!   (ADR-0021).
 //! - [`error`]: Tetera's errors as teta-wot's.
 //! - [`server`]: the Things served, and shut down gracefully.
 //!
@@ -17,6 +21,8 @@
 //! [ADR-0017]: https://github.com/lucaswewa/Tetera/blob/main/docs/adr/0017-control-plane-and-media-plane.md
 
 pub mod camera;
+pub mod capture;
+pub mod datasets;
 pub mod error;
 pub mod host;
 pub mod illumination;

@@ -1,5 +1,6 @@
 //! Tetera's own routes (ADR-0017, ADR-0019), merged in front of the Things': the preview as
-//! MJPEG, a session of its own for each viewer, and the `live-view` page.
+//! MJPEG, a session of its own for each viewer; the `live-view` page; and a dataset's
+//! thumbnail.
 
 use crate::instrument::Instrument;
 use crate::preview::{PreviewThing, Slot};
@@ -9,17 +10,27 @@ use teta_wot::http::ShutdownToken;
 use teta_wot::http::axum::Router;
 use teta_wot::http::axum::body::{Body, Bytes};
 use teta_wot::http::axum::extract::rejection::QueryRejection;
-use teta_wot::http::axum::extract::{Query, State};
+use teta_wot::http::axum::extract::{Path, Query, State};
 use teta_wot::http::axum::http::{StatusCode, header};
 use teta_wot::http::axum::response::{Html, IntoResponse, Response};
 use teta_wot::http::axum::routing::get;
 use tetera_acquire::{PreviewParams, Session};
+use tetera_core::ErrorKind;
+use tetera_store::Store;
 
 /// The MJPEG stream's path.
 pub const MJPEG: &str = "/api/v1/preview/mjpeg";
 
 /// The live-view page's path.
 pub const LIVE_VIEW: &str = "/live-view";
+
+/// A dataset's thumbnail's route.
+pub const THUMBNAIL: &str = "/api/v1/datasets/{id}/thumbnail.jpg";
+
+/// Dataset `id`'s thumbnail's path.
+pub fn thumbnail_path(id: &str) -> String {
+    THUMBNAIL.replace("{id}", id)
+}
 
 /// The parts' boundary.
 pub const BOUNDARY: &str = "tetera-frame";
@@ -32,6 +43,7 @@ const PAGE: &str = include_str!("live-view.html");
 struct Media {
     instrument: Arc<Instrument>,
     preview: Arc<PreviewThing>,
+    store: Arc<Store>,
 }
 
 /// What an MJPEG viewer asks for in its query; the rest is the preview's defaults.
@@ -45,14 +57,45 @@ struct MjpegQuery {
 }
 
 /// The routes, for `ThingServerBuilder::merge`.
-pub(crate) fn routes(instrument: Arc<Instrument>, preview: Arc<PreviewThing>) -> Router {
+pub(crate) fn routes(
+    instrument: Arc<Instrument>,
+    preview: Arc<PreviewThing>,
+    store: Arc<Store>,
+) -> Router {
     Router::new()
         .route(MJPEG, get(mjpeg))
         .route(LIVE_VIEW, get(|| async { Html(PAGE) }))
+        .route(THUMBNAIL, get(thumbnail))
         .with_state(Media {
             instrument,
             preview,
+            store,
         })
+}
+
+/// Dataset `id`'s thumbnail, a JPEG: a 404 for one that isn't there, a 409 for one being
+/// written.
+async fn thumbnail(State(media): State<Media>, Path(id): Path<String>) -> Response {
+    let store = media.store.clone();
+    match tokio::task::spawn_blocking(move || store.thumbnail(&id)).await {
+        Ok(Ok(jpeg)) => (
+            [
+                (header::CONTENT_TYPE, "image/jpeg"),
+                (header::CACHE_CONTROL, "max-age=3600"),
+            ],
+            jpeg,
+        )
+            .into_response(),
+        Ok(Err(e)) => {
+            let status = match e.kind() {
+                ErrorKind::NotFound => StatusCode::NOT_FOUND,
+                ErrorKind::Busy => StatusCode::CONFLICT,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status, e.to_string()).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 /// A session that stops off the async threads when its viewer goes.
