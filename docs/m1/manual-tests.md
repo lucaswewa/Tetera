@@ -353,3 +353,12 @@ The owner runs this at Checkpoint C, with A's and C's; the agent ran and recorde
 - [ ] `cargo run --release -p tetera-server`, then `curl http://127.0.0.1:8310/jobs/` — expect the Thing Description, with `active`, the `changed` event, and `get`, `list` and `cancel`; `curl http://127.0.0.1:8310/jobs/active` — `[]`; `.tetera/tetera.db` made.
 - [ ] `cargo test -p tetera-jobs -p tetera-api` — expect 11 and 36 tests to pass.
 - **Result:** see the [notes](notes/P1.15a-the-job-service.md#manual-test).
+
+## P1.15b: The dataset store
+
+- **Prerequisites:** the phase's branch.
+- [ ] `cargo run --release -p tetera-store --example datasets` — expect 20 frames of 5472 × 3648 written, frame 0 read back exactly, the dataset's tree (`image.ome.zarr/` with its `zarr.json` and array `0`, `metadata.json`, `thumbnail.jpg`), and the second dataset's folder gone.
+- [ ] `cargo run --release -p tetera-store --example datasets -- --smoke` — expect `smoke: ok`.
+- [ ] Write a dataset with the example's code kept (comment out its last `remove_dir_all`), and open its `image.ome.zarr` in a reader of OME-Zarr v3, such as napari with `napari-ome-zarr`, if one is at hand — expect 20 frames of one channel.
+- [ ] `cargo test -p tetera-store` — expect 6 tests to pass.
+- **Result:** see the [notes](notes/P1.15b-the-dataset-store.md#manual-test).
