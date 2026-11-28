@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use tetera_core::frame::meta::LightState;
 use tetera_core::{Error, Result, StagePos, Um};
+use tetera_hal::camera::{Camera, CameraConfig};
 use tetera_hal::illumination::Illumination;
 use tetera_hal::objective::{ManualObjectiveMount, ObjectiveCatalogue, ObjectiveMount};
 use tetera_sim::camera::{Backend, Scene, VirtualCamera, VirtualCameraConfig};
@@ -17,6 +18,9 @@ use tetera_sim::optics::{MICHROME_20, Sensor};
 use tetera_sim::{
     HeSample, Rate, SectionConfig, SimClock, VirtualIllumination, VirtualStage, VirtualStageConfig,
 };
+
+/// The camera's mode to begin with, the live view's (D5): binned 2 × 2.
+pub const LIVE_MODE: u32 = 1;
 
 /// The objectives Tetera ships, `configs/objectives.toml`, used when no catalogue is named.
 pub const SHIPPED_OBJECTIVES: &str = include_str!("../../../configs/objectives.toml");
@@ -264,6 +268,12 @@ impl Instrument {
         if simulator.sample.is_none() {
             camera.set_sample(None)?;
         }
+        // The live view's mode (D5): binned 2 × 2, in 8 bits, at 53 frames a second.
+        camera.configure(&CameraConfig {
+            mode: LIVE_MODE,
+            bit_depth: 8,
+            ..camera.config()
+        })?;
         Ok(Self {
             clock: stage.clock().clone(),
             stage,
@@ -388,6 +398,12 @@ pub(crate) mod tests {
         assert_eq!(i.compute().backend, "cpu");
         assert_eq!(i.compute().sensor, [96, 72]);
         assert_eq!(i.sample(), Some(Sample::default()));
+        let live = i.camera.config();
+        assert_eq!(
+            (live.mode, live.bit_depth),
+            (LIVE_MODE, 8),
+            "the binned live mode (D5)"
+        );
         assert_eq!(
             i.objectives.fitted().map(|o| o.name).as_deref(),
             Some("20x")

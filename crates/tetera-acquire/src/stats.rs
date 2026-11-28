@@ -501,6 +501,68 @@ mod tests {
     }
 
     #[test]
+    fn live_statistics_come_at_most_ten_a_second_and_follow_their_parameters() {
+        use std::sync::mpsc::channel;
+        use tetera_core::frame::pool::HostAllocator;
+        use tetera_core::{FrameLayout, FramePool, PixelFormat};
+        let bus = FrameBus::new();
+        let format = PixelFormat::bayer16(BayerPattern::Rggb, 12).unwrap();
+        let pool =
+            FramePool::new(FrameLayout::new(format, 64, 48).unwrap(), 8, &HostAllocator).unwrap();
+        let (tx, rx) = channel();
+        let stats = LiveStats::start(
+            &bus,
+            Duration::from_millis(1),
+            StatsParams::default(),
+            move |s| {
+                let _ = tx.send(s);
+            },
+        )
+        .unwrap();
+        let publish = |seq: u64| {
+            let mut f = pool.take(Duration::from_secs(5)).unwrap();
+            f.meta_mut().seq = seq;
+            bus.publish(f.freeze());
+        };
+        let started = Instant::now();
+        let mut seq = 0;
+        while started.elapsed() < Duration::from_millis(600) {
+            publish(seq);
+            seq += 1;
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let first: Vec<LiveStatistics> = rx.try_iter().map(|s| s.unwrap()).collect();
+        assert!((3..=7).contains(&first.len()), "{} in 0.6 s", first.len());
+        assert!(first.iter().all(|s| s.histogram[0].len() == 256));
+        assert!(first.windows(2).all(|w| w[1].seq > w[0].seq));
+        stats.set_params(StatsParams {
+            bins: 16,
+            ..StatsParams::default()
+        });
+        for _ in 0..40 {
+            publish(seq);
+            seq += 1;
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let later: Vec<LiveStatistics> = rx.try_iter().map(|s| s.unwrap()).collect();
+        assert!(
+            later.last().is_some_and(|s| s.histogram[1].len() == 16),
+            "the new bins"
+        );
+        stats.stop();
+        publish(seq);
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(rx.try_iter().next().is_none(), "nothing once stopped");
+        assert!(
+            format!(
+                "{:?}",
+                LiveStats::start(&bus, FASTEST, StatsParams::default(), |_| {}).unwrap()
+            )
+            .contains("LiveStats")
+        );
+    }
+
+    #[test]
     fn a_sharper_frame_has_a_higher_focus_value_and_bad_requests_are_refused() {
         let sharp = mosaic(64, 64, 12, BayerPattern::Rggb, |x, _| {
             if (x / 4) % 2 == 0 { 3_000 } else { 500 }
