@@ -69,7 +69,7 @@ Each phase has:
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13b | 1,430 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-stream) | The preview stream | P1.14a | 1,330 | — | G1 |
 | [P1.14c](#p114c-mjpeg-and-the-live-view-page) | MJPEG and the live-view page (**Checkpoint B**) | P1.14b | 810 | — | G1, G2 |
-| [P1.15a](#p115a-the-job-service) | The job service | P1.13b | 800 | — | G1 |
+| [P1.15a](#p115a-the-job-service) | The job service | P1.13b | 1,410 | — | G1 |
 | [P1.15b](#p115b-datasets-and-capture) | Datasets and capture | P1.14a, P1.15a | 1,550 | — | G1 |
 | [P1.16](#p116-autofocus) | Autofocus | P1.15b | 1,300 | Yes | G1 |
 | [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16 | 1,530 | — | G1 |
@@ -1265,7 +1265,7 @@ Each phase has:
 | Depends on | P1.13b |
 | ADRs | 0020 the job service |
 | Gates | G1 |
-| First estimate | code 450 · tests 300 · examples 50 = **800** (the owner split P1.15 on 2026-11-26) |
+| Second estimate | code 620 (the job model 90; the service, its hardware queue, its compute pool on a VRAM budget, and cancel 260; the history in SQLite and its pruning 140; the `jobs` Thing 130) · tests 620 · examples 100 · docs-as-code 40 · glue 30 = **1,410** (1,833 at ×1.3). The first, 800, from the owner's split of P1.15 on 2026-11-26 |
 
 **Goal.** Long work that can be followed, cancelled and looked up afterwards.
 
