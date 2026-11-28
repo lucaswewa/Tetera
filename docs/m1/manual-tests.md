@@ -395,3 +395,11 @@ The owner runs this at Checkpoint C, with A's and C's; the agent ran and recorde
 - [ ] `cargo run --release -p tetera-api --example autofocus -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-workflows -p tetera-api` — expect 23 and 41 tests to pass.
 - **Result:** see the [notes](notes/P1.16b-autofocus-on-the-instrument.md#manual-test).
+
+## P1.17a: Scan planning and the stop-and-go engine
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU.
+- [ ] `cargo run --release -p tetera-api --features cuda --example scan` — expect a 5 × 5 snake at 10×, its plan estimated at about 12 s; the scan within 10 % of the estimate, each tile's recorded position within the stage's step of the plan and of the simulator's truth; and a dataset of 25 full frames. Run it twice: the first run after a build can wait on WSL2's disk.
+- [ ] `cargo run --release -p tetera-api --example scan -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-workflows -p tetera-hal -p tetera-sim -p tetera-store` — expect 38, 53, 99 and 10 tests to pass.
+- **Result:** see the [notes](notes/P1.17a-scan-planning-and-the-stop-and-go-engine.md#manual-test).
