@@ -106,6 +106,12 @@ async fn a_capture_over_http_makes_a_dataset_read_back_and_deleted_while_the_liv
         "the whole tiny sensor: {spec}"
     );
     assert_eq!(spec["instrument"]["instrument"]["simulated"], true);
+    // The sensor's 2.4 µm pixels through the 20× objective fitted.
+    assert_eq!(spec["instrument"]["instrument"]["objective"]["name"], "20x");
+    assert!(
+        (spec["pixel_size_um"].as_f64().unwrap() - 0.12).abs() < 1e-12,
+        "{spec}"
+    );
     assert_eq!(spec["instrument"]["camera"]["mode"], 0);
     assert_eq!(got["metadata"]["frames"].as_array().map(Vec::len), Some(5));
     let path = got["thumbnail"].as_str().unwrap();
