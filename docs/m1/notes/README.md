@@ -33,7 +33,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.12c | The virtual camera | Done | [P1.12c](P1.12c-the-virtual-camera.md) |
 | P1.13a | The server, configuration and systemd | Done | [P1.13a](P1.13a-the-server-configuration-and-systemd.md) |
 | P1.13b | The device Things | Done | [P1.13b](P1.13b-the-device-things.md) |
-| P1.14a | The frame bus and the preview pipeline | Not started | — |
+| P1.14a | The frame bus and the preview pipeline | In progress | [P1.14a](P1.14a-the-frame-bus-and-the-preview-pipeline.md) |
 | P1.14b | The preview protocol | Not started | — |
 | P1.15a | The job service | Not started | — |
 | P1.15b | Datasets and capture | Not started | — |
