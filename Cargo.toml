@@ -16,6 +16,7 @@ repository = "https://github.com/lucaswewa/Tetera"
 publish = false
 
 [workspace.dependencies]
+tetera-api = { path = "crates/tetera-api" }
 tetera-compute = { path = "crates/tetera-compute" }
 tetera-core = { path = "crates/tetera-core" }
 tetera-hal = { path = "crates/tetera-hal" }
@@ -25,6 +26,14 @@ tetera-pipeline = { path = "crates/tetera-pipeline" }
 tetera-sim = { path = "crates/tetera-sim" }
 
 # Each at least two weeks old when added (ADR-0002).
+# Errors at the HTTP boundary, as teta-wot's actions and hooks take them (P1.13a).
+anyhow = "1.0.100"
+# The server's command line (P1.13a).
+clap = { version = "4.6.0", features = ["derive"] }
+# Tetera's HTTP interface; `tetera-api` alone depends on it (ADR-0004).
+teta-wot = { git = "https://github.com/lucaswewa/teta-wot", tag = "v0.2.0" }
+# The server's runtime, as teta-wot's (P1.13a).
+tokio = { version = "1.47.0", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 # CUDA, loaded at run time, so the workspace builds without the toolkit (ADR-0009).
 cudarc = { version = "0.19.10", default-features = false, features = ["std", "cuda-13030", "dynamic-loading", "driver", "nvrtc", "cufft"] }
 libloading = "0.9.0"

@@ -1,0 +1,54 @@
+# Tetera's server configuration (plan D16). Every key has a default, shown here; a file
+# names only what it changes, and a key the server doesn't know is refused. Relative paths
+# are from this file's folder, except the data root, which is from where the server runs.
+# `tetera-server --check` prints the configuration it would use.
+
+[server]
+# This PC only (Q11). The port sits beside OScope's 8210 (Q48).
+address = "127.0.0.1"
+port = 8310
+
+[data]
+# Datasets and settings: `./.tetera/` in development. The service's unit passes
+# `--data-root /var/lib/tetera`.
+root = ".tetera"
+# Raw frame logs and other scratch; `scratch` in the data root when not set.
+# scratch = "/mnt/scratch/tetera"
+
+[simulator]
+# How fast the simulated clock runs: 1 is real time.
+clock_rate = 1.0
+# Render on the GPU when there is one.
+gpu = true
+# The camera's sensor: "auto" (the whole MIChrome 20 on the GPU, 912 × 608 on the CPU),
+# "full", "small" or "tiny".
+sensor = "auto"
+# The light through bare glass at full intensity, photoelectrons a ms, and its unevenness.
+light = 1000.0
+unevenness = 0.05
+# The stage's z, µm, at which the section's lower face is in focus, and where the stage
+# starts: over tissue, 2 µm into the section.
+section_z = 1000.0
+start = [2000.0, 2000.0, 1002.0]
+# The GPU memory the sample's tiles may take, MiB.
+vram_mib = 3072
+# The camera noise's seed.
+noise_seed = 1
+# The sample on the stage at the start: H&E from a seed, its section 3 to 5 µm thick.
+# Leave it out for no slide.
+sample = { seed = 7, thickness = 4.0, folds = false }
+
+[objectives]
+# The catalogue of objectives, and the one fitted at the start.
+catalogue = "objectives.toml"
+fitted = "20x"
+
+[log]
+# Which records are kept, in tracing's filter syntax. RUST_LOG overrides it.
+filter = "info"
+# Readable lines on standard error, and journald: "auto", "on" or "off". Auto sends them
+# to journald under systemd, and to standard error otherwise.
+stderr = "auto"
+journald = "auto"
+# JSON lines in rotating files, in the data root: uncomment to keep them.
+# file = { dir = "logs", name = "tetera.log", max_bytes = 10485760, keep = 5 }

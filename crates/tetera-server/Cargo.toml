@@ -1,0 +1,27 @@
+[package]
+name = "tetera-server"
+description = "Tetera's server: the instrument over HTTP, configured from configs/tetera.toml."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = ["cuda"]
+# The camera and the sample on the GPU, when there is one. The build needs no CUDA toolkit.
+cuda = ["tetera-api/cuda"]
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+tetera-api.workspace = true
+tetera-core.workspace = true
+tetera-log.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
