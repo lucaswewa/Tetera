@@ -50,10 +50,16 @@ fn spec(format: PixelFormat, frames: u64) -> DatasetSpec {
     }
 }
 
-/// `n` frames of `format`, each site a pattern of its place and the frame's number.
+/// `n` frames of `format`, 64 × 48, each site a pattern of its place and the frame's number.
 fn frames(format: PixelFormat, n: u64) -> (FramePool, Vec<Frame>) {
+    frames_of(format, 64, n)
+}
+
+/// `n` frames of `format`, `width` × 48, each site a pattern of its place and the frame's
+/// number.
+fn frames_of(format: PixelFormat, width: u32, n: u64) -> (FramePool, Vec<Frame>) {
     let pool = FramePool::new(
-        FrameLayout::new(format, 64, 48).unwrap(),
+        FrameLayout::new(format, width, 48).unwrap(),
         n as usize,
         &HostAllocator,
     )
@@ -64,7 +70,7 @@ fn frames(format: PixelFormat, n: u64) -> (FramePool, Vec<Frame>) {
             let stride = f.layout().stride;
             let bytes = format.bytes_per_sample();
             for (y, row) in f.data_mut().chunks_mut(stride).enumerate() {
-                for x in 0..64 {
+                for x in 0..width as usize {
                     let v = ((x * 31 + y * 17 + t as usize * 7) % 4_096) as u16;
                     if bytes == 1 {
                         row[x] = v as u8;
@@ -668,21 +674,29 @@ fn packed(frame: &Frame) -> Vec<u8> {
 fn a_frame_log_reads_back_in_order_across_its_segments() {
     use crate::framelog::{FrameLog, FrameLogWriter, INDEX};
     let scratch = Scratch::new();
-    for (format, width) in [(bayer16(), 64u32), (PixelFormat::Mono8, 64)] {
+    for (format, width) in [
+        (bayer16(), 64u32),
+        (PixelFormat::Mono8, 64),
+        (PixelFormat::Mono8, 50),
+    ] {
         let dir = scratch
             .0
             .join(format!("log-{width}-{}", format.bytes_per_sample()));
         let mut log = FrameLogWriter::create(&dir, format, width, 48, 2).unwrap();
         assert_eq!(log.dir(), dir);
-        let (_pool, frames) = frames(format, 5);
-        for f in &frames {
+        let (_pool, frames) = frames_of(format, width, 5);
+        log.append(&frames[0]).unwrap();
+        // Preallocated for two frames while it is written.
+        let frame_bytes = u64::from(width) * 48 * format.bytes_per_sample() as u64;
+        let first = dir.join("segment-00000.bin");
+        assert_eq!(std::fs::metadata(&first).unwrap().len(), 2 * frame_bytes);
+        for f in &frames[1..] {
             log.append(f).unwrap();
         }
         assert_eq!(log.written(), 5);
         assert!(format!("{log:?}").contains("written"));
         assert_eq!(log.finish().unwrap(), 5);
         // Three segments, of 2, 2 and 1 frames, each cut to its frames.
-        let frame_bytes = u64::from(width) * 48 * format.bytes_per_sample() as u64;
         for (n, frames_in) in [(0, 2), (1, 2), (2, 1)] {
             let len = std::fs::metadata(dir.join(format!("segment-{n:05}.bin")))
                 .unwrap()
@@ -708,6 +722,11 @@ fn a_frame_log_reads_back_in_order_across_its_segments() {
         assert_eq!(FrameLog::open(&dir).unwrap().len(), 5);
         std::fs::write(&index, format!("not json\n{whole}")).unwrap();
         assert!(FrameLog::open(&dir).is_err());
+        std::fs::write(&index, format!("{whole}not json\n")).unwrap();
+        assert!(
+            FrameLog::open(&dir).is_err(),
+            "a whole last line that is bad"
+        );
         std::fs::write(&index, &whole).unwrap();
         FrameLog::open(&dir).unwrap().remove().unwrap();
         assert!(!dir.exists());
@@ -726,6 +745,11 @@ fn a_frame_log_reads_back_in_order_across_its_segments() {
     let mut log = FrameLogWriter::create(&fresh, bayer16(), 32, 48, 2).unwrap();
     let (_pool, frames) = frames(bayer16(), 1);
     assert!(log.append(&frames[0]).is_err(), "64 wide in a log of 32");
+    // A log of no frames.
+    assert_eq!(log.finish().unwrap(), 0);
+    let empty = FrameLog::open(&fresh).unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
 }
 
 #[test]
@@ -746,7 +770,7 @@ fn ingest_writes_a_log_into_a_dataset_and_a_stopped_one_leaves_none() {
     let described = DatasetSpec {
         width: 1,
         height: 1,
-        frames: 99,
+        frames: 1,
         format: PixelFormat::Mono8,
         ..spec(bayer16(), 1)
     };

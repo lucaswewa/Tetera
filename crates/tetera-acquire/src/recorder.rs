@@ -287,7 +287,8 @@ mod tests {
         );
         assert!(stats.waits > 0);
         assert_eq!(stats.bytes, 40 * 64 * 48 * 2);
-        assert!(stats.seconds > 0.15 && stats.rate() > 0.0);
+        assert!(stats.seconds > 0.15);
+        assert!((stats.rate() - stats.bytes as f64 / stats.seconds).abs() < 1e-6);
         let log = FrameLog::open(&scratch.0).unwrap();
         assert_eq!(log.len(), 40);
         for i in 0..40 {
