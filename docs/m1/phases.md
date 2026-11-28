@@ -22,7 +22,7 @@ Each phase has:
 
 - A first estimate is in five parts, in hand-written lines: code, tests, examples, docs-as-code (READMEs, schemas, configuration), and glue. Doc comments and blank lines count. Markdown docs don't.
 - Before a phase's code, its second estimate goes into the plan's change log, in a commit of its own (plan §7).
-- **The target is 1,500 lines a phase. An estimate over 2,000 goes to the owner,** who decides whether to split it. Two specs were over 2,000 (P1.14 and P1.15), and the owner split both on 2026-11-26: P1.14a and P1.14b, P1.15a and P1.15b. P1.14b's second estimate was over 2,000 again, and the agent split it on 2026-11-28 under the owner's standing approval: P1.14b and P1.14c. So was P1.15b's, split the same day into P1.15b, P1.15c and P1.15d, and P1.16's, into P1.16a and P1.16b.
+- **The target is 1,500 lines a phase. An estimate over 2,000 goes to the owner,** who decides whether to split it. Two specs were over 2,000 (P1.14 and P1.15), and the owner split both on 2026-11-26: P1.14a and P1.14b, P1.15a and P1.15b. P1.14b's second estimate was over 2,000 again, and the agent split it on 2026-11-28 under the owner's standing approval: P1.14b and P1.14c. So was P1.15b's, split the same day into P1.15b, P1.15c and P1.15d, and P1.16's, into P1.16a and P1.16b; and P1.17's, into P1.17a and P1.17b.
 - Specs between 1,500 and 2,000 list a split that is ready if the second estimate grows.
 
 **What every phase does, so the specs don't repeat it** (plan §7):
@@ -75,13 +75,14 @@ Each phase has:
 | [P1.15d](#p115d-capture-and-its-things) | Capture and its Things | P1.15c | 1,100 | — | G1 |
 | [P1.16a](#p116a-focus-measures-and-the-search) | Focus measures and the search | P1.15d | 1,090 | Yes | G1 |
 | [P1.16b](#p116b-autofocus-on-the-instrument) | Autofocus on the instrument | P1.16a | 880 | — | G1 |
-| [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16b | 1,530 | — | G1 |
+| [P1.17a](#p117a-scan-planning-and-the-stop-and-go-engine) | Scan planning and the stop-and-go engine | P1.16b | 1,370 | — | G1 |
+| [P1.17b](#p117b-z-stacks-and-the-scan-thing) | z-stacks and the `scan` Thing | P1.17a | 860 | — | G1 |
 | [P1.18](#p118-calibration) | Calibration (**Checkpoint C**) | P1.17 | 1,900 | Yes | G1, G1c, G2 |
 | [P1.19](#p119-batch-processing) | Batch processing | P1.15b, P1.08e | 1,400 | — | G1, G1c |
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 42 phases since P1.04 to P1.13 were split on 2026-11-27, and P1.14b, P1.15b and P1.16 on 2026-11-28, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 43 phases since P1.04 to P1.13 were split on 2026-11-27, and P1.14b, P1.15b, P1.16 and P1.17 on 2026-11-28, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -1280,7 +1281,7 @@ Each phase has:
 - **The history** in SQLite (`rusqlite`, bundled), pruned by age.
 - **The `jobs` Thing:** list, get, cancel, with events.
 
-**Out of scope.** The work itself: captures (P1.15d), autofocus (P1.16a, P1.16b), scans (P1.17), batches (P1.19).
+**Out of scope.** The work itself: captures (P1.15d), autofocus (P1.16a, P1.16b), scans (P1.17a, P1.17b), batches (P1.19).
 
 **Try it.** `jobs`: hardware and compute jobs queued, one cancelled, then the history read back after a restart.
 
@@ -1378,7 +1379,7 @@ Each phase has:
 - **Capture** (`tetera-workflows`): one frame, N frames at an interval, or a burst at the full rate, as a hardware job. **It switches the camera from its binned live mode to full resolution, captures, and switches back** (D5), and the switch's time is measured.
 - **Things:** `capture`, and `datasets` (projects, datasets, metadata, thumbnails, delete).
 
-**Out of scope.** Exports (P1.19); scans (P1.17).
+**Out of scope.** Exports (P1.19); scans (P1.17a).
 
 **Try it.** `capture`: a burst of 20 full frames into a new project, then the dataset's tree on disk, read back.
 
@@ -1464,17 +1465,17 @@ Each phase has:
 
 ---
 
-## P1.17: Snake scan and z-scan
+## P1.17a: Scan planning and the stop-and-go engine
 
 | | |
 |---|---|
-| Crates | `tetera-workflows`, `tetera-store`, `tetera-api` |
+| Crates | `tetera-workflows`, `tetera-hal`, `tetera-sim` |
 | Depends on | P1.16b |
 | ADRs | 0022 scan planning and the scan engine |
 | Gates | G1 |
-| First estimate | code 1,000 · tests 450 · examples 80 = **1,530** |
+| Second estimate | code 600 (the planners: an XY snake from a rectangle, the field of view and an overlap, in serpentine order, and a z-scan, by range and step or N planes around the focus 160; the plan's time, from the stage's speeds and accelerations, the settle, the frames and the writes 100; the stage's acceleration among its capabilities 20; the engine: move, settle, autofocus if asked, capture at full resolution, positions, pause, resume and cancel, and a dataset of tiles 320) · tests 600 · examples 120 · docs-as-code 40 · glue 10 = **1,370** (1,781 at ×1.3). The first, 1,530, was P1.17's whole, split by the agent on 2026-11-28 |
 
-**Goal.** Acquire a grid of tiles, or a stack of planes, stop and go, with every frame's position recorded.
+**Goal.** Acquire a grid of tiles, stop and go, with every frame's position recorded, in the time the plan says.
 
 **Scope.**
 
@@ -1482,23 +1483,56 @@ Each phase has:
   - **XY snake:** a rectangle covered with tiles at a set overlap, from the field of view, in serpentine order;
   - **z-scan:** a range and step, or N planes around the current focus.
 - **The plan's preview:** positions, and the estimated time.
-- **The engine:** move, wait until Idle and settled, optionally autofocus (none, first tile, every N tiles), capture at full resolution, next.
+- **The engine:** move, wait until Idle and settled, optionally autofocus (none, first tile, every N tiles), capture at full resolution, next. **Pause, resume, cancel.**
 - **Positions** from the stage's track at each exposure's midpoint.
-- **Datasets:** tiles with their positions; a z-stack as one 3D array.
-- **Pause, resume, cancel;** the `scan` Thing, with progress events.
+- **A dataset of tiles,** each with its position.
 
-**Out of scope.** Raster, position and tiled z-stack scans, and the histo scan (M3); stitching (M3).
+**Out of scope.** z-stacks as 3D arrays and the `scan` Thing (P1.17b). Raster, position and tiled z-stack scans, and the histo scan (M3); stitching (M3).
 
-**Try it.** `scan`: a 5 × 5 snake at 10×, and a 21-plane z-scan, with recorded positions against planned ones.
+**Try it.** `scan`: a 5 × 5 snake at 10×, with recorded positions against planned ones, and the time taken against the estimate.
 
 **Done when.**
 
 - Recorded positions agree with the simulator's truth within the stage's repeatability.
 - A cancelled scan leaves a valid, partial dataset.
-- The z-scan reads back as a 3D array.
 - The estimated time is within 10 % of the time taken at 1×.
 
 **Tests.** The planners' coverage and order; overlap from the field of view; the engine's states; pause and cancel at every step. **Broken on purpose:** the serpentine order, and the settle wait.
+
+**Open questions.** None.
+
+---
+
+## P1.17b: z-stacks and the `scan` Thing
+
+| | |
+|---|---|
+| Crates | `tetera-workflows`, `tetera-store`, `tetera-api` |
+| Depends on | P1.17a |
+| ADRs | — (ADR-0022, from P1.17a) |
+| Gates | G1 |
+| Second estimate | code 360 (a dataset's z axis, with its step, written and read back as a 3D array 120; the z-scan on the engine 60; the `scan` Thing: the plan's preview, start, pause, resume, progress events, and the last scan's result 180) · tests 360 · examples 100 · docs-as-code 30 · glue 10 = **860** (1,118 at ×1.3), from P1.17's split on 2026-11-28 |
+
+**Goal.** A stack of planes as one 3D array, and scans run, watched and steered over HTTP.
+
+**Scope.**
+
+- **Datasets:** a z-stack as one 3D array, its planes' step in OME-NGFF's scale.
+- **The z-scan** run by P1.17a's engine.
+- **The `scan` Thing,** with progress events: the plan's preview, start, pause, resume; cancel through the `jobs` Thing.
+
+**Out of scope.** As P1.17a.
+
+**Try it.** `scan`: a 21-plane z-scan, read back as a 3D array, with recorded positions against planned ones; and a snake run through the `scan` Thing, paused and resumed.
+
+**Done when.**
+
+- The z-scan reads back as a 3D array.
+- A scan started through the `scan` Thing can be paused, resumed and cancelled, and says how far it has got.
+
+**Tests.** The z axis written and read back; the Thing over HTTP, its events, pause, resume and cancel. **Broken on purpose:** the z step in the metadata.
+
+**Open questions.** None.
 
 ---
 
@@ -1507,7 +1541,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-workflows`, `tetera-sim`, `tetera-store`, `tetera-imaging`, `tetera-api` |
-| Depends on | P1.17 |
+| Depends on | P1.17b |
 | ADRs | 0023 the calibration model |
 | Gates | G1, G1c, **G2 (Checkpoint C)** |
 | Spec-first | Yes |
