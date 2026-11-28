@@ -8,7 +8,7 @@
 //! - [`index`]: the index of projects, datasets and their files.
 //! - [`framelog`]: the scratch frame log: raw frames appended to segment files as fast as the
 //!   camera makes them.
-//! - [`ingest`]: a frame log into a dataset, step by step, stopped when told.
+//! - [`ingest`](mod@ingest): a frame log into a dataset, step by step, stopped when told.
 
 pub mod dataset;
 pub mod framelog;
