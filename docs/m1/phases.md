@@ -68,7 +68,7 @@ Each phase has:
 | [P1.13b](#p113b-the-device-things) | The device Things | P1.13a | 1,350 | — | G1 |
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13b | 1,430 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-stream) | The preview stream | P1.14a | 1,330 | — | G1 |
-| [P1.14c](#p114c-mjpeg-and-the-live-view-page) | MJPEG and the live-view page (**Checkpoint B**) | P1.14b | 750 | — | G1, G2 |
+| [P1.14c](#p114c-mjpeg-and-the-live-view-page) | MJPEG and the live-view page (**Checkpoint B**) | P1.14b | 810 | — | G1, G2 |
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13b | 800 | — | G1 |
 | [P1.15b](#p115b-datasets-and-capture) | Datasets and capture | P1.14a, P1.15a | 1,550 | — | G1 |
 | [P1.16](#p116-autofocus) | Autofocus | P1.15b | 1,300 | Yes | G1 |
@@ -1231,7 +1231,7 @@ Each phase has:
 | Depends on | P1.14b |
 | ADRs | — (ADR-0019, from P1.14b) |
 | Gates | G1, **G2 (Checkpoint B)** |
-| First estimate | code 200 (MJPEG 110, the live statistics on the `preview` Thing 60, the page's route 30) · tests 200 · examples 300 (the page) · docs-as-code 40 · glue 10 = **750**, from P1.14b's split on 2026-11-28 |
+| Second estimate | code 230 (MJPEG 120, the live statistics on the `preview` Thing 50, the page's route and the server's wiring 60) · tests 230 · examples 300 (the page) · docs-as-code 40 · glue 10 = **810** (1,053 at ×1.3). The first, 750, from P1.14b's split on 2026-11-28 |
 
 **Goal.** Live images from the virtual camera in a browser, at the camera's rate, with little delay.
 

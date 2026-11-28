@@ -1,6 +1,6 @@
 //! The `preview` Thing (ADR-0019): the defaults a client's preview starts from, the sessions
-//! open, and the stream: a WebSocket of frames for each client, each a header and a JPEG,
-//! paced by the client's acknowledgements and lowered on a slow link.
+//! open, the live statistics, and the stream: a WebSocket of frames for each client, each a
+//! header and a JPEG, paced by the client's acknowledgements and lowered on a slow link.
 
 use crate::camera::CameraThing;
 use crate::instrument::Instrument;
@@ -14,7 +14,10 @@ use std::time::Instant;
 use teta_wot::http::Subscriber;
 use teta_wot::prelude::*;
 use tetera_acquire::protocol::{AckWindow, ClientState, Header, LinkControl};
-use tetera_acquire::{Preview, PreviewParams, Session, SessionStats};
+use tetera_acquire::stats::FASTEST;
+use tetera_acquire::{
+    LiveStatistics, LiveStats, Preview, PreviewParams, Session, SessionStats, StatsParams,
+};
 use tetera_core::Clock;
 use tokio::sync::Notify;
 
@@ -52,37 +55,46 @@ pub struct PreviewThing {
     /// the camera's.
     #[setting(default = PreviewParams::default())]
     defaults: Prop<PreviewParams>,
+    /// The live statistics of the camera's latest frame, up to 10 a second while it streams:
+    /// a histogram for each colour, the saturation mask (48 × 32), profiles through the middle
+    /// row and column, the whole frame's statistics, and a focus value.
+    #[property(readonly, default = None)]
+    statistics: Prop<Option<LiveStatistics>>,
     instrument: OnceLock<Arc<Instrument>>,
     camera: OnceLock<Arc<CameraThing>>,
     open: Mutex<BTreeMap<u64, SessionInfo>>,
     next: AtomicU64,
+    live: Mutex<Option<LiveStats>>,
 }
+
+/// The live statistics' mask: 48 × 32 cells, small enough to read 10 times a second.
+pub const STATISTICS_MASK: [u32; 2] = [48, 32];
 
 /// The newest preview not yet sent, between a session's thread and its socket.
 #[derive(Default)]
-struct Slot {
+pub(crate) struct Slot {
     preview: Mutex<Option<Preview>>,
-    ready: Notify,
+    pub(crate) ready: Notify,
     /// Previews replaced before they were sent: held back by the window.
     held: AtomicU64,
 }
 
 impl Slot {
-    fn put(&self, preview: Preview) {
+    pub(crate) fn put(&self, preview: Preview) {
         if lock(&self.preview).replace(preview).is_some() {
             self.held.fetch_add(1, Ordering::Relaxed);
         }
         self.ready.notify_one();
     }
 
-    fn take(&self) -> Option<Preview> {
+    pub(crate) fn take(&self) -> Option<Preview> {
         lock(&self.preview).take()
     }
 }
 
 impl PreviewThing {
     /// The defaults, with the camera's white balance.
-    fn defaults(&self) -> PreviewParams {
+    pub(crate) fn defaults(&self) -> PreviewParams {
         let mut defaults = self.defaults.get();
         if let Some(camera) = self.camera.get() {
             defaults.white_balance = camera.gains();
@@ -159,6 +171,7 @@ impl PreviewThing {
                     height: p.height,
                     quality: p.quality,
                     lowered: link.step() > 0,
+                    latency_us: latency.map(|ms| (ms * 1e3) as u32),
                 };
                 if !subscriber.send(header.message(&p.jpeg)) {
                     break Ok(());
@@ -192,19 +205,42 @@ impl PreviewThing {
 
 #[thing_impl]
 impl PreviewThing {
-    /// Finds the instrument and the camera Thing.
+    /// Finds the instrument and the camera Thing, and starts the live statistics.
     #[on_start]
     async fn start(&self, ctx: ThingCtx) -> anyhow::Result<()> {
         let server = ctx.server();
         let instrument = server
             .service::<Instrument>()
             .context("the server has no instrument")?;
-        let _ = self.instrument.set(instrument);
         let camera = server
             .thing_ref::<CameraThing>("camera")
             .context("the server has no camera Thing")?;
         let _ = self.camera.set(Arc::clone(ThingRef::thing(&camera)));
+        let me = server
+            .thing_ref::<PreviewThing>(ctx.name())
+            .context("the preview Thing isn't on the server")?;
+        let me = Arc::downgrade(ThingRef::thing(&me));
+        let params = StatsParams {
+            mask: STATISTICS_MASK,
+            ..StatsParams::default()
+        };
+        let live = LiveStats::start(&instrument.bus, FASTEST, params, move |worked| {
+            if let (Ok(s), Some(me)) = (worked, me.upgrade()) {
+                let _ = me.statistics.set(Some(s));
+            }
+        })?;
+        *lock(&self.live) = Some(live);
+        let _ = self.instrument.set(instrument);
         Ok(())
+    }
+
+    /// Stops the live statistics.
+    #[on_stop]
+    async fn stop_statistics(&self) {
+        let live = lock(&self.live).take();
+        if let Some(live) = live {
+            let _ = tokio::task::spawn_blocking(move || live.stop()).await;
+        }
     }
 
     /// The previews open: each one's parameters and link, the frames sent, dropped and in
@@ -214,7 +250,7 @@ impl PreviewThing {
         Ok(lock(&self.open).values().cloned().collect())
     }
 
-    /// The live preview: a WebSocket of frames, each a 64-byte header and a JPEG (ADR-0019).
+    /// The live preview: a WebSocket of frames, each a 72-byte header and a JPEG (ADR-0019).
     /// The client sends its whole state as JSON, `{"width", "height", "roi", "quality",
     /// "max_rate", "ack"}`, when it changes and once it has painted each frame, by its
     /// sequence number; no more than two frames go unacknowledged.
@@ -223,6 +259,19 @@ impl PreviewThing {
         if let Err(e) = self.serve(&mut subscriber).await {
             tracing::warn!("a preview stream failed: {e:#}");
         }
+    }
+}
+
+#[cfg(test)]
+impl PreviewThing {
+    /// The frame the live statistics were last worked out from.
+    pub(crate) fn statistics_seq(&self) -> Option<u64> {
+        self.statistics.get().map(|s| s.seq)
+    }
+
+    /// Whether the live statistics' thread runs.
+    pub(crate) fn statistics_running(&self) -> bool {
+        lock(&self.live).is_some()
     }
 }
 

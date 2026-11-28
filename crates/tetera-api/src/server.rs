@@ -1,5 +1,6 @@
 //! The server: the instrument's Things on teta-wot, with its OpenAPI document and its
-//! interactive docs, served until a shutdown signal, then shut down gracefully.
+//! interactive docs, and Tetera's own routes (`media`), served until a shutdown signal, then
+//! shut down gracefully.
 
 use crate::camera::CameraThing;
 use crate::illumination::IlluminationThing;
@@ -73,6 +74,8 @@ pub const THINGS: [&str; 7] = [
 
 /// The server for `instrument`, its settings under `roots`.
 pub fn build(instrument: Arc<Instrument>, roots: Roots) -> Result<Service> {
+    let preview = Arc::new(PreviewThing::default());
+    let media = crate::media::routes(instrument.clone(), preview.clone());
     let server = ThingServer::builder()
         .api_info("Tetera", env!("CARGO_PKG_VERSION"))
         .settings_folder(roots.settings())
@@ -85,7 +88,8 @@ pub fn build(instrument: Arc<Instrument>, roots: Roots) -> Result<Service> {
         .thing(THINGS[3], StageThing::default())
         .thing(THINGS[4], ObjectiveThing::default())
         .thing(THINGS[5], IlluminationThing::default())
-        .thing(THINGS[6], PreviewThing::default())
+        .thing_arc(THINGS[6], preview)
+        .merge(media)
         .build()
         .map_err(|e| Error::internal(format!("the server won't build: {e}")))?;
     Ok(Service { server })

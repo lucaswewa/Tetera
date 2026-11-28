@@ -263,6 +263,11 @@ async fn a_client_gets_two_frames_until_it_acknowledges_them() {
         .expect("a third");
     assert!(c.seq > b.seq, "newer than the last sent");
     assert!(
+        c.latency_us.is_some_and(|us| us >= 300_000),
+        "a's latency, acknowledged after 300 ms: {:?}",
+        c.latency_us
+    );
+    assert!(
         frame(&mut socket, Duration::from_millis(300))
             .await
             .is_none(),
@@ -310,6 +315,15 @@ async fn a_slow_client_never_gets_a_stale_frame_and_its_link_steps_down() {
     assert!(
         last.lowered && last.quality <= 60,
         "the link stepped down: {last:?}"
+    );
+    // Each frame after the first carries the last acknowledged one's latency: at least the
+    // client's 150 ms of painting, and less than the window's two paints and some.
+    assert!(
+        got.iter().skip(2).all(|(h, _)| h
+            .latency_us
+            .is_some_and(|us| (150_000..500_000).contains(&us))),
+        "{:?}",
+        got.iter().map(|(h, _)| h.latency_us).collect::<Vec<_>>()
     );
     let sessions = served.get("/preview/sessions").await;
     assert_eq!(sessions.as_array().map(Vec::len), Some(1), "{sessions}");
@@ -410,4 +424,43 @@ async fn the_clients_state_changes_its_preview_and_a_bad_one_is_answered() {
     send(&mut socket, json!({"width": 32, "height": 32, "ack": seen})).await;
     let (still, _) = frame(&mut socket, Duration::from_secs(10)).await.unwrap();
     assert_eq!(still.width, 32, "the last good state holds");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_mjpeg_stream_ends_with_the_server_at_once() {
+    use std::io::{Read, Write};
+    let served = Served::start().await;
+    let _publisher = Publisher::start(&served.instrument, Duration::from_millis(10));
+    let addr = served.addr;
+    let (part_seen, seen) = tokio::sync::oneshot::channel();
+    let reader = tokio::task::spawn_blocking(move || {
+        let mut s = std::net::TcpStream::connect(addr).unwrap();
+        s.write_all(b"GET /api/v1/preview/mjpeg?width=64&height=64 HTTP/1.1\r\nHost: test\r\n\r\n")
+            .unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut got = Vec::new();
+        let mut buf = [0u8; 65_536];
+        while !got.windows(14).any(|w| w == b"--tetera-frame") {
+            let n = s.read(&mut buf).expect("a part within 10 s");
+            assert!(n > 0, "the stream ended early");
+            got.extend_from_slice(&buf[..n]);
+        }
+        let _ = part_seen.send(());
+        // Then to its end, which a stream that ignores the shutdown never reaches: its parts
+        // keep coming.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while s.read(&mut buf).expect("the end within 10 s") > 0 {
+            assert!(Instant::now() < deadline, "the stream outlived the server");
+        }
+        Instant::now()
+    });
+    seen.await.unwrap();
+    let stopping = Instant::now();
+    drop(served);
+    let ended = reader.await.unwrap();
+    assert!(
+        ended.duration_since(stopping) < Duration::from_secs(2),
+        "the stream ended {:?} after the server began to stop, not after its 5 s grace",
+        ended.duration_since(stopping)
+    );
 }

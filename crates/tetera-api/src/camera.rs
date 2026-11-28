@@ -49,7 +49,8 @@ pub struct FrameCount {
 /// The camera.
 #[derive(Thing)]
 pub struct CameraThing {
-    /// The white balance the preview applies: red's, green's and blue's gains.
+    /// The white balance the preview applies: red's, green's and blue's gains. It starts
+    /// balanced for the virtual light's colour temperature.
     #[setting(default = WhiteBalance::default())]
     white_balance: Prop<WhiteBalance>,
     /// Whether the camera is streaming.
@@ -108,6 +109,11 @@ impl CameraThing {
         let camera: Arc<dyn Camera> = instrument.camera.clone();
         let _ = self.camera.set(camera);
         let _ = self.bus.set(instrument.bus.clone());
+        // The white balance starts balanced for the virtual light, unless one was saved.
+        if self.white_balance.get() == WhiteBalance::default() {
+            let [red, green, blue] = instrument.white_balance();
+            let _ = self.white_balance.set(WhiteBalance { red, green, blue });
+        }
         let me = ctx
             .server()
             .thing_ref::<CameraThing>(ctx.name())

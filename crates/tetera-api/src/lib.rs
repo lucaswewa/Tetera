@@ -8,6 +8,7 @@
 //! - [`simulation`]: the `simulation` Thing, the sample and imperfections on demand.
 //! - [`camera`], [`stage`], [`objective`] and [`illumination`]: the device Things.
 //! - [`preview`]: the `preview` Thing, the live preview's stream (ADR-0019).
+//! - [`media`]: Tetera's own routes: the preview as MJPEG, and the `live-view` page.
 //! - [`error`]: Tetera's errors as teta-wot's.
 //! - [`server`]: the Things served, and shut down gracefully.
 //!
@@ -19,6 +20,7 @@ pub mod error;
 pub mod host;
 pub mod illumination;
 pub mod instrument;
+pub mod media;
 pub mod objective;
 pub mod preview;
 pub mod server;

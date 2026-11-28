@@ -322,3 +322,25 @@ The owner runs this at Checkpoint C, with B's and C's; the agent ran and recorde
 - [ ] With the server running and the camera streaming (`POST /camera/start_streaming`), connect to `ws://localhost:8310/preview/stream` from Windows (the browser's console: `new WebSocket(...)`, `binaryType = "arraybuffer"`), send `{"width": 640, "height": 480}`, and expect two binary messages, each beginning `TPV1`, then none until an `ack`; send `{"quality": 0}` and expect `{"error": …}`.
 - [ ] `cargo test -p tetera-acquire -p tetera-api` — expect 20 and 30 tests to pass.
 - **Result:** see the [notes](notes/P1.14b-the-preview-stream.md#manual-test).
+
+## P1.14c: MJPEG and the live-view page
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU; port 8310 free; a browser on Windows.
+- [ ] `cargo run --release -p tetera-server`, then `curl -s -o /dev/null -w '%{content_type}' 'http://127.0.0.1:8310/api/v1/preview/mjpeg?width=320&height=240' --max-time 2` — expect `multipart/x-mixed-replace; boundary=tetera-frame`.
+- [ ] Open `http://localhost:8310/api/v1/preview/mjpeg?width=960&height=640` in the browser, the camera streaming (`POST /camera/start_streaming`) — expect it to play as a moving image.
+- [ ] `curl http://127.0.0.1:8310/preview/statistics` while the camera streams — expect each colour's 256-bin histogram, the 48 × 32 mask, and the frame's number changing from one read to the next.
+- [ ] `cargo test -p tetera-api` — expect 34 tests to pass.
+- **Result:** see the [notes](notes/P1.14c-mjpeg-and-the-live-view-page.md#manual-test).
+
+## Checkpoint B: live H&E in a browser page while jogging
+
+The owner runs this at Checkpoint C, with A's and C's; the agent ran and recorded it at P1.14c.
+
+- **Prerequisites:** the checkpoint's commit; the CUDA toolkit 13.3 in WSL, and the GPU; port 8310 free; a browser on Windows.
+- [ ] `cargo xtask gate checkpoint` — expect G2 to pass on a fresh clone.
+- [ ] `cargo run --release -p tetera-server` — expect it to serve on the GPU, the camera in its binned live mode.
+- [ ] Open `http://localhost:8310/live-view` on Windows and press *Start* — expect live H&E at 20×, glass white, at the camera's rate (about 50 fps in mode 1 at 8 bits, 30 or more), and 100 ms or less from exposure to paint.
+- [ ] Hold → for a few seconds, then ↓ — expect the tissue to slide left, then up, smoothly, and to stop when the button is let go; the histogram follows the field.
+- [ ] Open the page's *MJPEG stream* link — expect it to play.
+- [ ] Press *Stop* — expect the image to stop.
+- **Result:** see [P1.14c's notes](notes/P1.14c-mjpeg-and-the-live-view-page.md#checkpoint-b).

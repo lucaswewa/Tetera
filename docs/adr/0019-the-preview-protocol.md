@@ -17,12 +17,12 @@
 
 1. **The preview's stream is the `preview` Thing's binary stream,** `/preview/stream`: each connection is a preview session of its own. teta-wot's binary streams carry what the preview needs once the client's message is its whole state (2), so the preview is a Thing's stream after all, and ADR-0017's question is closed for it.
 2. **The client sends its whole state as JSON text,** each time it changes or it shows a frame: `{"width", "height", "roi", "quality", "max_rate", "ack"}`. A field left out takes the Thing's default. A message that isn't valid is answered with `{"error": …}` and changes nothing. As each message replaces the last, a lost one is made good by the next.
-3. **Each binary message is one frame:** a 64-byte header, little-endian, then the JPEG.
+3. **Each binary message is one frame:** a 72-byte header, little-endian, then the JPEG. P1.14b's first header was 64 bytes, without the latency; readers take both.
 
    | Offset | Size | Field |
    |---|---|---|
    | 0 | 4 | `TPV1` |
-   | 4 | 2 | the header's length, 64 |
+   | 4 | 2 | the header's length, 72 |
    | 6 | 2 | the payload's format: 1, JPEG |
    | 8 | 8 | the frame's sequence number |
    | 16 | 8 | its exposure's start, ns on the instrument's clock |
@@ -35,13 +35,19 @@
    | 57 | 1 | flags: bit 0, the link lowered it |
    | 58 | 2 | reserved, 0 |
    | 60 | 4 | the payload's length |
+   | 64 | 4 | the latency of the last frame acknowledged before this one was sent: from its exposure's end to its acknowledgement, µs on the server's clock; `0xFFFFFFFF` before any (P1.14c) |
+   | 68 | 4 | reserved, 0 |
 
    A reader skips a header longer than it knows, so fields can be added at the end.
 4. **Acknowledgements pace the sender.** The client acknowledges a frame, by its sequence number, once it has painted it. The server sends a frame only while fewer than two are sent and unacknowledged, so the socket never holds more than two.
 5. **No stale frame:** one slot lies between the session and the socket, holding the newest preview; a preview is sent only if it is newer than the last one sent; and teta-wot's sink replaces a message the socket hasn't taken.
 6. **A slow link lowers the preview,** through P1.14a's hook. When the window held previews back for more than half of the last second, the link steps down: the quality capped at 60, then 40, then the viewport scaled to 0.75, then 0.5. After two seconds held back for less than a tenth of the time, it steps back up one. The header's flag says when the link lowered a frame.
 7. **Both UTC times in the header go through the instrument clock's one mapping to UTC** (ADR-0006), so their difference is the monotonic clock's: the time the frame waited before it was sent. The wall clock would not do: in this phase's tests, WSL2's stepped 3.3 s while a stream ran.
-8. **Latency is measured from the header:** a client takes the exposure's end in UTC from the time it receives or paints the frame, on its own wall clock, less the least gap it has seen between a frame's receipt and its sending. That gap is how far the two clocks disagree, plus the shortest trip, a fraction of a millisecond on localhost. The clocks do disagree: a browser on Windows found the server's mapping 3 s behind its own clock, as WSL2's wall clock had been when the server started. The server measures from the exposure's end to the acknowledgement on the monotonic clock, an upper bound that needs no clocks to agree, and shows it in `sessions`.
+8. **Latency is measured on the server's clock alone,** from a frame's exposure's end to its acknowledgement, which the client sends once it has painted the frame: an upper bound on the time to the paint, by the ack's trip, a fraction of a millisecond on localhost. Each frame's header carries the last acknowledged frame's (P1.14c), and `sessions` shows it. **A client's own clock can't stand in for the server's:**
+   - a browser on Windows found the server's mapping to UTC 3 s behind its clock, as WSL2's wall clock had been when the server started; WSL2 steps its wall clock by seconds to keep up with Windows';
+   - on this PC, WSL2's monotonic clock runs at 0.90 of Windows' (the `tsc` clock source), so a disagreement measured once, as the least gap between a receipt and its sending, grows by about 100 ms a second.
+
+   A client on the server's own clock, such as P1.14b's example in WSL, can still take the exposure's end from its receipt, less that least gap.
 9. **MJPEG is a media route** (P1.14c), `/api/v1/preview/mjpeg`, with the viewport, quality and rate in its query: a session of its own for each viewer, paced by its socket, as `multipart/x-mixed-replace`. It ends with the server.
 10. **`live-view`,** a plain page with no framework, is served at `/live-view` until the web app arrives in M4 (P1.14c).
 
@@ -56,7 +62,7 @@
   - acknowledgements cost a message a frame upstream;
   - a client that never acknowledges gets two frames.
 - **To watch:**
-  - clocks that disagree: WSL2's wall clock can drift from Windows' after the host sleeps (ADR-0006);
+  - clocks that disagree: WSL2's wall clock is stepped to Windows', and its monotonic clock runs at another rate on this PC. Every time the server measures runs on WSL2's clock: 53 frames a second by it are 48 by Windows'. A real camera's own clock, and a clock source that keeps time, are for M5 and the owner (ADR-0006, ADR-0018);
   - whether the step-down's thresholds suit a real remote link (M5).
 
 ## Alternatives considered
