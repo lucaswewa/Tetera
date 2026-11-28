@@ -1,7 +1,9 @@
 //! The scratch recorder (P1.15c, ADR-0008, ADR-0021): every frame of the camera's stream,
-//! from a lossless subscriber of the frame bus, into a frame log, on a thread of its own. A
-//! full queue holds the camera, rather than losing a frame: the camera then drops frames
-//! itself, which the frames' numbers show.
+//! from a lossless subscriber of the frame bus, into a frame log. One thread copies each
+//! frame out at once, so its buffer goes straight back to the camera's pool; another writes
+//! the copies to disk, with `buffered` of them in memory between, to ride out the disk's
+//! stalls. When that is full too, the bus holds the camera rather than losing a frame: the
+//! camera then drops frames itself, which the frames' numbers show.
 
 use crate::bus::{FrameBus, Lossless};
 use std::path::Path;
@@ -15,17 +17,21 @@ use tetera_store::FrameLogWriter;
 /// How a recorder runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecorderOptions {
-    /// The frames its queue holds before it holds the camera.
+    /// The frames its subscriber's queue holds.
     pub capacity: usize,
+    /// The frames copied out and waiting for the disk, in memory: about 2 s at 289 MB/s by
+    /// default, 640 MB of full frames.
+    pub buffered: usize,
     /// The frames in each of the log's segments.
     pub segment_frames: u64,
 }
 
 impl Default for RecorderOptions {
-    /// A queue of 8 frames, segments of 32.
+    /// A queue of 2 frames, 16 buffered, segments of 32.
     fn default() -> Self {
         Self {
-            capacity: 8,
+            capacity: 2,
+            buffered: 16,
             segment_frames: 32,
         }
     }
@@ -91,13 +97,19 @@ impl Recorder {
         options: RecorderOptions,
         slow: Duration,
     ) -> Result<Self> {
+        if options.buffered == 0 {
+            return Err(Error::invalid_argument(
+                "a recorder holds a frame or more for the disk",
+            ));
+        }
         let log = FrameLogWriter::create(dir, format, width, height, options.segment_frames)?;
         let queue = bus.lossless(options.capacity)?;
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = stop.clone();
+        let buffered = options.buffered;
         let thread = std::thread::Builder::new()
             .name("recorder".into())
-            .spawn(move || record(log, &queue, &stopping, slow))
+            .spawn(move || record(log, &queue, &stopping, buffered, slow))
             .map_err(|e| Error::internal(format!("the recorder won't start: {e}")))?;
         Ok(Self {
             stop,
@@ -130,51 +142,98 @@ impl Drop for Recorder {
     }
 }
 
-/// The recorder's thread.
+/// A frame copied out: its metadata and its rows, packed.
+type Copied = (tetera_core::frame::meta::FrameMeta, Vec<u8>);
+
+/// The recorder's copying thread: each frame out of the bus's buffer at once, to the writer.
 fn record(
-    mut log: FrameLogWriter,
+    log: FrameLogWriter,
     queue: &Lossless,
     stop: &AtomicBool,
+    buffered: usize,
     slow: Duration,
 ) -> Result<RecordStats> {
     let started = Instant::now();
+    let (to_disk, copies) = std::sync::mpsc::sync_channel::<Copied>(buffered);
+    let (spare, spares) = std::sync::mpsc::channel::<Vec<u8>>();
+    let writer = std::thread::Builder::new()
+        .name("recorder's writer".into())
+        .spawn(move || write(log, &copies, &spare, slow))
+        .map_err(|e| Error::internal(format!("the recorder's writer won't start: {e}")))?;
     let mut stats = RecordStats::default();
     let mut last: Option<u64> = None;
-    let mut ended = started;
-    let mut write = |frame: tetera_core::Frame| -> Result<()> {
-        if !slow.is_zero() {
-            std::thread::sleep(slow);
+    let mut copy = |frame: tetera_core::Frame| -> bool {
+        let layout = frame.layout();
+        let row = layout.row_bytes();
+        let mut bytes = spares.try_recv().unwrap_or_default();
+        bytes.clear();
+        for r in frame
+            .data()
+            .chunks(layout.stride)
+            .take(layout.height as usize)
+        {
+            bytes.extend_from_slice(&r[..row.min(r.len())]);
         }
-        log.append(&frame)?;
-        let meta = frame.meta();
+        let meta = frame.meta().clone();
+        // The camera's buffer, back to its pool before the disk is waited for.
+        drop(frame);
         stats.missing += meta.dropped_before;
         if let Some(prev) = last {
             stats.missing += meta.seq.saturating_sub(prev + 1);
         }
         last = Some(meta.seq);
         stats.frames += 1;
-        stats.bytes += frame.layout().row_bytes() as u64 * u64::from(frame.layout().height);
-        ended = Instant::now();
-        Ok(())
+        stats.bytes += bytes.len() as u64;
+        to_disk.send((meta, bytes)).is_ok()
     };
-    loop {
+    let mut writing = true;
+    while writing {
         if stop.load(Ordering::Acquire) {
             // What is queued now, and no more: the camera may still be streaming.
             for _ in 0..queue.len() {
-                if let Some(frame) = queue.recv(Duration::ZERO) {
-                    write(frame)?;
+                if let Some(frame) = queue.recv(Duration::ZERO)
+                    && !copy(frame)
+                {
+                    break;
                 }
             }
             break;
         }
         if let Some(frame) = queue.recv(Duration::from_millis(20)) {
-            write(frame)?;
+            writing = copy(frame);
         }
     }
+    drop(to_disk);
+    let (log, ended) = writer
+        .join()
+        .map_err(|_| Error::internal("the recorder's writer panicked"))??;
     stats.waits = queue.waits();
-    stats.seconds = ended.duration_since(started).as_secs_f64();
+    stats.seconds = ended
+        .unwrap_or(started)
+        .duration_since(started)
+        .as_secs_f64();
     log.finish()?;
     Ok(stats)
+}
+
+/// The recorder's writing thread: each copy onto the disk, in order, its buffer back for the
+/// next. The log back, and when it wrote its last frame.
+fn write(
+    mut log: FrameLogWriter,
+    copies: &std::sync::mpsc::Receiver<Copied>,
+    spare: &std::sync::mpsc::Sender<Vec<u8>>,
+    slow: Duration,
+) -> Result<(FrameLogWriter, Option<Instant>)> {
+    let mut ended = None;
+    for (meta, bytes) in copies {
+        if !slow.is_zero() {
+            std::thread::sleep(slow);
+        }
+        log.append_packed(&meta, &bytes)?;
+        ended = Some(Instant::now());
+        let _ = spare.send(bytes);
+    }
+    Ok((log, ended))
 }
 
 #[cfg(test)]
@@ -257,6 +316,7 @@ mod tests {
         let bus = FrameBus::new();
         let options = RecorderOptions {
             capacity: 2,
+            buffered: 2,
             segment_frames: 16,
         };
         let recorder = Recorder::start_slowed(
@@ -356,11 +416,18 @@ mod tests {
         assert!(recorder.stop().is_err());
         // Bad options are refused.
         let refused = scratch.0.join("refused");
-        let none = RecorderOptions {
-            capacity: 0,
-            ..RecorderOptions::default()
-        };
-        assert!(Recorder::start(&bus, &refused, format(), 64, 48, none).is_err());
+        for bad in [
+            RecorderOptions {
+                capacity: 0,
+                ..RecorderOptions::default()
+            },
+            RecorderOptions {
+                buffered: 0,
+                ..RecorderOptions::default()
+            },
+        ] {
+            assert!(Recorder::start(&bus, &refused, format(), 64, 48, bad).is_err());
+        }
     }
 
     #[test]

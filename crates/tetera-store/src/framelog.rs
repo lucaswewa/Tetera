@@ -143,30 +143,48 @@ impl FrameLogWriter {
                 layout.width, layout.height, layout.format, h.width, h.height, h.format
             )));
         }
-        if self.segment.is_none() || self.in_segment == h.segment_frames {
+        let row = layout.row_bytes();
+        if layout.stride == row {
+            let bytes = &frame.data()[..self.header.frame_bytes as usize];
+            return self.write(frame.meta(), bytes);
+        }
+        let mut packed = std::mem::take(&mut self.packed);
+        packed.clear();
+        for r in frame
+            .data()
+            .chunks(layout.stride)
+            .take(layout.height as usize)
+        {
+            packed.extend_from_slice(&r[..row]);
+        }
+        let written = self.write(frame.meta(), &packed);
+        self.packed = packed;
+        written
+    }
+
+    /// Appends the next frame from its metadata and its rows, `packed`.
+    pub fn append_packed(&mut self, meta: &FrameMeta, packed: &[u8]) -> Result<()> {
+        if packed.len() as u64 != self.header.frame_bytes {
+            return Err(Error::invalid_argument(format!(
+                "a frame of {} bytes in a log of {} bytes a frame",
+                packed.len(),
+                self.header.frame_bytes
+            )));
+        }
+        self.write(meta, packed)
+    }
+
+    fn write(&mut self, meta: &FrameMeta, bytes: &[u8]) -> Result<()> {
+        if self.segment.is_none() || self.in_segment == self.header.segment_frames {
             self.next_segment()?;
         }
         let (n, file) = self.segment.as_mut().expect("opened above");
-        let row = layout.row_bytes();
-        let bytes = if layout.stride == row {
-            &frame.data()[..self.header.frame_bytes as usize]
-        } else {
-            self.packed.clear();
-            for r in frame
-                .data()
-                .chunks(layout.stride)
-                .take(layout.height as usize)
-            {
-                self.packed.extend_from_slice(&r[..row]);
-            }
-            &self.packed[..]
-        };
         let path = segment_path(&self.dir, *n);
         file.write_all(bytes).map_err(|e| io(&path, e))?;
         let entry = LogEntry {
             segment: *n,
             offset: self.in_segment * self.header.frame_bytes,
-            meta: frame.meta().clone(),
+            meta: meta.clone(),
         };
         let line = serde_json::to_string(&entry)
             .map_err(|e| Error::internal(format!("a frame log's index: {e}")))?;
