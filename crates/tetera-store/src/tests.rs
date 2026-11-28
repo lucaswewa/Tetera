@@ -418,7 +418,12 @@ fn bad_projects_datasets_and_frames_are_refused() {
             "{bad:?}"
         );
     }
-    store.create_project("Lab 2.0_x-y").unwrap();
+    let made = store.create_project("Lab 2.0_x-y").unwrap();
+    assert_eq!(store.project("Lab 2.0_x-y").unwrap(), made);
+    assert_eq!(
+        store.project("none").unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
     assert_eq!(
         store.create_project("Lab 2.0_x-y").unwrap_err().kind(),
         ErrorKind::InvalidArgument,

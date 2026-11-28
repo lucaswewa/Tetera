@@ -1,8 +1,11 @@
 //! The server: the instrument's Things on teta-wot, with its OpenAPI document and its
 //! interactive docs, and Tetera's own routes (`media`), served until a shutdown signal, then
-//! shut down gracefully.
+//! shut down gracefully. Its services: the instrument, the roots, the job service, and the
+//! dataset store.
 
 use crate::camera::CameraThing;
+use crate::capture::CaptureThing;
+use crate::datasets::DatasetsThing;
 use crate::illumination::IlluminationThing;
 use crate::instrument::Instrument;
 use crate::jobs::{JobsOptions, JobsThing};
@@ -18,6 +21,7 @@ use std::time::Duration;
 use teta_wot::server::ThingServer;
 use tetera_core::{Error, Result};
 use tetera_jobs::JobService;
+use tetera_store::Store;
 use tokio::net::TcpListener;
 
 pub use teta_wot::server::shutdown_signal;
@@ -56,6 +60,7 @@ pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 pub struct Service {
     server: ThingServer,
     jobs: Arc<JobService>,
+    store: Arc<Store>,
 }
 
 impl std::fmt::Debug for Service {
@@ -64,16 +69,21 @@ impl std::fmt::Debug for Service {
     }
 }
 
+/// The camera Thing's name.
+pub const CAMERA: &str = "camera";
+
 /// The names the Things are served under.
-pub const THINGS: [&str; 8] = [
+pub const THINGS: [&str; 10] = [
     "system",
     "simulation",
-    "camera",
+    CAMERA,
     "stage",
     "objective",
     "illumination",
     "preview",
     "jobs",
+    "capture",
+    "datasets",
 ];
 
 /// The server for `instrument`, its settings under `roots`, its jobs as `JobsOptions`' defaults.
@@ -81,11 +91,12 @@ pub fn build(instrument: Arc<Instrument>, roots: Roots) -> Result<Service> {
     build_with(instrument, roots, &JobsOptions::default())
 }
 
-/// The jobs' history, in the data root.
-pub const DATABASE: &str = "tetera.db";
+/// The jobs' history and the datasets' index, in the data root (ADR-0021).
+pub const DATABASE: &str = tetera_store::store::DATABASE;
 
 /// The server for `instrument`, its settings under `roots`, its job service as `jobs` says:
-/// its history in the data root's `tetera.db`, its compute jobs sharing the GPU's budgets.
+/// its history in the data root's `tetera.db`, its compute jobs sharing the GPU's budgets;
+/// its datasets in the data root, those a crash left half-written removed.
 pub fn build_with(
     instrument: Arc<Instrument>,
     roots: Roots,
@@ -101,8 +112,9 @@ pub fn build_with(
         jobs.config(),
         budget,
     )?);
+    let store = Arc::new(Store::open(&roots.data)?);
     let preview = Arc::new(PreviewThing::default());
-    let media = crate::media::routes(instrument.clone(), preview.clone());
+    let media = crate::media::routes(instrument.clone(), preview.clone(), store.clone());
     let server = ThingServer::builder()
         .api_info("Tetera", env!("CARGO_PKG_VERSION"))
         .settings_folder(roots.settings())
@@ -110,6 +122,7 @@ pub fn build_with(
         .service(instrument)
         .service(Arc::new(roots))
         .service(service.clone())
+        .service(store.clone())
         .thing(THINGS[0], System::default())
         .thing(THINGS[1], Simulation::default())
         .thing(THINGS[2], CameraThing::default())
@@ -118,12 +131,15 @@ pub fn build_with(
         .thing(THINGS[5], IlluminationThing::default())
         .thing_arc(THINGS[6], preview)
         .thing(THINGS[7], JobsThing::default())
+        .thing(THINGS[8], CaptureThing::default())
+        .thing(THINGS[9], DatasetsThing::default())
         .merge(media)
         .build()
         .map_err(|e| Error::internal(format!("the server won't build: {e}")))?;
     Ok(Service {
         server,
         jobs: service,
+        store,
     })
 }
 
@@ -131,6 +147,11 @@ impl Service {
     /// The job service, for the work that submits jobs.
     pub fn jobs(&self) -> &Arc<JobService> {
         &self.jobs
+    }
+
+    /// The dataset store.
+    pub fn store(&self) -> &Arc<Store> {
+        &self.store
     }
 
     /// Starts the Things and serves on `listener` until `shutdown` completes, then shuts down

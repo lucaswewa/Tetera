@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use tetera_acquire::FrameBus;
 use tetera_core::frame::meta::LightState;
 use tetera_core::{Error, Result, StagePos, Um};
+use tetera_hal::Stage;
 use tetera_hal::camera::{Camera, CameraConfig};
 use tetera_hal::illumination::Illumination;
 use tetera_hal::objective::{ManualObjectiveMount, ObjectiveCatalogue, ObjectiveMount};
@@ -207,6 +208,8 @@ pub struct Instrument {
     pub budgets: Option<tetera_compute::budget::VramBudgets>,
     sample: Mutex<Option<Sample>>,
     compute: Compute,
+    /// The sensor's pixel pitch, µm.
+    pixel_um: f64,
 }
 
 impl std::fmt::Debug for Instrument {
@@ -298,6 +301,7 @@ impl Instrument {
             previews,
             budgets,
             sample: Mutex::new(simulator.sample),
+            pixel_um: sensor.pixel,
             compute: Compute {
                 sensor: [sensor.width, sensor.height],
                 ..compute
@@ -324,6 +328,26 @@ impl Instrument {
     /// Where the camera renders.
     pub fn compute(&self) -> &Compute {
         &self.compute
+    }
+
+    /// A sensor pixel's size at the sample, µm, unbinned, through the objective fitted: the
+    /// pitch itself with none.
+    pub fn pixel_size_um(&self) -> f64 {
+        let magnification = self.objectives.fitted().map_or(1.0, |o| o.magnification);
+        self.pixel_um / magnification
+    }
+
+    /// The instrument as it is, for a dataset's metadata: the objective fitted, the stage's
+    /// reading, the light, the sample, and where the camera renders.
+    pub fn describe(&self) -> serde_json::Value {
+        serde_json::json!({
+            "simulated": true,
+            "objective": self.objectives.fitted(),
+            "stage": self.stage.reading().ok(),
+            "light": self.light.state(CHANNEL).ok(),
+            "sample": self.sample(),
+            "compute": self.compute,
+        })
     }
 
     /// The sample on the stage, if any.

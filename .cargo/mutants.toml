@@ -105,4 +105,6 @@ exclude_re = [
     "replace (Session|LiveStats|JobService)::stop with \\(\\)",
     # The statistics' pace: `<` and `<=` differ only at the very instant the next is due.
     "replace < with <= in LiveStats::start",
+    # A series' wait: `now < next` and `now <= next` differ only at the exact nanosecond.
+    "replace < with <= in take",
 ]

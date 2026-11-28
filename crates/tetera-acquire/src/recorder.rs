@@ -177,10 +177,10 @@ fn record(
         let meta = frame.meta().clone();
         // The camera's buffer, back to its pool before the disk is waited for.
         drop(frame);
-        stats.missing += meta.dropped_before;
-        if let Some(prev) = last {
-            stats.missing += meta.seq.saturating_sub(prev + 1);
-        }
+        // A frame the camera dropped both skips its number and is counted in the next frame's
+        // metadata: the larger of the two, so it isn't counted twice.
+        let gap = last.map_or(0, |prev| meta.seq.saturating_sub(prev + 1));
+        stats.missing += gap.max(meta.dropped_before);
         last = Some(meta.seq);
         stats.frames += 1;
         stats.bytes += bytes.len() as u64;
@@ -380,8 +380,8 @@ mod tests {
         )
         .unwrap();
         let pool = pool(8);
-        // 1 skipped by number, and 2 the camera says it dropped.
-        for (seq, dropped) in [(0, 0), (1, 0), (3, 0), (4, 2)] {
+        // 1 skipped by number alone, 2 the camera says it dropped, and 1 both ways, counted once.
+        for (seq, dropped) in [(0, 0), (1, 0), (3, 0), (4, 2), (6, 1)] {
             bus.publish(frame(&pool, seq, dropped));
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -391,7 +391,7 @@ mod tests {
             let (bus, streaming) = (bus.clone(), streaming.clone());
             std::thread::spawn(move || {
                 let pool = super::tests::pool(8);
-                let mut seq = 5;
+                let mut seq = 7;
                 while streaming.load(Ordering::Relaxed) {
                     bus.publish(frame(&pool, seq, 0));
                     seq += 1;
@@ -404,8 +404,8 @@ mod tests {
         assert!(asked.elapsed() < Duration::from_secs(2), "it stopped");
         streaming.store(false, Ordering::Relaxed);
         camera.join().unwrap();
-        assert!(stats.frames >= 4);
-        assert_eq!(stats.missing, 3, "{stats:?}");
+        assert!(stats.frames >= 5);
+        assert_eq!(stats.missing, 4, "{stats:?}");
         assert_eq!(RecordStats::default().rate(), 0.0);
         // A frame of the wrong shape ends the recording in an error.
         let other = scratch.0.join("other");

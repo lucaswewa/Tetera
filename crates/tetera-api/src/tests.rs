@@ -31,7 +31,7 @@ impl Drop for Scratch {
 }
 
 /// The server for a test instrument, in-process, its roots in `scratch`.
-async fn client(scratch: &Scratch) -> (TestClient, Arc<Instrument>) {
+pub(crate) async fn client(scratch: &Scratch) -> (TestClient, Arc<Instrument>) {
     serve(scratch, instrument()).await
 }
 
@@ -45,7 +45,7 @@ async fn serve(scratch: &Scratch, instrument: Instrument) -> (TestClient, Arc<In
 }
 
 /// Invokes `path` with `body`, and waits for the invocation to end: its last state.
-async fn invoke(client: &TestClient, path: &str, body: Value) -> Value {
+pub(crate) async fn invoke(client: &TestClient, path: &str, body: Value) -> Value {
     let started = client.post_json(path, Some(&body)).await;
     assert_eq!(started.status, 201, "{path}: {}", started.json());
     let href = started.json()["href"]
@@ -129,7 +129,7 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
         "/simulation/unload",
         "/simulation/inject",
     ];
-    let devices: [(&str, &[&str]); 6] = [
+    let devices: [(&str, &[&str]); 8] = [
         (
             "camera",
             &[
@@ -173,6 +173,11 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
         ),
         ("preview", &["defaults", "sessions", "statistics", "stream"]),
         ("jobs", &["active", "get", "list", "cancel"]),
+        ("capture", &["last", "capture"]),
+        (
+            "datasets",
+            &["projects", "create_project", "list", "get", "delete"],
+        ),
     ];
     let named: Vec<String> = devices
         .iter()

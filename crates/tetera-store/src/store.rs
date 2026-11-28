@@ -115,6 +115,11 @@ impl Store {
         self.shared.index().projects()
     }
 
+    /// The project named `name`.
+    pub fn project(&self, name: &str) -> Result<Project> {
+        self.shared.index().project(name)
+    }
+
     /// Project `project`'s datasets, the newest first: those complete.
     pub fn datasets(&self, project: &str) -> Result<Vec<DatasetInfo>> {
         let index = self.shared.index();

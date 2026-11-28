@@ -2062,6 +2062,8 @@ dependencies = [
  "tetera-imaging",
  "tetera-jobs",
  "tetera-sim",
+ "tetera-store",
+ "tetera-workflows",
  "tokio",
  "tokio-tungstenite",
  "tracing",
@@ -2188,6 +2190,21 @@ dependencies = [
  "tracing",
  "uuid",
  "zarrs",
+]
+
+[[package]]
+name = "tetera-workflows"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "tetera-acquire",
+ "tetera-core",
+ "tetera-hal",
+ "tetera-sim",
+ "tetera-store",
+ "uuid",
 ]
 
 [[package]]
