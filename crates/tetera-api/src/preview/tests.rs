@@ -283,14 +283,15 @@ async fn a_slow_client_never_gets_a_stale_frame_and_its_link_steps_down() {
     let publisher = Publisher::start(&served.instrument, Duration::from_millis(10));
     let started = Instant::now();
     let mut got = Vec::new();
-    while started.elapsed() < Duration::from_millis(2_500) {
+    while started.elapsed() < Duration::from_millis(3_500) {
         let (h, _) = frame(&mut socket, Duration::from_secs(10))
             .await
             .expect("a frame");
         let behind = publisher.last() - h.seq;
         got.push((h, behind));
-        // Painting takes this client 150 ms.
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        // Painting takes this client 300 ms: a frame left waiting for the window would be that
+        // old when sent, well apart from a fresh one's few ms, even on a loaded machine.
+        tokio::time::sleep(Duration::from_millis(300)).await;
         send(
             &mut socket,
             json!({"width": 128, "height": 128, "ack": h.seq}),
@@ -298,30 +299,31 @@ async fn a_slow_client_never_gets_a_stale_frame_and_its_link_steps_down() {
         .await;
     }
     drop(publisher);
-    assert!(got.len() >= 10, "{}", got.len());
+    assert!(got.len() >= 8, "{}", got.len());
     let worst = got.iter().map(|(_, behind)| *behind).max().unwrap();
     let oldest = got
         .iter()
         .map(|(h, _)| h.sent_utc_us - h.exposure_end_utc_us)
         .max()
         .unwrap();
+    // The second of the two in flight waits a paint, 30 frames, before it is read.
     assert!(
-        worst <= 30,
-        "a frame 30 behind the newest is stale: {worst}"
+        worst <= 45,
+        "a frame 45 behind the newest is stale: {worst}"
     );
     // Each frame was the newest when it was sent: none had waited for the window to open.
-    assert!(oldest <= 100_000, "a frame {oldest} µs old when sent");
+    assert!(oldest <= 200_000, "a frame {oldest} µs old when sent");
     let last = got.last().unwrap().0;
     assert!(
         last.lowered && last.quality <= 60,
         "the link stepped down: {last:?}"
     );
     // Each frame after the first carries the last acknowledged one's latency: at least the
-    // client's 150 ms of painting, and less than the window's two paints and some.
+    // client's 300 ms of painting, and less than the window's two paints and some.
     assert!(
         got.iter().skip(2).all(|(h, _)| h
             .latency_us
-            .is_some_and(|us| (150_000..500_000).contains(&us))),
+            .is_some_and(|us| (300_000..1_000_000).contains(&us))),
         "{:?}",
         got.iter().map(|(h, _)| h.latency_us).collect::<Vec<_>>()
     );
@@ -329,7 +331,7 @@ async fn a_slow_client_never_gets_a_stale_frame_and_its_link_steps_down() {
     assert_eq!(sessions.as_array().map(Vec::len), Some(1), "{sessions}");
     assert_eq!(sessions[0]["id"], 1, "numbered from 1");
     assert!(sessions[0]["link_step"].as_u64() >= Some(1));
-    assert!(sessions[0]["latency"].as_f64().is_some_and(|ms| ms > 100.0));
+    assert!(sessions[0]["latency"].as_f64().is_some_and(|ms| ms > 250.0));
     drop(socket);
     for _ in 0..100 {
         if served.get("/preview/sessions").await == json!([]) {
@@ -394,7 +396,7 @@ async fn the_clients_state_changes_its_preview_and_a_bad_one_is_answered() {
         json!({"width": 32, "height": 32, "ack": first.seq}),
     )
     .await;
-    let (smaller, seen) = loop {
+    let smaller = loop {
         let (h, _) = frame(&mut socket, Duration::from_secs(10)).await.unwrap();
         send(
             &mut socket,
@@ -402,7 +404,7 @@ async fn the_clients_state_changes_its_preview_and_a_bad_one_is_answered() {
         )
         .await;
         if h.width == 32 {
-            break (h, h.seq);
+            break h;
         }
     };
     assert_eq!(smaller.height, 24);
@@ -421,7 +423,13 @@ async fn the_clients_state_changes_its_preview_and_a_bad_one_is_answered() {
             .await
             .is_some_and(|a| a["error"].is_string())
     );
-    send(&mut socket, json!({"width": 32, "height": 32, "ack": seen})).await;
+    // The frames that came while the errors were read went unacknowledged: acknowledging
+    // every frame so far opens the window again.
+    send(
+        &mut socket,
+        json!({"width": 32, "height": 32, "ack": u64::MAX}),
+    )
+    .await;
     let (still, _) = frame(&mut socket, Duration::from_secs(10)).await.unwrap();
     assert_eq!(still.width, 32, "the last good state holds");
 }

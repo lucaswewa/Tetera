@@ -71,7 +71,7 @@ Each phase has:
 | [P1.14c](#p114c-mjpeg-and-the-live-view-page) | MJPEG and the live-view page (**Checkpoint B**) | P1.14b | 810 | — | G1, G2 |
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13b | 1,410 | — | G1 |
 | [P1.15b](#p115b-the-dataset-store) | The dataset store | P1.15a | 1,190 | — | G1 |
-| [P1.15c](#p115c-the-recorder-and-ingest) | The recorder and ingest | P1.14a, P1.15b | 880 | — | G1 |
+| [P1.15c](#p115c-the-recorder-and-ingest) | The recorder and ingest | P1.14a, P1.15b | 980 | — | G1 |
 | [P1.15d](#p115d-capture-and-its-things) | Capture and its Things | P1.15c | 960 | — | G1 |
 | [P1.16](#p116-autofocus) | Autofocus | P1.15d | 1,300 | Yes | G1 |
 | [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16 | 1,530 | — | G1 |
@@ -1336,7 +1336,7 @@ Each phase has:
 | Depends on | P1.14a, P1.15b |
 | ADRs | — (ADR-0021, from P1.15b) |
 | Gates | G1 |
-| First estimate | code 380 (the frame log: preallocated segments and their index 180; the recorder, a lossless subscriber 100; ingest as a compute job 100) · tests 380 · examples 80 · docs-as-code 30 · glue 10 = **880**, from P1.15b's split on 2026-11-28 |
+| Second estimate | code 420 (the frame log: preallocated segments and their index 200; the recorder, a lossless subscriber 120; ingest, cancellable, 100) · tests 420 · examples 100 · docs-as-code 30 · glue 10 = **980** (1,274 at ×1.3). The first, 880, from P1.15b's split on 2026-11-28 |
 
 **Goal.** Every frame of a capture onto the scratch disk at the camera's full rate, then into a dataset.
 

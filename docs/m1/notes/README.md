@@ -38,7 +38,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.14c | MJPEG and the live-view page | Done | [P1.14c](P1.14c-mjpeg-and-the-live-view-page.md) |
 | P1.15a | The job service | Done | [P1.15a](P1.15a-the-job-service.md) |
 | P1.15b | The dataset store | Done | [P1.15b](P1.15b-the-dataset-store.md) |
-| P1.15c | The recorder and ingest | Not started | — |
+| P1.15c | The recorder and ingest | Done | [P1.15c](P1.15c-the-recorder-and-ingest.md) |
 | P1.15d | Capture and its Things | Not started | — |
 | P1.16 | Autofocus | Not started | — |
 | P1.17 | Snake scan and z-scan | Not started | — |

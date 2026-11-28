@@ -50,10 +50,16 @@ fn spec(format: PixelFormat, frames: u64) -> DatasetSpec {
     }
 }
 
-/// `n` frames of `format`, each site a pattern of its place and the frame's number.
+/// `n` frames of `format`, 64 × 48, each site a pattern of its place and the frame's number.
 fn frames(format: PixelFormat, n: u64) -> (FramePool, Vec<Frame>) {
+    frames_of(format, 64, n)
+}
+
+/// `n` frames of `format`, `width` × 48, each site a pattern of its place and the frame's
+/// number.
+fn frames_of(format: PixelFormat, width: u32, n: u64) -> (FramePool, Vec<Frame>) {
     let pool = FramePool::new(
-        FrameLayout::new(format, 64, 48).unwrap(),
+        FrameLayout::new(format, width, 48).unwrap(),
         n as usize,
         &HostAllocator,
     )
@@ -64,7 +70,7 @@ fn frames(format: PixelFormat, n: u64) -> (FramePool, Vec<Frame>) {
             let stride = f.layout().stride;
             let bytes = format.bytes_per_sample();
             for (y, row) in f.data_mut().chunks_mut(stride).enumerate() {
-                for x in 0..64 {
+                for x in 0..width as usize {
                     let v = ((x * 31 + y * 17 + t as usize * 7) % 4_096) as u16;
                     if bytes == 1 {
                         row[x] = v as u8;
@@ -651,4 +657,175 @@ fn a_thumbnails_pixels_are_each_cells_colours_every_steps_cell() {
     let mut writer = store.create_dataset("p", least).unwrap();
     writer.append(&f.freeze()).unwrap();
     assert_eq!(writer.finish().unwrap().frames, 1);
+}
+
+/// `frame`'s rows, packed.
+fn packed(frame: &Frame) -> Vec<u8> {
+    let l = frame.layout();
+    frame
+        .data()
+        .chunks(l.stride)
+        .take(l.height as usize)
+        .flat_map(|r| r[..l.row_bytes()].to_vec())
+        .collect()
+}
+
+#[test]
+fn a_frame_log_reads_back_in_order_across_its_segments() {
+    use crate::framelog::{FrameLog, FrameLogWriter, INDEX};
+    let scratch = Scratch::new();
+    for (format, width) in [
+        (bayer16(), 64u32),
+        (PixelFormat::Mono8, 64),
+        (PixelFormat::Mono8, 50),
+    ] {
+        let dir = scratch
+            .0
+            .join(format!("log-{width}-{}", format.bytes_per_sample()));
+        let mut log = FrameLogWriter::create(&dir, format, width, 48, 2).unwrap();
+        assert_eq!(log.dir(), dir);
+        let (_pool, frames) = frames_of(format, width, 5);
+        log.append(&frames[0]).unwrap();
+        // Preallocated for two frames while it is written.
+        let frame_bytes = u64::from(width) * 48 * format.bytes_per_sample() as u64;
+        let first = dir.join("segment-00000.bin");
+        assert_eq!(std::fs::metadata(&first).unwrap().len(), 2 * frame_bytes);
+        for f in &frames[1..] {
+            log.append(f).unwrap();
+        }
+        assert_eq!(log.written(), 5);
+        assert!(format!("{log:?}").contains("written"));
+        assert_eq!(log.finish().unwrap(), 5);
+        // Three segments, of 2, 2 and 1 frames, each cut to its frames.
+        for (n, frames_in) in [(0, 2), (1, 2), (2, 1)] {
+            let len = std::fs::metadata(dir.join(format!("segment-{n:05}.bin")))
+                .unwrap()
+                .len();
+            assert_eq!(len, frames_in * frame_bytes, "segment {n}");
+        }
+        let read = FrameLog::open(&dir).unwrap();
+        assert_eq!((read.len(), read.is_empty()), (5, false));
+        assert_eq!(read.header().frame_bytes, frame_bytes);
+        assert_eq!(read.header().segment_frames, 2);
+        for (i, f) in frames.iter().enumerate() {
+            let (meta, bytes) = read.read(i).unwrap();
+            assert_eq!(meta.seq, 100 + i as u64);
+            assert_eq!(bytes, packed(f), "frame {i}");
+        }
+        assert_eq!(read.entries()[3].segment, 1);
+        assert_eq!(read.entries()[3].offset, frame_bytes);
+        assert!(read.read(5).is_err());
+        // A crash's torn last line is passed over; a bad line elsewhere is not.
+        let index = dir.join(INDEX);
+        let whole = std::fs::read_to_string(&index).unwrap();
+        std::fs::write(&index, format!("{whole}{{\"segment\": 2, \"off")).unwrap();
+        assert_eq!(FrameLog::open(&dir).unwrap().len(), 5);
+        std::fs::write(&index, format!("not json\n{whole}")).unwrap();
+        assert!(FrameLog::open(&dir).is_err());
+        std::fs::write(&index, format!("{whole}not json\n")).unwrap();
+        assert!(
+            FrameLog::open(&dir).is_err(),
+            "a whole last line that is bad"
+        );
+        std::fs::write(&index, &whole).unwrap();
+        FrameLog::open(&dir).unwrap().remove().unwrap();
+        assert!(!dir.exists());
+    }
+    // Refused: an existing folder, a bad shape, a frame that doesn't fit.
+    let taken = scratch.0.join("taken");
+    std::fs::create_dir_all(&taken).unwrap();
+    assert!(FrameLogWriter::create(&taken, bayer16(), 64, 48, 2).is_err());
+    let fresh = scratch.0.join("fresh");
+    for (w, h, n) in [(0, 48, 2), (64, 0, 2), (64, 48, 0)] {
+        assert!(FrameLogWriter::create(&fresh, bayer16(), w, h, n).is_err());
+    }
+    assert!(
+        FrameLogWriter::create(&fresh, PixelFormat::PlanarF32 { planes: 3 }, 64, 48, 2).is_err()
+    );
+    let mut log = FrameLogWriter::create(&fresh, bayer16(), 32, 48, 2).unwrap();
+    let (_pool, frames) = frames(bayer16(), 1);
+    assert!(log.append(&frames[0]).is_err(), "64 wide in a log of 32");
+    // A frame appended packed, as the recorder copies it, and one of the wrong size.
+    let (_pool32, narrow) = frames_of(bayer16(), 32, 1);
+    let rows = packed(&narrow[0]);
+    assert!(log.append_packed(narrow[0].meta(), &rows[1..]).is_err());
+    log.append_packed(narrow[0].meta(), &rows).unwrap();
+    assert_eq!(log.finish().unwrap(), 1);
+    assert_eq!(FrameLog::open(&fresh).unwrap().read(0).unwrap().1, rows);
+    // A log of no frames.
+    let fresh = scratch.0.join("empty");
+    let log = FrameLogWriter::create(&fresh, bayer16(), 32, 48, 2).unwrap();
+    assert_eq!(log.finish().unwrap(), 0);
+    let empty = FrameLog::open(&fresh).unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
+}
+
+#[test]
+fn ingest_writes_a_log_into_a_dataset_and_a_stopped_one_leaves_none() {
+    use crate::framelog::{FrameLog, FrameLogWriter};
+    let scratch = Scratch::new();
+    let store = Store::open(&scratch.0).unwrap();
+    store.create_project("p").unwrap();
+    let dir = scratch.0.join("scratch").join("log");
+    let mut log = FrameLogWriter::create(&dir, bayer16(), 64, 48, 3).unwrap();
+    let (_pool, frames) = frames(bayer16(), 4);
+    for f in &frames {
+        log.append(f).unwrap();
+    }
+    log.finish().unwrap();
+    let log = FrameLog::open(&dir).unwrap();
+    // The spec names it; its format, size and frames come from the log.
+    let described = DatasetSpec {
+        width: 1,
+        height: 1,
+        frames: 1,
+        format: PixelFormat::Mono8,
+        ..spec(bayer16(), 1)
+    };
+    let mut steps = Vec::new();
+    let info = crate::ingest(&store, "p", &log, described.clone(), |done, of| {
+        steps.push((done, of));
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(steps, [(0, 4), (1, 4), (2, 4), (3, 4), (4, 4)]);
+    assert_eq!(info.frames, 4);
+    let r = store.read(&info.id).unwrap();
+    for (t, f) in frames.iter().enumerate() {
+        assert_eq!(r.read(t as u64).unwrap(), expected(f));
+        assert_eq!(r.metadata().frames[t].seq, f.meta().seq);
+    }
+    assert_eq!(
+        (r.metadata().spec.width, r.metadata().spec.format),
+        (64, bayer16())
+    );
+    // Stopped after two frames: an error, and no dataset left.
+    let before = store.datasets("p").unwrap();
+    let stopped = crate::ingest(&store, "p", &log, described.clone(), |done, _| {
+        if done == 2 {
+            Err(tetera_core::Error::cancelled("stopped"))
+        } else {
+            Ok(())
+        }
+    });
+    assert_eq!(stopped.unwrap_err().kind(), ErrorKind::Cancelled);
+    assert_eq!(store.datasets("p").unwrap(), before);
+    let folders = std::fs::read_dir(scratch.0.join("projects").join("p"))
+        .unwrap()
+        .count();
+    assert_eq!(folders, 1, "only the first dataset's");
+    // Stopped once all are written: no dataset either.
+    let at_end = crate::ingest(&store, "p", &log, described, |done, of| {
+        if done == of {
+            Err(tetera_core::Error::cancelled("stopped at the end"))
+        } else {
+            Ok(())
+        }
+    });
+    assert!(at_end.is_err());
+    assert_eq!(store.datasets("p").unwrap(), before);
+    // A frame of the wrong size, appended raw, is refused.
+    let mut w = store.create_dataset("p", spec(bayer16(), 1)).unwrap();
+    assert!(w.append_packed(frames[0].meta().clone(), &[0; 10]).is_err());
 }
