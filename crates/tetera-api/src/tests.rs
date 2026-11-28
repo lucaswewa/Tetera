@@ -525,7 +525,12 @@ async fn the_camera_is_configured_property_by_property_and_streams() {
     let (client, instrument) = client(&scratch).await;
     let caps = client.get("/camera/capabilities").await.json();
     assert_eq!(caps["modes"].as_array().map(Vec::len), Some(3), "{caps}");
-    assert_eq!(client.get("/camera/mode").await.json(), 0);
+    assert_eq!(
+        client.get("/camera/mode").await.json(),
+        1,
+        "the binned live mode (D5)"
+    );
+    assert_eq!(client.get("/camera/bit_depth").await.json(), 8);
     assert_eq!(client.get("/camera/exposure").await.json(), json!(10.0));
     assert_eq!(
         client

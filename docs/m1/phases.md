@@ -66,7 +66,7 @@ Each phase has:
 | [P1.12c](#p112c-the-virtual-camera-checkpoint-a) | The virtual camera (**Checkpoint A**) | P1.12b | 1,440 | — | G1, G1c, G2 |
 | [P1.13a](#p113a-the-server-configuration-and-systemd) | The server, configuration and systemd | P1.12c | 1,320 | — | G1 |
 | [P1.13b](#p113b-the-device-things) | The device Things | P1.13a | 1,350 | — | G1 |
-| [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13b | 1,050 | — | G1, G1c |
+| [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13b | 1,430 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13b | 800 | — | G1 |
 | [P1.15b](#p115b-datasets-and-capture) | Datasets and capture | P1.14a, P1.15a | 1,550 | — | G1 |
@@ -1150,7 +1150,7 @@ Each phase has:
 | Depends on | P1.08d, P1.13b |
 | ADRs | — (the frame bus's design is in ADR-0008, from P1.03) |
 | Gates | G1, G1c |
-| First estimate | code 700 · tests 300 · examples 50 = **1,050** (the owner split P1.14 on 2026-11-26) |
+| Second estimate | code 710 (the frame bus, its two kinds of subscriber and the first frame after a time 200; the preview session, its parameters, the live recipe, JPEG, the slow link's hook and each stage's time 280; the live statistics 220; the binned live mode 10) · tests 450 · examples 200 · docs-as-code 40 · glue 30 = **1,430** (1,859 at ×1.3). The first, 1,050, from the owner's split of P1.14 on 2026-11-26 |
 
 **Goal.** Get every frame from the camera to whatever needs it, and turn frames into preview JPEGs and live statistics, before any network is involved.
 
