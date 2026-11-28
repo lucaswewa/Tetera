@@ -378,3 +378,11 @@ The owner runs this at Checkpoint C, with A's and C's; the agent ran and recorde
 - [ ] `cargo run --release -p tetera-api --example capture -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-workflows -p tetera-api` — expect 7 and 39 tests to pass.
 - **Result:** see the [notes](notes/P1.15d-capture-and-its-things.md#manual-test).
+
+## P1.16a: Focus measures and the search
+
+- **Prerequisites:** the phase's branch.
+- [ ] `cargo run --release -p tetera-workflows --example focus-search` — expect each measure through the virtual camera's stack at 20× to peak at the section's middle, Tenengrad and Brenner rising the most, the variance of the Laplacian the least; then the search, 100 times at each of 5×, 10×, 20× and 50×, on narrow and on broad peaks, at least 99 of 100 within a quarter of the depth of field each time.
+- [ ] `cargo run --release -p tetera-workflows --example focus-search -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-imaging -p tetera-workflows` — expect 106 and 18 tests to pass.
+- **Result:** see the [notes](notes/P1.16a-focus-measures-and-the-search.md#manual-test).
