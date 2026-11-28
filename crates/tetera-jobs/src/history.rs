@@ -22,6 +22,9 @@ impl History {
     /// The history in the SQLite file at `path`, made if missing.
     pub fn open(path: &Path) -> Result<Self> {
         let db = Connection::open(path).map_err(sql)?;
+        // The datasets' index shares the file (ADR-0021): wait for its writes.
+        db.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(sql)?;
         db.execute_batch(
             "CREATE TABLE IF NOT EXISTS jobs (
                  id TEXT PRIMARY KEY,

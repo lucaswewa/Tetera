@@ -22,7 +22,7 @@ Each phase has:
 
 - A first estimate is in five parts, in hand-written lines: code, tests, examples, docs-as-code (READMEs, schemas, configuration), and glue. Doc comments and blank lines count. Markdown docs don't.
 - Before a phase's code, its second estimate goes into the plan's change log, in a commit of its own (plan §7).
-- **The target is 1,500 lines a phase. An estimate over 2,000 goes to the owner,** who decides whether to split it. Two specs were over 2,000 (P1.14 and P1.15), and the owner split both on 2026-11-26: P1.14a and P1.14b, P1.15a and P1.15b. P1.14b's second estimate was over 2,000 again, and the agent split it on 2026-11-28 under the owner's standing approval: P1.14b and P1.14c.
+- **The target is 1,500 lines a phase. An estimate over 2,000 goes to the owner,** who decides whether to split it. Two specs were over 2,000 (P1.14 and P1.15), and the owner split both on 2026-11-26: P1.14a and P1.14b, P1.15a and P1.15b. P1.14b's second estimate was over 2,000 again, and the agent split it on 2026-11-28 under the owner's standing approval: P1.14b and P1.14c. So was P1.15b's, split the same day into P1.15b, P1.15c and P1.15d.
 - Specs between 1,500 and 2,000 list a split that is ready if the second estimate grows.
 
 **What every phase does, so the specs don't repeat it** (plan §7):
@@ -70,15 +70,17 @@ Each phase has:
 | [P1.14b](#p114b-the-preview-stream) | The preview stream | P1.14a | 1,330 | — | G1 |
 | [P1.14c](#p114c-mjpeg-and-the-live-view-page) | MJPEG and the live-view page (**Checkpoint B**) | P1.14b | 810 | — | G1, G2 |
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13b | 1,410 | — | G1 |
-| [P1.15b](#p115b-datasets-and-capture) | Datasets and capture | P1.14a, P1.15a | 1,550 | — | G1 |
-| [P1.16](#p116-autofocus) | Autofocus | P1.15b | 1,300 | Yes | G1 |
+| [P1.15b](#p115b-the-dataset-store) | The dataset store | P1.15a | 1,190 | — | G1 |
+| [P1.15c](#p115c-the-recorder-and-ingest) | The recorder and ingest | P1.14a, P1.15b | 880 | — | G1 |
+| [P1.15d](#p115d-capture-and-its-things) | Capture and its Things | P1.15c | 960 | — | G1 |
+| [P1.16](#p116-autofocus) | Autofocus | P1.15d | 1,300 | Yes | G1 |
 | [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16 | 1,530 | — | G1 |
 | [P1.18](#p118-calibration) | Calibration (**Checkpoint C**) | P1.17 | 1,900 | Yes | G1, G1c, G2 |
 | [P1.19](#p119-batch-processing) | Batch processing | P1.15b, P1.08e | 1,400 | — | G1, G1c |
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 39 phases since P1.04 to P1.13 were split on 2026-11-27, and P1.14b on 2026-11-28, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 41 phases since P1.04 to P1.13 were split on 2026-11-27, and P1.14b and P1.15b on 2026-11-28, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -1158,7 +1160,7 @@ Each phase has:
 **Scope.**
 
 - **The frame bus:**
-  - *lossless* subscribers, with a bounded queue and backpressure (the recorder, in P1.15b);
+  - *lossless* subscribers, with a bounded queue and backpressure (the recorder, in P1.15c);
   - *latest-wins* subscribers, with a one-frame mailbox (preview, statistics);
   - "the first frame exposed after t", for workflows.
 - **The preview pipeline,** as a session object with no transport yet:
@@ -1169,7 +1171,7 @@ Each phase has:
 - **Live statistics,** at up to 10 Hz, from the raw data: a histogram per channel, the saturation mask at preview size, line profiles, ROI statistics, a focus value.
 - **The camera's live mode** is binned by default (D5).
 
-**Out of scope.** The WebSocket (P1.14b); MJPEG and the HTML page (P1.14c); recording (P1.15b).
+**Out of scope.** The WebSocket (P1.14b); MJPEG and the HTML page (P1.14c); recording (P1.15c).
 
 **Try it.** `preview-pipeline`: the virtual camera into the bus, two preview sessions of different sizes and the statistics, with each session's rate and each stage's time, and a few JPEGs written out.
 
@@ -1277,7 +1279,7 @@ Each phase has:
 - **The history** in SQLite (`rusqlite`, bundled), pruned by age.
 - **The `jobs` Thing:** list, get, cancel, with events.
 
-**Out of scope.** The work itself: captures (P1.15b), autofocus (P1.16), scans (P1.17), batches (P1.19).
+**Out of scope.** The work itself: captures (P1.15d), autofocus (P1.16), scans (P1.17), batches (P1.19).
 
 **Try it.** `jobs`: hardware and compute jobs queued, one cancelled, then the history read back after a restart.
 
@@ -1291,28 +1293,88 @@ Each phase has:
 
 ---
 
-## P1.15b: Datasets and capture
+## P1.15b: The dataset store
 
 | | |
 |---|---|
-| Crates | `tetera-store` (new, L2), `tetera-workflows` (new, L4), `tetera-api` |
-| Depends on | P1.14a, P1.15a |
+| Crates | `tetera-store` (new, L2) |
+| Depends on | P1.15a |
 | ADRs | 0021 datasets on disk |
 | Gates | G1 |
-| First estimate | code 1,100 · tests 350 · examples 50 · docs-as-code 50 = **1,550** |
-| Ready split | P1.15b: projects, OME-Zarr, the recorder and ingest (~950) · P1.15c: the capture workflow and its Things (~600) |
+| Second estimate | code 520 (the SQLite index of projects, datasets and files 150; each dataset's folder, its metadata and thumbnail 120; OME-Zarr v3 through `zarrs`, written and read back 200; the store 50) · tests 520 · examples 80 · docs-as-code 40 · glue 30 = **1,190** (1,547 at ×1.3). P1.15b's own second estimate, with the recorder, ingest and capture, was 3,030 (3,939 at ×1.3): the agent split it on 2026-11-28 under the owner's standing approval into P1.15b, P1.15c and P1.15d |
+
+**Goal.** Datasets on disk, in projects, that read back exactly, and an index that never lists a dataset half written.
+
+**Scope.**
+
+- **Projects and datasets** (`tetera-store`):
+  - the SQLite index, in `tetera.db`: projects, datasets, files;
+  - each dataset's folder: OME-Zarr v3 arrays (through `zarrs`), compressed with zstd; `metadata.json` (instrument, camera settings, objective, calibration, positions, times); a JPEG thumbnail;
+  - raw Bayer stored as one channel, with its pattern in the metadata;
+  - a dataset is listed once it is complete; one abandoned while it is written leaves nothing behind.
+
+**Out of scope.** The recorder and ingest (P1.15c); capture and the Things (P1.15d); exports (P1.19).
+
+**Try it.** `datasets`: a project, a dataset of synthetic raw frames written and read back, its tree on disk, and one abandoned half way.
+
+**Done when.**
+
+- A dataset's OME-Zarr reads back exactly, and its metadata follows OME-NGFF 0.5.
+- The index survives a restart, and lists no dataset abandoned while it was written.
+
+**Tests.** OME-Zarr round trips, 8 and 16 bits; the NGFF metadata; the index across a restart; abandoning a dataset; deleting one. **Broken on purpose:** the index's clean-up after an abandoned dataset.
+
+**Open questions.** Q14 (the scratch disk), Q36 and Q37 (answered: OME-Zarr, in projects).
+
+---
+
+## P1.15c: The recorder and ingest
+
+| | |
+|---|---|
+| Crates | `tetera-store`, `tetera-acquire` |
+| Depends on | P1.14a, P1.15b |
+| ADRs | — (ADR-0021, from P1.15b) |
+| Gates | G1 |
+| First estimate | code 380 (the frame log: preallocated segments and their index 180; the recorder, a lossless subscriber 100; ingest as a compute job 100) · tests 380 · examples 80 · docs-as-code 30 · glue 10 = **880**, from P1.15b's split on 2026-11-28 |
+
+**Goal.** Every frame of a capture onto the scratch disk at the camera's full rate, then into a dataset.
+
+**Scope.**
+
+- **The scratch recorder:** preallocated segment files, raw frames appended in order, with an index; a lossless subscriber of the frame bus.
+- **Ingest,** as a compute job: from the frame log into a P1.15b dataset.
+
+**Out of scope.** Capture and its Things (P1.15d).
+
+**Try it.** `recorder`: the virtual camera at its full rate into the frame log, then ingested into a dataset.
+
+**Done when.**
+
+- The recorder keeps up with the virtual camera at its full rate, 289 MB/s, on ext4, without a dropped frame.
+- Ingest writes a dataset that reads back exactly.
+
+**Tests.** The recorder under backpressure; the frame log read back; ingest, and cancelling it. **Broken on purpose:** the recorder's backpressure (a dropped frame must fail the test).
+
+**Open questions.** Q14 (the scratch disk).
+
+---
+
+## P1.15d: Capture and its Things
+
+| | |
+|---|---|
+| Crates | `tetera-workflows` (new, L4), `tetera-api` |
+| Depends on | P1.15c |
+| ADRs | — |
+| Gates | G1 |
+| First estimate | code 420 (capture: one frame, N at an interval, or a burst, and the mode switch and back 180; the `capture` and `datasets` Things 240) · tests 420 · examples 60 · docs-as-code 40 · glue 20 = **960**, from P1.15b's split on 2026-11-28 |
 
 **Goal.** Captures that land on disk as datasets, in projects, without losing a frame.
 
 **Scope.**
 
-- **Projects and datasets** (`tetera-store`):
-  - the SQLite index: projects, datasets, files;
-  - each dataset's folder: OME-Zarr v3 arrays (through `zarrs`), `metadata.json` (instrument, camera settings, objective, calibration, positions, times), a JPEG thumbnail;
-  - raw Bayer stored as one channel, with its pattern in the metadata.
-- **The scratch recorder:** preallocated segment files, raw frames appended in order, with an index; a lossless subscriber of the frame bus.
-- **Ingest,** as a compute job: from the frame log into OME-Zarr, compressed with zstd.
-- **Capture** (`tetera-workflows`): one frame, N frames at an interval, or a burst at the full rate. **It switches the camera from its binned live mode to full resolution, captures, and switches back** (D5), and the switch's time is measured.
+- **Capture** (`tetera-workflows`): one frame, N frames at an interval, or a burst at the full rate, as a hardware job. **It switches the camera from its binned live mode to full resolution, captures, and switches back** (D5), and the switch's time is measured.
 - **Things:** `capture`, and `datasets` (projects, datasets, metadata, thumbnails, delete).
 
 **Out of scope.** Exports (P1.19); scans (P1.17).
@@ -1321,14 +1383,12 @@ Each phase has:
 
 **Done when.**
 
-- The recorder keeps up with the virtual camera at its full rate, 289 MB/s, on ext4, without a dropped frame.
-- Ingest writes OME-Zarr that reads back exactly and matches OME-NGFF 0.5's schema.
 - A capture switches the mode and back.
 - A capture cancelled through the `jobs` Thing leaves no half-written dataset in the index.
 
-**Tests.** The recorder under backpressure; OME-Zarr round trips and schema checks; the index across a restart; mode switching; cancelling a capture and an ingest. **Broken on purpose:** the recorder's backpressure (a dropped frame must fail the test), and the index's clean-up after a cancel.
+**Tests.** Mode switching; a capture of each kind; cancelling a capture. **Broken on purpose:** the clean-up after a cancelled capture.
 
-**Open questions.** Q14 (the scratch disk), Q36 and Q37 (answered: OME-Zarr, in projects).
+**Open questions.** None.
 
 ---
 
@@ -1337,7 +1397,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-workflows`, `tetera-imaging`, `tetera-api` |
-| Depends on | P1.15b |
+| Depends on | P1.15d |
 | ADRs | — |
 | Gates | G1 |
 | Spec-first | Yes |
