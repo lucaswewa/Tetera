@@ -212,8 +212,14 @@ impl Shared {
         self.wake();
     }
 
+    /// Wakes the workers waiting for a job or for VRAM. Each queue's lock is taken first, so
+    /// a worker between its look and its wait can't miss the call.
     fn wake(&self) {
-        self.hardware_ready.notify_all();
+        {
+            let _queue = lock(&self.hardware);
+            self.hardware_ready.notify_all();
+        }
+        let _queue = lock(&self.compute);
         self.compute_ready.notify_all();
     }
 
@@ -231,10 +237,7 @@ impl Shared {
             if let Some(p) = q.pop_front() {
                 return Some(p);
             }
-            q = ready
-                .wait_timeout(q, Duration::from_millis(100))
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
+            q = ready.wait(q).unwrap_or_else(PoisonError::into_inner);
         }
     }
 
@@ -296,9 +299,12 @@ impl Shared {
 
     /// The VRAM a compute job asked for, from the budget, waiting while others hold it.
     fn vram(&self, id: &str, bytes: u64, cancel: &AtomicBool) -> Result<Option<Grant>> {
-        let Some(budget) = self.budget.as_ref().filter(|_| bytes > 0) else {
+        let Some(budget) = self.budget.as_ref() else {
             return Ok(None);
         };
+        if bytes == 0 {
+            return Ok(None);
+        }
         if bytes > budget.limit() {
             return Err(Error::invalid_argument(format!(
                 "job {id} asks for {bytes} bytes of VRAM, more than the compute jobs' {}",
@@ -320,9 +326,8 @@ impl Shared {
             }
             waiting = self
                 .compute_ready
-                .wait_timeout(waiting, Duration::from_millis(50))
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
+                .wait(waiting)
+                .unwrap_or_else(PoisonError::into_inner);
         }
     }
 }
@@ -340,9 +345,7 @@ impl JobService {
         let history = History::open(db)?;
         let interrupted = history.interrupted()?;
         let pruned = history.prune(ago(config.keep))?;
-        if interrupted > 0 || pruned > 0 {
-            tracing::info!(interrupted, pruned, "the jobs' history");
-        }
+        tracing::info!(interrupted, pruned, "the jobs' history");
         let shared = Arc::new(Shared {
             jobs: Mutex::default(),
             hardware: Mutex::default(),
@@ -441,7 +444,7 @@ impl JobService {
     /// Cancels job `id`: one queued ends at once; one running is asked to stop, and ends when
     /// its work next checks. One that has ended is refused.
     pub fn cancel(&self, id: &str) -> Result<Job> {
-        let queued = {
+        {
             let jobs = lock(&self.shared.jobs);
             let Some(entry) = jobs.get(id).filter(|e| !e.job.state.is_finished()) else {
                 drop(jobs);
@@ -452,18 +455,17 @@ impl JobService {
                 )));
             };
             entry.cancel.store(true, Ordering::Release);
-            entry.job.state == JobState::Queued
-        };
-        let taken = queued && {
-            let mut found = false;
-            for q in [&self.shared.hardware, &self.shared.compute] {
+        }
+        // Still in a queue: no worker has it, so it ends here.
+        let taken = [&self.shared.hardware, &self.shared.compute]
+            .into_iter()
+            .any(|q| {
                 let mut q = lock(q);
-                let before = q.len();
-                q.retain(|p| p.id != id);
-                found |= q.len() < before;
-            }
-            found
-        };
+                q.iter()
+                    .position(|p| p.id == id)
+                    .and_then(|i| q.remove(i))
+                    .is_some()
+            });
         if taken {
             self.shared.end(id, JobState::Cancelled, |j| {
                 j.cancel_requested = true;
@@ -472,6 +474,8 @@ impl JobService {
         } else {
             self.shared.update(id, |j| j.cancel_requested = true);
             self.shared.save(id);
+            // A compute job waiting for VRAM wakes to see it.
+            self.shared.wake();
         }
         self.get(id)
     }

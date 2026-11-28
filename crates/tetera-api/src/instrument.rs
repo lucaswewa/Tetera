@@ -504,6 +504,12 @@ pub(crate) mod tests {
         .unwrap();
         let c = i.compute();
         assert_eq!(c.backend, "cuda");
+        let budgets = i.budgets.as_ref().expect("the GPU's budgets");
+        assert_eq!(budgets.reserved(), 512 << 20, "the camera's 512 MiB");
+        assert!(
+            budgets.capacity() > budgets.reserved(),
+            "room for compute jobs"
+        );
         assert_eq!(c.sensor, [5_472, 3_648]);
         assert!(
             c.device.is_some() && c.memory.is_some() && c.reason.is_none(),

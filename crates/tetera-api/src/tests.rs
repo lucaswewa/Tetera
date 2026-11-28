@@ -1051,6 +1051,12 @@ async fn the_jobs_are_followed_listed_and_cancelled_over_http() {
     );
     let all = invoke(&client, "/jobs/list", json!({})).await;
     assert_eq!(all["output"].as_array().map(Vec::len), Some(2));
+    let thing = client
+        .runtime()
+        .thing_ref::<crate::jobs::JobsThing>("jobs")
+        .expect("the jobs Thing");
+    let thing = Arc::clone(teta_wot::prelude::ThingRef::thing(&thing));
+    assert!(thing.following());
     for (path, body) in [
         ("/jobs/get", json!({"id": "no such job"})),
         ("/jobs/cancel", json!({"id": "no such job"})),
@@ -1060,4 +1066,5 @@ async fn the_jobs_are_followed_listed_and_cancelled_over_http() {
         assert_eq!(refused["status"], "error", "{path} {body}: {refused}");
     }
     client.stop().await;
+    assert!(!thing.following(), "it stops following with the server");
 }

@@ -41,10 +41,10 @@ fn service(scratch: &Scratch) -> JobService {
     JobService::open(&scratch.db(), JobsConfig::default(), None).unwrap()
 }
 
-/// Waits for job `id` to run.
+/// Waits for job `id` to run, or to have run.
 fn until_running(jobs: &JobService, id: &str) {
     let started = Instant::now();
-    while jobs.get(id).unwrap().state != JobState::Running {
+    while jobs.get(id).unwrap().state == JobState::Queued {
         assert!(started.elapsed() < LONG, "job {id} never ran");
         std::thread::sleep(Duration::from_millis(2));
     }
@@ -62,7 +62,7 @@ fn a_job_goes_from_queued_to_running_to_its_end_with_its_progress_log_and_result
             ctx.progress(0.5, "half way");
             ctx.log("a line");
             ctx.progress(7.0, "past the end");
-            Ok(json!({"frames": 3}))
+            Ok(json!({"frames": 3, "id": ctx.id()}))
         })
         .unwrap();
     until_running(&jobs, &id);
@@ -80,7 +80,7 @@ fn a_job_goes_from_queued_to_running_to_its_end_with_its_progress_log_and_result
         done.log.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(),
         ["a line"]
     );
-    assert_eq!(done.result, Some(json!({"frames": 3})));
+    assert_eq!(done.result, Some(json!({"frames": 3, "id": id})));
     assert!(done.finished >= done.started && done.started >= Some(done.created));
     assert_eq!(
         (done.kind, done.name.as_str()),
@@ -105,8 +105,15 @@ fn a_failing_or_panicking_job_fails_with_its_reason_and_the_next_one_runs() {
     let scratch = Scratch::new();
     let jobs = service(&scratch);
     let failing = jobs
-        .submit(JobKind::Hardware, "move", 0, |_| {
+        .submit(JobKind::Hardware, "move", 0, |ctx| {
+            ctx.progress(0.3, "moving");
             Err(Error::hardware("the stage stalled"))
+        })
+        .unwrap();
+    let ends_well = jobs
+        .submit(JobKind::Hardware, "move", 0, |ctx| {
+            ctx.progress(0.3, "moving");
+            Ok(json!(null))
         })
         .unwrap();
     let panicking = jobs
@@ -122,6 +129,12 @@ fn a_failing_or_panicking_job_fails_with_its_reason_and_the_next_one_runs() {
         .unwrap();
     let f = jobs.wait(&failing, LONG).unwrap();
     assert_eq!(f.state, JobState::Failed);
+    assert_eq!(f.progress, 0.3, "where it got to");
+    assert_eq!(
+        jobs.wait(&ends_well, LONG).unwrap().progress,
+        1.0,
+        "all the way"
+    );
     assert!(
         f.error
             .as_deref()
@@ -297,7 +310,12 @@ fn a_job_cancelled_while_queued_never_runs_and_one_running_stops_within_a_second
             })
             .unwrap();
         until_running(&jobs, &id);
-        jobs.cancel(&id).unwrap();
+        let asked = jobs.cancel(&id).unwrap();
+        assert_eq!(
+            (asked.state, asked.cancel_requested),
+            (JobState::Running, true),
+            "running until its work ends"
+        );
         go.send(()).unwrap();
         assert_eq!(jobs.wait(&id, LONG).unwrap().state, state);
     }
@@ -503,4 +521,35 @@ fn a_job_cancelled_as_it_ends_is_recorded_as_it_ended() {
         let ended = jobs.wait(&id, Duration::from_secs(2)).unwrap();
         assert!(ended.state.is_finished(), "{ended:?}");
     }
+}
+
+#[test]
+fn the_history_follows_a_job_as_it_goes_and_dropping_the_service_stops_it() {
+    let scratch = Scratch::new();
+    let jobs = service(&scratch);
+    let (go, gate) = std::sync::mpsc::channel::<()>();
+    let blocker = jobs
+        .submit(JobKind::Hardware, "first", 0, move |_| {
+            gate.recv().unwrap();
+            Ok(json!(null))
+        })
+        .unwrap();
+    let id = jobs
+        .submit(JobKind::Hardware, "scan", 0, |ctx| {
+            ctx.sleep(Duration::from_secs(60))?;
+            Ok(json!(null))
+        })
+        .unwrap();
+    // A second reader of the same history, as a crash would leave it.
+    let h = History::open(&scratch.db()).unwrap();
+    assert_eq!(h.get(&id).unwrap().unwrap().state, JobState::Queued);
+    go.send(()).unwrap();
+    until_running(&jobs, &id);
+    assert_eq!(h.get(&id).unwrap().unwrap().state, JobState::Running);
+    assert_eq!(h.get(&blocker).unwrap().unwrap().state, JobState::Succeeded);
+    // Dropped while the job runs: it is asked to stop, and waited for.
+    let asked = Instant::now();
+    drop(jobs);
+    assert!(asked.elapsed() < Duration::from_secs(1));
+    assert_eq!(h.get(&id).unwrap().unwrap().state, JobState::Cancelled);
 }

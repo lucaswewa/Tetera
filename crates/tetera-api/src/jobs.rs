@@ -143,3 +143,34 @@ impl JobsThing {
         self.service()?.cancel(&id).map_err(error::action)
     }
 }
+
+#[cfg(test)]
+impl JobsThing {
+    /// Whether it follows the jobs.
+    pub(crate) fn following(&self) -> bool {
+        lock(&self.forwarder).is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_options_make_the_services_configuration() {
+        let c = JobsOptions {
+            compute_workers: 3,
+            keep_days: 2,
+            vram_mib: 64,
+        }
+        .config();
+        assert_eq!(
+            (c.compute_workers, c.keep),
+            (3, Duration::from_secs(2 * 86_400))
+        );
+        assert_eq!(
+            JobsOptions::default().config().keep,
+            Duration::from_secs(30 * 86_400)
+        );
+    }
+}
