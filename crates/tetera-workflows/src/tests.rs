@@ -265,11 +265,14 @@ fn a_series_keeps_its_interval_and_a_burst_its_rate_and_count() {
         .frames
         .clone();
     assert_eq!(frames.len(), 3);
-    for pair in frames.windows(2) {
-        let apart = pair[1]
-            .exposure_start
-            .saturating_since(pair[0].exposure_start);
-        assert!(apart >= Duration::from_millis(140), "{apart:?}");
+    // Each frame is due an interval after the one before, counted from the first: never
+    // early, though one late on a busy CPU lets the next catch up.
+    for (i, f) in frames.iter().enumerate() {
+        let since = f.exposure_start.saturating_since(frames[0].exposure_start);
+        assert!(
+            since >= Duration::from_millis(150 * i as u64 - 5 * i as u64),
+            "{i}: {since:?}"
+        );
     }
     assert_eq!(
         s.store
@@ -506,13 +509,13 @@ fn a_series_waits_out_its_interval_and_says_how_far_it_has_got() {
         .frames
         .clone();
     assert_eq!(frames.len(), 4);
-    for pair in frames.windows(2) {
-        let apart = pair[1]
-            .exposure_start
-            .saturating_since(pair[0].exposure_start);
+    // Never early, counted from the first; not far behind, on the quick fake camera.
+    for (i, f) in frames.iter().enumerate() {
+        let since = f.exposure_start.saturating_since(frames[0].exposure_start);
+        let due = Duration::from_millis(150 * i as u64);
         assert!(
-            apart >= Duration::from_millis(140) && apart <= Duration::from_millis(400),
-            "{apart:?}"
+            since + Duration::from_millis(5) >= due && since <= due + Duration::from_millis(400),
+            "{i}: {since:?}"
         );
     }
     // Each frame, and each wait for it, at the frames before it over all.
