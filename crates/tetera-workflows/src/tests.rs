@@ -5,11 +5,13 @@ use crate::{CaptureKind, CaptureRequest, Rig, capture};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tetera_acquire::FrameBus;
+use tetera_core::frame::format::Binning;
 use tetera_core::frame::meta::LightState;
-use tetera_core::{Error, ErrorKind, Result, StagePos, Um};
+use tetera_core::{Error, ErrorKind, Rect, Result, StagePos, Um};
 use tetera_hal::camera::{Camera, CameraConfig};
+use tetera_hal::fake::{CameraFault, FakeCamera};
 use tetera_hal::illumination::Illumination;
 use tetera_hal::objective::{ManualObjectiveMount, ObjectiveCatalogue, ObjectiveMount};
 use tetera_sim::camera::{Backend, Scene, VirtualCamera, VirtualCameraConfig};
@@ -125,8 +127,12 @@ fn setup() -> Setup {
 
 impl Setup {
     fn rig(&self) -> Rig<'_> {
+        self.rig_for(self.camera.as_ref())
+    }
+
+    fn rig_for<'a>(&'a self, camera: &'a dyn Camera) -> Rig<'a> {
         Rig {
-            camera: self.camera.as_ref(),
+            camera,
             bus: &self.bus,
             store: &self.store,
             scratch: &self.logs,
@@ -158,22 +164,50 @@ fn going(_: f64, _: &str) -> Result<()> {
     Ok(())
 }
 
+/// The fake camera, 640 × 480 at up to 100 frames a second, quick to snap; its live view a
+/// region of its small mode, binned 2 × 2, at 8 bits.
+fn fake() -> FakeCamera {
+    let camera = FakeCamera::new(Arc::new(SimClock::new(Rate::RealTime).unwrap()), 100.0);
+    camera
+        .configure(&CameraConfig {
+            mode: 1,
+            bit_depth: 8,
+            roi: Some(Rect::new(0, 0, 80, 60)),
+            binning: Binning { x: 2, y: 2 },
+            ..camera.config()
+        })
+        .unwrap();
+    camera
+}
+
+/// The first number in `text`.
+fn number(text: &str) -> f64 {
+    text.split(|c: char| !c.is_ascii_digit())
+        .find(|w| !w.is_empty())
+        .and_then(|w| w.parse().ok())
+        .unwrap_or_else(|| panic!("no number in {text:?}"))
+}
+
 #[test]
 fn a_single_frame_is_taken_at_full_resolution_and_the_live_view_comes_back() {
     let s = setup();
     let live = s.camera.config();
     s.camera.start(s.bus.clone()).unwrap();
     let mut steps = Vec::new();
+    let began = Instant::now();
     let r = capture(&s.rig(), &request(CaptureKind::Single), &mut |done, msg| {
         steps.push((done, msg.to_string()));
         Ok(())
     })
     .unwrap();
+    let took_ms = began.elapsed().as_secs_f64() * 1e3;
     // Back as it was: the binned mode, streaming.
     assert_eq!(s.camera.config(), live);
     assert!(s.camera.is_streaming());
     s.camera.stop().unwrap();
-    assert!(r.switch_ms > 0.0 && r.back_ms > 0.0, "{r:?}");
+    // The switch snaps a frame of mode 0, 138 ms; the switch back restarts the stream.
+    assert!(r.switch_ms > 10.0 && r.back_ms > 0.001, "{r:?}");
+    assert!(r.switch_ms + r.back_ms < took_ms, "{r:?} in {took_ms} ms");
     assert_eq!((r.dataset.frames, r.missing), (1, 0));
     let read = s.store.read(&r.dataset.id).unwrap();
     let spec = &read.metadata().spec;
@@ -182,7 +216,14 @@ fn a_single_frame_is_taken_at_full_resolution_and_the_live_view_comes_back() {
         (192, 128),
         "full resolution, not 96 × 64"
     );
-    assert_eq!(spec.format.bytes_per_sample(), 2, "12 bits in 16");
+    assert_eq!(
+        (
+            spec.format.significant_bits(),
+            spec.format.bytes_per_sample()
+        ),
+        (Some(12), 2),
+        "12 bits in 16"
+    );
     assert_eq!(spec.pixel_size_um, 0.24);
     assert_eq!(spec.instrument["camera"]["mode"], 0);
     assert_eq!(spec.instrument["instrument"]["objective"], "20x");
@@ -334,6 +375,25 @@ fn bad_requests_are_refused_and_a_failed_switch_puts_the_camera_back() {
     let mut zero = request(CaptureKind::Single);
     zero.exposure_ms = Some(0.0);
     assert!(capture(&s.rig(), &zero, &mut going).is_err());
+    for (ms, fine) in [
+        (Some(0.0), false),
+        (Some(-1.0), false),
+        (Some(f64::INFINITY), false),
+        (Some(f64::NAN), false),
+        (Some(0.001), true),
+        (None, true),
+    ] {
+        let mut r = request(CaptureKind::Single);
+        r.exposure_ms = ms;
+        assert_eq!(r.check().is_ok(), fine, "{ms:?}");
+    }
+    let mut r = request(CaptureKind::Series {
+        count: 1,
+        interval_ms: 0.0,
+    });
+    assert!(r.check().is_ok(), "an interval of 0");
+    r.kind = CaptureKind::Burst { count: 1 };
+    assert!(r.check().is_ok());
     // A mode the camera hasn't: refused by the camera, and put back.
     let mut nine = request(CaptureKind::Single);
     nine.mode = Some(9);
@@ -350,4 +410,114 @@ fn bad_requests_are_refused_and_a_failed_switch_puts_the_camera_back() {
     assert_eq!(s.camera.config(), before);
     assert_eq!(s.bus.published(), published, "nothing recorded");
     assert_eq!(CaptureKind::Single.frames(), 1);
+}
+
+#[test]
+fn the_capture_mode_is_the_whole_sensor_at_12_bits_whatever_the_live_view_set() {
+    let s = setup();
+    let camera = fake();
+    let live = camera.config();
+    let r = capture(
+        &s.rig_for(&camera),
+        &request(CaptureKind::Single),
+        &mut going,
+    )
+    .unwrap();
+    let read = s.store.read(&r.dataset.id).unwrap();
+    let spec = &read.metadata().spec;
+    assert_eq!(
+        (spec.width, spec.height),
+        (640, 480),
+        "no region, no binning"
+    );
+    assert_eq!(spec.format.significant_bits(), Some(12));
+    assert_eq!(spec.instrument["camera"]["roi"], serde_json::Value::Null);
+    assert_eq!(camera.config(), live, "the live view's set back");
+    // The camera refuses the switch: put back all the same.
+    camera.inject(CameraFault::FailConfigure);
+    let e = capture(
+        &s.rig_for(&camera),
+        &request(CaptureKind::Single),
+        &mut going,
+    )
+    .unwrap_err();
+    assert_eq!(e.kind(), ErrorKind::Hardware, "{e}");
+    assert_eq!(camera.config(), live);
+}
+
+#[test]
+fn a_series_waits_out_its_interval_and_says_how_far_it_has_got() {
+    let s = setup();
+    let camera = fake();
+    let began = Instant::now();
+    let mut steps = Vec::new();
+    let series = CaptureKind::Series {
+        count: 4,
+        interval_ms: 150.0,
+    };
+    let r = capture(&s.rig_for(&camera), &request(series), &mut |done, msg| {
+        // A wait gone wrong fails here, not at the test's timeout.
+        if began.elapsed() > Duration::from_secs(10) {
+            return Err(Error::timeout("the series took over 10 s"));
+        }
+        steps.push((done, msg.to_string()));
+        Ok(())
+    })
+    .unwrap();
+    let frames = s
+        .store
+        .read(&r.dataset.id)
+        .unwrap()
+        .metadata()
+        .frames
+        .clone();
+    assert_eq!(frames.len(), 4);
+    for pair in frames.windows(2) {
+        let apart = pair[1]
+            .exposure_start
+            .saturating_since(pair[0].exposure_start);
+        assert!(
+            apart >= Duration::from_millis(140) && apart <= Duration::from_millis(400),
+            "{apart:?}"
+        );
+    }
+    // Each frame, and each wait for it, at the frames before it over all.
+    for (done, msg) in &steps[..steps.len() - 1] {
+        assert!(msg.starts_with("frame "), "{msg}");
+        assert_eq!(*done, (number(msg) - 1.0) / 4.0, "{msg}");
+    }
+    assert!(steps.iter().any(|(_, m)| m.ends_with("due")), "it waited");
+    assert_eq!(steps.last(), Some(&(1.0, "written".to_string())));
+}
+
+#[test]
+fn a_bursts_drops_are_counted_once_and_its_progress_said_as_it_records_and_ingests() {
+    let s = setup();
+    let camera = fake();
+    // The stream's first two frames lost, and said to be.
+    camera.inject(CameraFault::DropFrames(2));
+    let mut steps = Vec::new();
+    let r = capture(
+        &s.rig_for(&camera),
+        &request(CaptureKind::Burst { count: 6 }),
+        &mut |done, msg| {
+            steps.push((done, msg.to_string()));
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!((r.dataset.frames, r.missing), (6, 2));
+    // Recording: the frames published so far, over all, makes half; ingest the other half.
+    for (done, msg) in &steps {
+        let n = number(msg);
+        if msg.starts_with("ingesting frame ") {
+            assert_eq!(*done, 0.5 + 0.5 * n / 6.0, "{msg}");
+        } else {
+            assert!(msg.starts_with("frame "), "{msg}");
+            assert_eq!(*done, 0.5 * n / 6.0, "{msg}");
+        }
+    }
+    assert!(steps.iter().any(|(_, m)| m.starts_with("ingesting")));
+    assert_eq!(steps.last().map(|s| s.0), Some(1.0));
+    assert_eq!(s.scratch_left(), 0);
 }

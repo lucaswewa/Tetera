@@ -205,3 +205,43 @@ async fn a_capture_cancelled_through_the_jobs_thing_leaves_no_dataset_in_the_ind
     let _ = invoke(&client, "/camera/stop_streaming", json!({})).await;
     client.stop().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dataset_being_written_has_no_thumbnail_yet() {
+    let scratch = Scratch::new();
+    let roots =
+        crate::server::Roots::make(scratch.0.join("data"), scratch.0.join("scratch")).unwrap();
+    let service = crate::server::build(
+        std::sync::Arc::new(crate::instrument::tests::instrument()),
+        roots,
+    )
+    .unwrap();
+    let store = service.store().clone();
+    let client = TestClient::start(service.into_inner()).await.unwrap();
+    store.create_project("p").unwrap();
+    let format =
+        tetera_core::PixelFormat::bayer16(tetera_core::frame::format::BayerPattern::Rggb, 12)
+            .unwrap();
+    let writer = store
+        .create_dataset(
+            "p",
+            tetera_store::DatasetSpec {
+                name: "half".into(),
+                kind: "capture".into(),
+                format,
+                width: 16,
+                height: 16,
+                frames: 2,
+                pixel_size_um: 1.0,
+                interval_s: 0.0,
+                instrument: Value::Null,
+            },
+        )
+        .unwrap();
+    let path = crate::media::thumbnail_path(writer.id());
+    let r = client.get(&path).await;
+    assert_eq!(r.status, 409, "{}", r.text());
+    drop(writer);
+    assert_eq!(client.get(&path).await.status, 404, "gone with its writer");
+    client.stop().await;
+}
