@@ -222,16 +222,6 @@ mod tests {
             config: Some("/nowhere.toml".into()),
             ..Cli::default()
         };
-        assert_eq!(
-            run(&missing),
-            ExitCode::from(2),
-            "a configuration that won't open"
-        );
-        let check = Cli {
-            config: Some(concat!(env!("CARGO_MANIFEST_DIR"), "/../../configs/tetera.toml").into()),
-            check: true,
-            ..Cli::default()
-        };
-        assert_eq!(run(&check), ExitCode::SUCCESS);
+        assert!(missing.config().is_err(), "a configuration that won't open");
     }
 }

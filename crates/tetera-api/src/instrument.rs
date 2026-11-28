@@ -402,6 +402,35 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cuda")]
+    fn on_the_gpu_the_camera_takes_the_whole_sensor_within_its_budget() {
+        use tetera_hal::camera::Camera;
+        if !tetera_compute::select::cuda_tests_enabled() {
+            eprintln!("skipped: set TETERA_CUDA=1 to run CUDA tests");
+            return;
+        }
+        let i = Instrument::new(
+            &SimulatorConfig {
+                clock_rate: 10.0,
+                vram_mib: 512,
+                ..SimulatorConfig::default()
+            },
+            &ObjectivesConfig::default(),
+        )
+        .unwrap();
+        let c = i.compute();
+        assert_eq!(c.backend, "cuda");
+        assert_eq!(c.sensor, [5_472, 3_648]);
+        assert!(
+            c.device.is_some() && c.memory.is_some() && c.reason.is_none(),
+            "{c:?}"
+        );
+        // A frame on the GPU, its tiles taken from the budget.
+        let frame = i.camera.snap(std::time::Duration::from_secs(10)).unwrap();
+        assert_eq!(frame.layout().width, 5_472);
+    }
+
+    #[test]
     fn a_configuration_it_cannot_make_is_refused() {
         let none_fitted = Instrument::new(
             &SimulatorConfig {

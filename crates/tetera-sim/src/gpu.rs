@@ -705,6 +705,21 @@ mod tests {
         assert_eq!(tiles.sample(), None);
         assert_eq!(tiles.stats().misses, 0, "its tiles let go");
         let bare = tiles.field(&fov, &light, 2.0).unwrap();
+        // Another size of sensor: its planes made again, with no slide too.
+        let smaller = FieldOfView {
+            optics: Optics {
+                sensor: fov.optics.sensor.binned(2),
+                ..fov.optics
+            },
+            ..fov
+        };
+        let half = tiles.field(&smaller, &light, 2.0).unwrap();
+        assert_eq!((half.width, half.height, half.rgb.len()), (48, 32, 48 * 32));
+        let bare = {
+            let again = tiles.field(&fov, &light, 2.0).unwrap();
+            assert_eq!(again, bare, "the same light again");
+            again
+        };
         let cpu = bare_field(&fov, &light);
         let worst = cpu
             .rgb

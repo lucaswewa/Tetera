@@ -116,12 +116,15 @@ impl Config {
     /// The configuration in `named` if given; otherwise in [`DEFAULT_PATH`] if it is there;
     /// otherwise the defaults. Also where it came from.
     pub fn find(named: Option<&Path>) -> Result<(Self, Option<PathBuf>)> {
+        Self::find_in(named, Path::new("."))
+    }
+
+    /// The same, [`DEFAULT_PATH`] looked for in `folder`.
+    pub fn find_in(named: Option<&Path>, folder: &Path) -> Result<(Self, Option<PathBuf>)> {
+        let default = folder.join(DEFAULT_PATH);
         match named {
             Some(path) => Ok((Self::load(path)?, Some(path.to_path_buf()))),
-            None if Path::new(DEFAULT_PATH).is_file() => Ok((
-                Self::load(Path::new(DEFAULT_PATH))?,
-                Some(PathBuf::from(DEFAULT_PATH)),
-            )),
+            None if default.is_file() => Ok((Self::load(&default)?, Some(default))),
             None => Ok((Self::default(), None)),
         }
     }
@@ -256,5 +259,34 @@ mod tests {
         assert_eq!(missing.kind(), tetera_core::ErrorKind::NotFound);
         assert!(missing.to_string().contains("/nowhere/tetera.toml"));
         assert!(Config::find(Some(Path::new("/nowhere/tetera.toml"))).is_err());
+    }
+
+    #[test]
+    fn without_a_named_file_it_looks_for_configs_tetera_toml() {
+        let folder =
+            std::env::temp_dir().join(format!("tetera-config-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let (config, from) = Config::find_in(None, &folder).unwrap();
+        assert_eq!(
+            (config, from),
+            (Config::default(), None),
+            "nothing there: the defaults"
+        );
+        std::fs::create_dir_all(folder.join("configs")).unwrap();
+        std::fs::write(folder.join(DEFAULT_PATH), "[server]\nport = 9200\n").unwrap();
+        let (config, from) = Config::find_in(None, &folder).unwrap();
+        assert_eq!(config.server.port, 9200);
+        assert_eq!(from, Some(folder.join(DEFAULT_PATH)));
+        let named = folder.join("other.toml");
+        std::fs::write(&named, "[server]\nport = 9300\n").unwrap();
+        let (config, from) = Config::find_in(Some(&named), &folder).unwrap();
+        assert_eq!((config.server.port, from), (9300, Some(named)));
+        std::fs::write(folder.join(DEFAULT_PATH), "[server]\nport = -1\n").unwrap();
+        assert!(
+            Config::find_in(None, &folder).is_err(),
+            "a bad file there is refused"
+        );
+        let _ = std::fs::remove_dir_all(&folder);
     }
 }

@@ -213,6 +213,18 @@ mod tests {
     }
 
     #[test]
+    fn wsls_version_is_what_windows_says() {
+        match Command::new("wsl.exe").arg("--version").output() {
+            Ok(out) if out.status.success() => {
+                let version = wsl_version();
+                assert_eq!(version, parse_wsl_version(&out.stdout));
+                assert!(version.is_some(), "Windows answered");
+            }
+            _ => assert_eq!(wsl_version(), None, "no interop, no version"),
+        }
+    }
+
+    #[test]
     fn memory_is_read_from_meminfo() {
         let text =
             "MemTotal:       16303536 kB\nMemFree:         1000 kB\nMemAvailable:   12000000 kB\n";

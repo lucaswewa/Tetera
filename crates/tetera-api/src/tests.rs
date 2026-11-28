@@ -189,6 +189,45 @@ async fn simulation_loads_and_unloads_a_sample() {
     client.stop().await;
 }
 
+#[test]
+fn the_roots_are_made_and_the_settings_kept_in_the_data_root() {
+    let scratch = Scratch::new();
+    let roots = Roots::make(scratch.0.join("d"), scratch.0.join("s")).unwrap();
+    assert!(roots.data.is_dir() && roots.scratch.is_dir());
+    assert_eq!(roots.settings(), scratch.0.join("d").join("settings"));
+    std::fs::write(scratch.0.join("file"), "").unwrap();
+    assert!(Roots::make(scratch.0.join("file").join("d"), scratch.0.join("s")).is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_service_serves_on_a_port_until_asked_to_stop() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let scratch = Scratch::new();
+    let roots = Roots::make(scratch.0.join("data"), scratch.0.join("scratch")).unwrap();
+    let service = build(Arc::new(instrument()), roots).unwrap();
+    assert!(format!("{service:?}").contains("Service"));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let serving = tokio::spawn(service.serve(listener, async move {
+        let _ = stopped.await;
+    }));
+    let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+    let request =
+        format!("GET /system/version HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut answer = String::new();
+    stream.read_to_string(&mut answer).await.unwrap();
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    assert!(!serving.is_finished(), "serving until asked to stop");
+    stop.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), serving)
+        .await
+        .expect("it stops within its grace")
+        .unwrap()
+        .unwrap();
+}
+
 #[tokio::test]
 async fn simulation_shows_imperfections_on_demand() {
     let scratch = Scratch::new();
