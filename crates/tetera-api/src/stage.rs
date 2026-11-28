@@ -89,6 +89,14 @@ impl StageThing {
     }
 }
 
+#[cfg(test)]
+impl StageThing {
+    /// The position its property shows.
+    pub(crate) fn shown_position(&self) -> StagePos {
+        self.position.get()
+    }
+}
+
 #[thing_impl]
 impl StageThing {
     /// Finds the stage, shows where it is, and keeps its properties current.

@@ -461,12 +461,17 @@ async fn a_cancelled_move_stops_the_stage_and_a_jog_ends_on_request() {
         .unwrap()
         .replace("http://testserver", "");
     for _ in 0..200 {
-        if client.get("/stage/moving").await.json() == true {
+        if client.get("/stage/state").await.json() == "moving" {
             break;
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     assert_eq!(client.get("/stage/state").await.json(), "moving");
+    assert_eq!(
+        client.get("/stage/moving").await.json(),
+        true,
+        "moving as it moves"
+    );
     client.delete(&href).await;
     let mut status = Value::Null;
     for _ in 0..500 {
@@ -494,6 +499,7 @@ async fn a_cancelled_move_stops_the_stage_and_a_jog_ends_on_request() {
     assert_eq!(ended["output"]["state"], "idle");
     let halted = invoke(&client, "/stage/halt", json!({})).await;
     assert_eq!(halted["status"], "completed", "{halted}");
+    assert_eq!(client.get("/stage/moving").await.json(), false, "still");
     // The speed of moves that name none.
     assert_eq!(client.get("/stage/speed").await.json(), json!(5_000.0));
     assert_eq!(
@@ -516,7 +522,7 @@ async fn a_cancelled_move_stops_the_stage_and_a_jog_ends_on_request() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_camera_is_configured_property_by_property_and_streams() {
     let scratch = Scratch::new();
-    let (client, _) = client(&scratch).await;
+    let (client, instrument) = client(&scratch).await;
     let caps = client.get("/camera/capabilities").await.json();
     assert_eq!(caps["modes"].as_array().map(Vec::len), Some(3), "{caps}");
     assert_eq!(client.get("/camera/mode").await.json(), 0);
@@ -552,9 +558,18 @@ async fn the_camera_is_configured_property_by_property_and_streams() {
         client.put_json("/camera/bit_depth", &json!(8)).await.status,
         201
     );
+    assert_eq!(client.get("/camera/bit_depth").await.json(), 8);
     let format = client.get("/camera/pixel_format").await.json();
     assert!(format.to_string().contains('8'), "{format}");
     assert_eq!(client.put_json("/camera/mode", &json!(2)).await.status, 201);
+    assert_eq!(client.get("/camera/mode").await.json(), 2);
+    // All at once: the configuration with its exposure changed.
+    let mut config = client.get("/camera/config").await.json();
+    config["exposure"] = json!(30.0);
+    assert_eq!(client.put_json("/camera/config", &config).await.status, 201);
+    assert_eq!(client.get("/camera/exposure").await.json(), json!(30.0));
+    config["mode"] = json!(9);
+    assert_eq!(client.put_json("/camera/config", &config).await.status, 422);
     assert_eq!(
         client.put_json("/camera/gain", &json!(4.0)).await.status,
         201
@@ -612,7 +627,62 @@ async fn the_camera_is_configured_property_by_property_and_streams() {
         client.get("/camera/frames").await.json()["delivered"],
         after
     );
+    // Streaming when the server stops: the stream stops with it.
+    let started = invoke(&client, "/camera/start_streaming", json!({})).await;
+    assert_eq!(started["status"], "completed", "{started}");
     client.stop().await;
+    assert!(!instrument.camera.is_streaming(), "stopped with the server");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_stages_watcher_ends_with_the_server() {
+    use crate::stage::StageThing;
+    use tetera_core::{StagePos, Um};
+    use tetera_hal::stage::Stage;
+    let scratch = Scratch::new();
+    let (client, instrument) = client(&scratch).await;
+    let thing = client
+        .runtime()
+        .thing_ref::<StageThing>("stage")
+        .expect("the stage Thing");
+    let thing = Arc::clone(teta_wot::prelude::ThingRef::thing(&thing));
+    let shown = thing.shown_position();
+    client.stop().await;
+    instrument
+        .stage
+        .move_to(StagePos::new(Um(2_200.0), Um(2_000.0), Um(1_002.0)), None)
+        .unwrap();
+    instrument.stage.wait(Duration::from_secs(10)).unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        thing.shown_position(),
+        shown,
+        "nothing watches once it stops"
+    );
+}
+
+#[test]
+fn a_streams_frames_and_drops_are_counted() {
+    use crate::camera::CameraThing;
+    use tetera_core::frame::pool::HostAllocator;
+    use tetera_core::{FrameLayout, FramePool, PixelFormat};
+    let thing = Arc::new(CameraThing::default());
+    let sink = thing.sink_for_tests();
+    let layout = FrameLayout::new(PixelFormat::Mono8, 4, 4).unwrap();
+    let pool = FramePool::new(layout, 2, &HostAllocator).unwrap();
+    for (seq, dropped) in [(0, 0), (3, 2), (7, 3)] {
+        let mut frame = pool.try_take().expect("a buffer");
+        frame.meta_mut().seq = seq;
+        frame.meta_mut().dropped_before = dropped;
+        teta_wot_sink_deliver(&*sink, frame.freeze());
+    }
+    let count = thing.frame_count();
+    assert_eq!((count.delivered, count.dropped), (3, 5));
+    assert_eq!(thing.last_seq(), Some(7));
+}
+
+fn teta_wot_sink_deliver(sink: &dyn tetera_hal::camera::FrameSink, frame: tetera_core::Frame) {
+    sink.deliver(frame);
 }
 
 #[tokio::test]
@@ -726,6 +796,7 @@ async fn the_light_is_turned_dimmed_and_warmed() {
         201
     );
     assert_eq!(instrument.light.light().intensity, 0.0);
+    assert_eq!(client.get("/illumination/on").await.json(), false);
     let caps = client.get("/illumination/capabilities").await.json();
     assert_eq!(caps["channels"][0]["name"], "transmitted", "{caps}");
     client.stop().await;

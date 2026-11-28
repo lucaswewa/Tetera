@@ -259,6 +259,26 @@ impl CameraThing {
     }
 }
 
+#[cfg(test)]
+impl CameraThing {
+    /// A sink for this Thing, as `start_streaming` makes.
+    pub(crate) fn sink_for_tests(self: &Arc<Self>) -> Arc<dyn FrameSink> {
+        Arc::new(Counter {
+            thing: Arc::downgrade(self),
+        })
+    }
+
+    /// The frames counted.
+    pub(crate) fn frame_count(&self) -> FrameCount {
+        self.frames.get()
+    }
+
+    /// The last frame's number.
+    pub(crate) fn last_seq(&self) -> Option<u64> {
+        self.last_frame.get().map(|m| m.seq)
+    }
+}
+
 /// Where a stream's frames go until the preview takes them (P1.14a): counted, their metadata
 /// kept, and let go at once, so the camera's pool doesn't run dry.
 struct Counter {

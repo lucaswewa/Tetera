@@ -295,3 +295,12 @@ The owner runs this at Checkpoint C, with B's and C's; the agent ran and recorde
 - [ ] `cargo test -p tetera-api -p tetera-server` — expect 15 and 6 tests to pass.
 - **Result:** see the [notes](notes/P1.13a-the-server-configuration-and-systemd.md#manual-test).
 
+## P1.13b: The device Things
+
+- **Prerequisites:** the phase's branch; the GPU for the full sensor.
+- [ ] `cargo run --release -p tetera-server`, then <http://localhost:8310/docs> on Windows — expect `camera`, `stage`, `objective` and `illumination` beside `system` and `simulation`.
+- [ ] Follow `crates/tetera-api/README.md`'s `curl` walkthrough — expect the exposure and mode written and read back; a stream that counts frames and stops; the 50× fitted; the light dimmed and warmed.
+- [ ] Its timed move: 10 mm along x at 20 mm/s, with `curl -N` watching `stage/position` — expect `completed` after about 0.6 s (`timeStarted` to `timeCompleted`), and positions streaming in as it goes.
+- [ ] `POST simulation/inject` with `{"imperfection": "stage_alarm"}`, then a `stage/move_by` — expect the invocation to end `error`, led by `hardware`; `stage/home` clears it.
+- [ ] `cargo test -p tetera-api -p tetera-server` — expect 25 and 10 tests to pass.
+- **Result:** see the [notes](notes/P1.13b-the-device-things.md#manual-test).
