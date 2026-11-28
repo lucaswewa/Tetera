@@ -1,0 +1,22 @@
+[package]
+name = "tetera-jobs"
+description = "Tetera's job service: hardware jobs one at a time, compute jobs on a pool, cancel, and a history in SQLite."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tetera-compute.workspace = true
+tetera-core.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true
