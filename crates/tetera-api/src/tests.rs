@@ -587,10 +587,13 @@ async fn the_camera_is_configured_property_by_property_and_streams() {
     );
     assert_eq!(client.get("/camera/roi").await.json(), Value::Null);
     let start = client.get("/camera/white_balance").await.json();
-    assert_eq!(
-        [&start["red"], &start["green"], &start["blue"]].map(|g| g.as_f64().unwrap()),
-        instrument.white_balance(),
-        "balanced for the light at the start"
+    let gains = [&start["red"], &start["green"], &start["blue"]].map(|g| g.as_f64().unwrap());
+    assert!(
+        gains
+            .iter()
+            .zip(instrument.white_balance())
+            .all(|(a, b)| (a - b).abs() < 1e-12),
+        "balanced for the light at the start: {gains:?}"
     );
     let balance = json!({"red": 1.5, "green": 1.0, "blue": 0.8});
     assert_eq!(
