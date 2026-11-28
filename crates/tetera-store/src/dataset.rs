@@ -174,6 +174,33 @@ pub(crate) fn samples(frame: &Frame, spec: &DatasetSpec) -> Result<Samples> {
     })
 }
 
+/// A frame's samples from its rows, `packed`, as a frame log keeps them.
+pub(crate) fn samples_from_packed(packed: &[u8], spec: &DatasetSpec) -> Result<Samples> {
+    let bytes = spec.format.bytes_per_sample();
+    let expected = spec.width as usize * spec.height as usize * bytes;
+    if packed.len() != expected {
+        return Err(Error::invalid_argument(format!(
+            "a frame of {} bytes in a dataset of {} × {} {:?}, {expected} bytes a frame",
+            packed.len(),
+            spec.width,
+            spec.height,
+            spec.format
+        )));
+    }
+    Ok(if bytes == 1 {
+        Samples::U8(packed.to_vec())
+    } else {
+        Samples::U16(
+            packed
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|b| u16::from_le_bytes(*b))
+                .collect(),
+        )
+    })
+}
+
 /// Stores `samples` as frame `t` of `array`.
 pub(crate) fn store_frame(array: &Array<FilesystemStore>, t: u64, samples: Samples) -> Result<()> {
     match samples {

@@ -6,13 +6,20 @@
 //!   once finished; one abandoned leaves nothing behind.
 //! - [`dataset`]: a dataset's folder: its OME-Zarr image, metadata and thumbnail, read back.
 //! - [`index`]: the index of projects, datasets and their files.
+//! - [`framelog`]: the scratch frame log: raw frames appended to segment files as fast as the
+//!   camera makes them.
+//! - [`ingest`]: a frame log into a dataset, step by step, stopped when told.
 
 pub mod dataset;
+pub mod framelog;
 pub mod index;
+pub mod ingest;
 pub mod store;
 
 pub use dataset::{DatasetReader, DatasetSpec, Metadata, Samples};
+pub use framelog::{FrameLog, FrameLogWriter, LogEntry, LogHeader};
 pub use index::{DatasetInfo, FileInfo, Index, Project};
+pub use ingest::ingest;
 pub use store::{DatasetWriter, Store};
 
 #[cfg(test)]

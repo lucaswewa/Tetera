@@ -248,19 +248,40 @@ impl DatasetWriter {
 
     /// Writes `frame`, the next.
     pub fn append(&mut self, frame: &Frame) -> Result<()> {
+        self.room()?;
+        let samples = dataset::samples(frame, &self.spec)?;
+        self.push(samples, frame.meta().clone())
+    }
+
+    /// Writes the next frame from its rows, `packed`, and its metadata, as a frame log keeps
+    /// them.
+    pub fn append_packed(
+        &mut self,
+        meta: tetera_core::frame::meta::FrameMeta,
+        packed: &[u8],
+    ) -> Result<()> {
+        self.room()?;
+        let samples = dataset::samples_from_packed(packed, &self.spec)?;
+        self.push(samples, meta)
+    }
+
+    fn room(&self) -> Result<()> {
         if self.written() >= self.spec.frames {
             return Err(Error::invalid_argument(format!(
                 "dataset {} holds {} frames",
                 self.info.id, self.spec.frames
             )));
         }
-        let samples = dataset::samples(frame, &self.spec)?;
+        Ok(())
+    }
+
+    fn push(&mut self, samples: Samples, meta: tetera_core::frame::meta::FrameMeta) -> Result<()> {
         if self.first.is_none() {
             self.first = Some(samples.clone());
         }
         let array = self.array.as_ref().expect("made with the writer");
         dataset::store_frame(array, self.written(), samples)?;
-        self.frames.push(frame.meta().clone());
+        self.frames.push(meta);
         Ok(())
     }
 

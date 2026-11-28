@@ -2038,8 +2038,11 @@ dependencies = [
  "tetera-core",
  "tetera-hal",
  "tetera-imaging",
+ "tetera-jobs",
  "tetera-pipeline",
  "tetera-sim",
+ "tetera-store",
+ "tracing",
 ]
 
 [[package]]

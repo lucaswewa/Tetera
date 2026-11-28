@@ -22,8 +22,11 @@ tetera-core.workspace = true
 tetera-hal.workspace = true
 tetera-imaging.workspace = true
 tetera-pipeline.workspace = true
+tetera-store.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
+tetera-jobs.workspace = true
 tetera-sim.workspace = true
 
 [lints]
