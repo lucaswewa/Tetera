@@ -24,6 +24,7 @@ Tetera's HTTP interface, L5 (plan §6.2, [ADR-0017](../../docs/adr/0017-control-
   | `illumination` | `capabilities`; `on`, `intensity` (0 to 1), `colour_temperature` (K) | — |
   | `jobs` | `active`, the jobs queued and running; the `changed` event, each change to a job | `get` (`id`), `list` (`limit`, the newest first), `cancel` (`id`) |
   | `capture` | `last`, the last capture's result: its dataset, the mode switch's times there and back, and the frames a burst lost | `capture` (`project`, `name`, `kind`, and `mode`, `bit_depth`, `exposure_ms` if not the defaults): queued as a hardware job, which it answers with |
+  | `autofocus` | `last`, the last search's result: the focus or why there is none, the measure, and the curve | `autofocus` (`measure`, `options`, each optional): queued as a hardware job, which it answers with; a blank field fails it, the stage back where it was |
   | `datasets` | `projects` | `create_project` (`name`), `list` (`project`, the complete datasets, the newest first), `get` (`id`: the dataset, its files, its metadata and its thumbnail's path), `delete` (`id`) |
   | `preview` | `defaults`, what a client's preview starts from (the viewport, region, quality and rate), a setting; `sessions`, the previews open; `statistics`, the live statistics of the camera's latest frame, up to 10 a second | —; its `stream` is the live preview's WebSocket |
 
@@ -36,6 +37,7 @@ Tetera's HTTP interface, L5 (plan §6.2, [ADR-0017](../../docs/adr/0017-control-
   - `/live-view`, a plain page: the live image over the stream, its rate and its time from exposure to paint, a histogram, the camera's start and stop, and buttons that jog the stage;
   - `/api/v1/datasets/{id}/thumbnail.jpg`, a dataset's thumbnail: a 404 for one that isn't there, a 409 for one being written.
 - **`jobs`** is the `jobs` Thing over the job service (`tetera-jobs`, ADR-0020), and `JobsOptions`, the server's `[jobs]`.
+- **`autofocus`** runs `tetera-workflows`' autofocus as a hardware job, its curve logged, and the stream started through the `camera` Thing's sink if it wasn't running.
 - **`capture`** runs `tetera-workflows`' capture as a hardware job. Its step is the job's progress and cancel check, and the live view restarts through the `camera` Thing's sink, so `camera/frames` goes on counting.
 - **`server::build`** puts the Things on a teta-wot server, with its services: the instrument, the data roots, the job service and the dataset store. `build_with` takes the job service's options. The jobs' history and the datasets' index share the data root's `tetera.db`, and the compute jobs share the GPU's budgets with the camera. `Service::serve` serves them until a shutdown signal, then stops gracefully. The OpenAPI document is at `/openapi.json` and the interactive docs at `/docs`.
 
@@ -132,6 +134,20 @@ cargo run --release -p tetera-api --features cuda --example capture
 ```
 
 It serves the virtual instrument on a loopback port, streams the camera in its binned live mode, and takes a burst of 20 full frames into a new project. It prints the job as it goes, the dataset as `datasets/get` has it, its tree on disk, and its frames read back. `-- --smoke` takes 5 frames of a tiny sensor on the CPU, and `-- --keep` keeps the data root.
+
+## Autofocus
+
+```bash
+curl -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8310/autofocus/autofocus
+curl -X POST -H 'Content-Type: application/json' -d '{"measure": "tenengrad"}' http://127.0.0.1:8310/autofocus/autofocus
+curl http://127.0.0.1:8310/autofocus/last          # the focus, and the curve
+```
+
+```bash
+cargo run --release -p tetera-api --features cuda --example autofocus
+```
+
+It starts the virtual instrument's live stream, then focuses 100 times at 5× and 100 at 50× from random starts within ±6 depths of field of the section's middle, the simulator's true focus, and prints each set's errors. Then it times a search at 10×, and focuses on a blank field, which finds none and leaves the stage where it was. `-- --compare` runs the other three measures too, and `-- --smoke` a single start on a tiny sensor on the CPU.
 
 ## The live view
 
