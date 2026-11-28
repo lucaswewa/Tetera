@@ -453,6 +453,32 @@ fn lit(
     })
 }
 
+/// The field with no slide on the stage: the light alone, as bare glass gives it, with its
+/// unevenness and the vignetting.
+pub fn bare_field(fov: &FieldOfView, light: &Light) -> Field {
+    let s = fov.optics.sensor;
+    let warmth = blackbody(light.colour_temperature);
+    let rgb = (0..s.width as usize * s.height as usize)
+        .into_par_iter()
+        .map(|k| {
+            let at = ((k % s.width as usize) as u32, (k / s.width as usize) as u32);
+            lit(
+                light,
+                warmth,
+                fov.optics.vignetting,
+                Stains::default(),
+                at,
+                (s.width, s.height),
+            )
+        })
+        .collect();
+    Field {
+        width: s.width,
+        height: s.height,
+        rgb,
+    }
+}
+
 /// The field on the CPU, still: `sample` seen by `fov`, focused `focus` µm above the
 /// section's lower face, under `light`.
 pub fn field(sample: &HeSample, fov: &FieldOfView, light: &Light, focus: f64) -> Result<Field> {
@@ -1090,6 +1116,31 @@ mod tests {
             assert_eq!(shift(&skewed, &still, row), expected, "row {row}");
             assert_eq!(shift(&still, &still, row), 0);
         }
+    }
+
+    #[test]
+    fn with_no_slide_the_field_is_the_light() {
+        let light = Light::default();
+        let fov = FieldOfView {
+            centre: (1_000.0, 1_000.0),
+            optics: small(20.0, 0.42, 0.0),
+        };
+        let bare = bare_field(&fov, &light);
+        assert_eq!((bare.width, bare.height), (192, 128));
+        let warmth = blackbody(light.colour_temperature);
+        let (u, v) = (1.0 / 192.0, 1.0 / 128.0);
+        let middle = bare.rgb[64 * 192 + 96];
+        for c in 0..3 {
+            let expected = light.intensity
+                * warmth[c]
+                * unevenness(u, v, light.unevenness)
+                * vignette(u, v, fov.optics.vignetting);
+            assert!(
+                near(f64::from(middle[c]), f64::from(expected), 1e-3),
+                "{middle:?}"
+            );
+        }
+        assert!(bare.rgb[0][1] < middle[1], "the corners darker");
     }
 
     #[test]

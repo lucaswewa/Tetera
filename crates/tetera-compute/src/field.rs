@@ -342,6 +342,18 @@ mod device {
             Ok(())
         }
 
+        /// The groups' sums in `planes` cleared: no stains, as with no slide on the stage.
+        pub fn field_clear(&self, planes: &mut FieldPlanes) -> Result<()> {
+            planes.check()?;
+            let stream = self.stream();
+            for plane in [&mut planes.sum_h, &mut planes.sum_e] {
+                stream
+                    .memset_zeros(plane.slice_mut())
+                    .map_err(|e| Error::hardware(format!("a field's sums won't clear: {e:?}")))?;
+            }
+            Ok(())
+        }
+
         /// The groups' summed stains in `planes` lit, into its `rgb`.
         pub fn field_light(&self, planes: &mut FieldPlanes, light: &FieldLight) -> Result<()> {
             planes.check()?;
