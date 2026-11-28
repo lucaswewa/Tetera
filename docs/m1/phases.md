@@ -22,7 +22,7 @@ Each phase has:
 
 - A first estimate is in five parts, in hand-written lines: code, tests, examples, docs-as-code (READMEs, schemas, configuration), and glue. Doc comments and blank lines count. Markdown docs don't.
 - Before a phase's code, its second estimate goes into the plan's change log, in a commit of its own (plan §7).
-- **The target is 1,500 lines a phase. An estimate over 2,000 goes to the owner,** who decides whether to split it. Two specs were over 2,000 (P1.14 and P1.15), and the owner split both on 2026-11-26: P1.14a and P1.14b, P1.15a and P1.15b.
+- **The target is 1,500 lines a phase. An estimate over 2,000 goes to the owner,** who decides whether to split it. Two specs were over 2,000 (P1.14 and P1.15), and the owner split both on 2026-11-26: P1.14a and P1.14b, P1.15a and P1.15b. P1.14b's second estimate was over 2,000 again, and the agent split it on 2026-11-28 under the owner's standing approval: P1.14b and P1.14c.
 - Specs between 1,500 and 2,000 list a split that is ready if the second estimate grows.
 
 **What every phase does, so the specs don't repeat it** (plan §7):
@@ -30,7 +30,7 @@ Each phase has:
 - tests, examples with a README and a `--smoke` mode, implementation notes, a manual-test entry, new ADRs, the phase's status in the plan;
 - **examples** live in the crate's `examples/` folder and run as `cargo run -p <crate> --example <name>`. With `--smoke`, an example finishes in under 10 seconds and exits 0;
 - the tests follow plan §5.4: they wait for conditions, get their own data roots and ports, and are skipped without their switch (`TETERA_CUDA=1` and so on);
-- **G1** before the PR. **G1c** when the change reaches CUDA code. **G2** at a checkpoint (P1.12c, P1.14b, P1.18). **G3** at P1.21;
+- **G1** before the PR. **G1c** when the change reaches CUDA code. **G2** at a checkpoint (P1.12c, P1.14c, P1.18). **G3** at P1.21;
 - the notes name the ideas taken from OScope's documents (clean room, D1).
 
 ## Summary
@@ -67,7 +67,8 @@ Each phase has:
 | [P1.13a](#p113a-the-server-configuration-and-systemd) | The server, configuration and systemd | P1.12c | 1,320 | — | G1 |
 | [P1.13b](#p113b-the-device-things) | The device Things | P1.13a | 1,350 | — | G1 |
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13b | 1,430 | — | G1, G1c |
-| [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
+| [P1.14b](#p114b-the-preview-stream) | The preview stream | P1.14a | 1,330 | — | G1 |
+| [P1.14c](#p114c-mjpeg-and-the-live-view-page) | MJPEG and the live-view page (**Checkpoint B**) | P1.14b | 750 | — | G1, G2 |
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13b | 800 | — | G1 |
 | [P1.15b](#p115b-datasets-and-capture) | Datasets and capture | P1.14a, P1.15a | 1,550 | — | G1 |
 | [P1.16](#p116-autofocus) | Autofocus | P1.15b | 1,300 | Yes | G1 |
@@ -77,7 +78,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 38 phases since P1.04 to P1.13 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 39 phases since P1.04 to P1.13 were split on 2026-11-27, and P1.14b on 2026-11-28, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -86,7 +87,7 @@ Each phase has:
 **Checkpoints:**
 
 - **A** (P1.12c): the virtual instrument renders H&E live, on the GPU, while the stage moves.
-- **B** (P1.14b): live H&E in a browser page while jogging, from the server.
+- **B** (P1.14c): live H&E in a browser page while jogging, from the server.
 - **C** (P1.18): calibrate an objective, autofocus, and scan.
 
 ---
@@ -1168,7 +1169,7 @@ Each phase has:
 - **Live statistics,** at up to 10 Hz, from the raw data: a histogram per channel, the saturation mask at preview size, line profiles, ROI statistics, a focus value.
 - **The camera's live mode** is binned by default (D5).
 
-**Out of scope.** The WebSocket and MJPEG routes and the HTML page (P1.14b); recording (P1.15b).
+**Out of scope.** The WebSocket (P1.14b); MJPEG and the HTML page (P1.14c); recording (P1.15b).
 
 **Try it.** `preview-pipeline`: the virtual camera into the bus, two preview sessions of different sizes and the statistics, with each session's rate and each stage's time, and a few JPEGs written out.
 
@@ -1184,17 +1185,17 @@ Each phase has:
 
 ---
 
-## P1.14b: The preview protocol
+## P1.14b: The preview stream
 
 | | |
 |---|---|
-| Crates | `tetera-api`, `tetera-acquire` |
+| Crates | `tetera-acquire`, `tetera-api` |
 | Depends on | P1.14a |
 | ADRs | 0019 the preview protocol |
-| Gates | G1, **G2 (Checkpoint B)** |
-| First estimate | code 700 · tests 250 · examples 200 = **1,150** |
+| Gates | G1 |
+| Second estimate | code 560 (the protocol: each frame's header, the client's state, the acknowledgement window and the slow link's control 230; the `preview` Thing: its defaults, sessions and stream 280; the camera's stream into the bus, and the instrument's bus and compute 50) · tests 560 · examples 150 · docs-as-code 40 · glue 20 = **1,330** (1,729 at ×1.3). P1.14b's own, 1,150 at first, came to 2,080 (2,704 at ×1.3) with MJPEG and the page: the agent split it on 2026-11-28 under the owner's standing approval, and they became P1.14c |
 
-**Goal.** Live images from the virtual camera in a browser, at the camera's rate, with little delay.
+**Goal.** Live images from the virtual camera over a WebSocket, at the camera's rate, with little delay, to any client.
 
 **Scope.**
 
@@ -1203,8 +1204,42 @@ Each phase has:
   - JSON messages from the client: viewport, ROI, quality, rate, acknowledgements.
 - **Acknowledgements:** no more than two frames sent but not yet shown, so no socket buffer holds stale frames.
 - **Slow links:** P1.14a's hook lowers quality or size.
-- **MJPEG,** for plain `<img>` pages and other tools.
 - **The `preview` Thing's properties:** its defaults, and the sessions open.
+- **The camera's stream** goes into the frame bus.
+
+**Out of scope.** MJPEG and the HTML page (P1.14c); the Vue app's viewer (M4).
+
+**Try it.** `preview-stream`: the server on a loopback port, a quick client and a slow one, with each one's rate, latency and link.
+
+**Done when.**
+
+- In mode 1 at 8 bits, a client that keeps up receives the camera's rate, at least 30 fps.
+- From the exposure's end to a client's receipt takes 100 ms or less on localhost, measured from the timestamps in each frame's header.
+- A slow client never receives a stale frame, and its link steps down.
+
+**Tests.** A WebSocket client in the tests, also slowed down on purpose; the acknowledgement window; malformed client messages refused. **Broken on purpose:** the acknowledgement window, and the stale-frame check.
+
+**Open questions.** None.
+
+---
+
+## P1.14c: MJPEG and the live-view page
+
+| | |
+|---|---|
+| Crates | `tetera-api` |
+| Depends on | P1.14b |
+| ADRs | — (ADR-0019, from P1.14b) |
+| Gates | G1, **G2 (Checkpoint B)** |
+| First estimate | code 200 (MJPEG 110, the live statistics on the `preview` Thing 60, the page's route 30) · tests 200 · examples 300 (the page) · docs-as-code 40 · glue 10 = **750**, from P1.14b's split on 2026-11-28 |
+
+**Goal.** Live images from the virtual camera in a browser, at the camera's rate, with little delay.
+
+**Scope.**
+
+- **MJPEG,** for plain `<img>` pages and other tools.
+- **The live statistics** on the `preview` Thing, for the page's histogram.
+- **`live-view`:** one plain HTML page, served by the server.
 
 **Out of scope.** The Vue app's viewer (M4).
 
@@ -1214,10 +1249,9 @@ Each phase has:
 
 - In mode 1 at 8 bits, the page shows the camera's rate, at least 30 fps.
 - From the exposure's end to the page's paint takes 100 ms or less on localhost, measured from the timestamps in each frame's header.
-- A slow client never receives a stale frame.
 - The MJPEG stream plays in an `<img>`.
 
-**Tests.** A WebSocket client in the tests, also slowed down on purpose; the acknowledgement window; malformed client messages refused. **Broken on purpose:** the acknowledgement window, and the stale-frame check.
+**Tests.** MJPEG's parts and its end with the server; the statistics; the page served. **Broken on purpose:** MJPEG's part boundary.
 
 **Open questions.** Q23 (MJPEG as a stream).
 
