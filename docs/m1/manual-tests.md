@@ -344,3 +344,12 @@ The owner runs this at Checkpoint C, with A's and C's; the agent ran and recorde
 - [ ] Open the page's *MJPEG stream* link — expect it to play.
 - [ ] Press *Stop* — expect the image to stop.
 - **Result:** see [P1.14c's notes](notes/P1.14c-mjpeg-and-the-live-view-page.md#checkpoint-b).
+
+## P1.15a: The job service
+
+- **Prerequisites:** the phase's branch; port 8310 free.
+- [ ] `cargo run --release -p tetera-jobs --example jobs` — expect the hardware jobs one after another, never overlapping; two compute jobs at a time within 512 MiB; the queued job cancelled at once, the running one within a second; after the restart, all eight in the history; then none, kept 1 ms.
+- [ ] `cargo run --release -p tetera-jobs --example jobs -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo run --release -p tetera-server`, then `curl http://127.0.0.1:8310/jobs/` — expect the Thing Description, with `active`, the `changed` event, and `get`, `list` and `cancel`; `curl http://127.0.0.1:8310/jobs/active` — `[]`; `.tetera/tetera.db` made.
+- [ ] `cargo test -p tetera-jobs -p tetera-api` — expect 10 and 35 tests to pass.
+- **Result:** see the [notes](notes/P1.15a-the-job-service.md#manual-test).
