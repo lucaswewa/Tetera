@@ -9,7 +9,7 @@ Tetera's dataset store, L2 (plan §6.2 and §6.9, [ADR-0021](../../docs/adr/0021
   - `image.ome.zarr/`: OME-Zarr v3, the frames as one array `0` with axes t, c, y and x, one chunk a frame, compressed with zstd, and OME-NGFF 0.5's metadata on the group. Raw Bayer is one channel, its pattern in `metadata.json`;
   - `metadata.json`: what it holds, the instrument as it was, and each frame's metadata, its number, times, settings and stage position;
   - `thumbnail.jpg`: each 2 × 2 Bayer cell as a pixel, at most 256 across.
-- **Reading back:** `read` gives a `DatasetReader`; `datasets`, `dataset`, `files`, `thumbnail`, `delete`.
+- **Reading back:** `read` gives a `DatasetReader`; `projects`, `project`, `datasets`, `dataset`, `files`, `thumbnail`, `delete`. A dataset being written is busy.
 - **The frame log,** for the scratch disk (P1.15c): `FrameLogWriter` appends raw frames, their rows packed, to segment files preallocated `segment_frames` at a time, and a line for each in `index.jsonl`; `FrameLog` reads them back in order. A crash's torn last line is passed over.
 - **`ingest`** writes a frame log into a new dataset, calling a step before each frame: an error from it stops the ingest, and the half-written dataset goes with it. A job runs it, its progress and cancel check as the step.
 

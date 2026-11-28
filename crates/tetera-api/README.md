@@ -23,6 +23,8 @@ Tetera's HTTP interface, L5 (plan §6.2, [ADR-0017](../../docs/adr/0017-control-
   | `objective` | `catalogue`; `fitted`, by name, written to say which is fitted; `objective`, in full | `remove`, to say none is |
   | `illumination` | `capabilities`; `on`, `intensity` (0 to 1), `colour_temperature` (K) | — |
   | `jobs` | `active`, the jobs queued and running; the `changed` event, each change to a job | `get` (`id`), `list` (`limit`, the newest first), `cancel` (`id`) |
+  | `capture` | `last`, the last capture's result: its dataset, the mode switch's times there and back, and the frames a burst lost | `capture` (`project`, `name`, `kind`, and `mode`, `bit_depth`, `exposure_ms` if not the defaults): queued as a hardware job, which it answers with |
+  | `datasets` | `projects` | `create_project` (`name`), `list` (`project`, the complete datasets, the newest first), `get` (`id`: the dataset, its files, its metadata and its thumbnail's path), `delete` (`id`) |
   | `preview` | `defaults`, what a client's preview starts from (the viewport, region, quality and rate), a setting; `sessions`, the previews open; `statistics`, the live statistics of the camera's latest frame, up to 10 a second | —; its `stream` is the live preview's WebSocket |
 
   teta-wot takes a `null` body as a missing one, as FastAPI does, so a property can't be written to `null`: an action does that, as `remove` does for the objective.
@@ -31,9 +33,11 @@ Tetera's HTTP interface, L5 (plan §6.2, [ADR-0017](../../docs/adr/0017-control-
   - **A property:** a value a device refuses is a 422; anything else is a 500.
 - **`media`** has Tetera's own routes, merged in front of the Things' (ADR-0017):
   - `/api/v1/preview/mjpeg`, the preview as MJPEG, for an `<img>` or any tool that plays it, a session for each viewer: `?width=&height=&quality=&max_rate=`, the rest from `preview/defaults`;
-  - `/live-view`, a plain page: the live image over the stream, its rate and its time from exposure to paint, a histogram, the camera's start and stop, and buttons that jog the stage.
+  - `/live-view`, a plain page: the live image over the stream, its rate and its time from exposure to paint, a histogram, the camera's start and stop, and buttons that jog the stage;
+  - `/api/v1/datasets/{id}/thumbnail.jpg`, a dataset's thumbnail: a 404 for one that isn't there, a 409 for one being written.
 - **`jobs`** is the `jobs` Thing over the job service (`tetera-jobs`, ADR-0020), and `JobsOptions`, the server's `[jobs]`.
-- **`server::build`** puts the Things on a teta-wot server, with the instrument, the data roots and the job service as its services. `build_with` takes the job service's options: its history is the data root's `tetera.db`, and its compute jobs share the GPU's budgets with the camera. `Service::serve` serves them until a shutdown signal, then stops gracefully. The OpenAPI document is at `/openapi.json` and the interactive docs at `/docs`.
+- **`capture`** runs `tetera-workflows`' capture as a hardware job. Its step is the job's progress and cancel check, and the live view restarts through the `camera` Thing's sink, so `camera/frames` goes on counting.
+- **`server::build`** puts the Things on a teta-wot server, with its services: the instrument, the data roots, the job service and the dataset store. `build_with` takes the job service's options. The jobs' history and the datasets' index share the data root's `tetera.db`, and the compute jobs share the GPU's budgets with the camera. `Service::serve` serves them until a shutdown signal, then stops gracefully. The OpenAPI document is at `/openapi.json` and the interactive docs at `/docs`.
 
 ## How to try it
 
@@ -107,8 +111,30 @@ cargo run --release -p tetera-api --features cuda --example preview-stream
 
 It serves the virtual instrument on a loopback port, streams the camera in its binned live mode, and connects two clients: a quick one, and one that takes 200 ms over each frame. On this PC the quick one gets the camera's 51 frames a second, 34 ms from each frame's exposure to its receipt. The slow one gets five a second, its link down to quality 40. `-- --smoke` runs a small sensor on the CPU.
 
+## Captures and datasets
+
+A burst of 20 full frames into a new project, followed as a job:
+
+```bash
+curl -X POST -H 'Content-Type: application/json' -d '{"name": "Tonsil 3"}' http://127.0.0.1:8310/datasets/create_project
+curl -X POST http://127.0.0.1:8310/camera/start_streaming
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"project": "Tonsil 3", "name": "a burst", "kind": {"kind": "burst", "count": 20}}' \
+  http://127.0.0.1:8310/capture/capture                        # its invocation, whose output is the job
+curl -N http://127.0.0.1:8310/jobs/changed -H 'Accept: text/event-stream'   # the job as it goes
+curl http://127.0.0.1:8310/capture/last                         # the dataset, and the switches' times
+```
+
+`{"kind": "single"}` takes one frame, and `{"kind": "series", "count": 10, "interval_ms": 1000}` ten, a second apart. `jobs/cancel` with the job's `id` stops a capture and leaves nothing behind. `datasets/list` with `{"project": "Tonsil 3"}` lists the datasets, `datasets/get` with a dataset's `id` reads one back, and its thumbnail is at `/api/v1/datasets/{id}/thumbnail.jpg`.
+
+```bash
+cargo run --release -p tetera-api --features cuda --example capture
+```
+
+It serves the virtual instrument on a loopback port, streams the camera in its binned live mode, and takes a burst of 20 full frames into a new project. It prints the job as it goes, the dataset as `datasets/get` has it, its tree on disk, and its frames read back. `-- --smoke` takes 5 frames of a tiny sensor on the CPU, and `-- --keep` keeps the data root.
+
 ## The live view
 
 With the server running, open `http://localhost:8310/live-view` in a browser on Windows and press *Start*. The page shows the camera live, with its rate and its time from each frame's exposure to the page's paint, and a histogram of the frame. Hold an arrow to jog the stage. The MJPEG stream plays on its own at `http://localhost:8310/api/v1/preview/mjpeg?width=960&height=640`.
 
-The tests run each Thing through teta-wot's in-process test client, and the preview's stream over a real socket: `cargo test -p tetera-api`.
+The tests run each Thing through teta-wot's in-process test client, and the preview's stream over a real socket. A capture is taken, read back, deleted, and cancelled through the `jobs` Thing: `cargo test -p tetera-api`.
