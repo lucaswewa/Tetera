@@ -66,6 +66,8 @@ pub struct Plan {
     pub field: [f64; 2],
     /// The estimated time, s.
     pub estimate_s: f64,
+    /// What it is made of, beyond the moves.
+    pub timing: Timing,
 }
 
 /// One axis of a snake: the first tile's centre, the step, and how many, the grid centred on

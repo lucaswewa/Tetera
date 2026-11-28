@@ -109,4 +109,7 @@ exclude_re = [
     "replace < with <= in take",
     # The Laplacian's sum negated: its mean's sign changes, and only its square counts.
     "replace \\+= with -= in laplacian_variance",
+    # A move's most limited axis: one that doesn't move has a share of 0, its speed and
+    # acceleration along the line infinite, so taking it in leaves the least as it was.
+    "replace > with >= in move_time",
 ]

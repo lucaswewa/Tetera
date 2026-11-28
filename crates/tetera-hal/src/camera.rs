@@ -322,6 +322,16 @@ mod tests {
     }
 
     #[test]
+    fn a_modes_rate_is_its_8_bit_one_or_in_16_bit_words_above() {
+        let c = caps();
+        let m = &c.modes[0];
+        assert_eq!(
+            [m.fps(8), m.fps(9), m.fps(12), m.fps(16)],
+            [30.0, 15.0, 15.0, 15.0]
+        );
+    }
+
+    #[test]
     fn the_default_config_is_valid_and_lays_out_the_whole_sensor() {
         let c = caps();
         let config = c.default_config();

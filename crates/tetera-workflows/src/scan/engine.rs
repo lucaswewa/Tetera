@@ -218,7 +218,7 @@ fn field(rig: &ScanRig<'_>, objective: &Objective, config: &CameraConfig) -> Res
 }
 
 /// The scan's camera configuration: the whole sensor at 12 bits, the exposure asked for.
-fn full(request: &ScanRequest, before: &CameraConfig) -> Result<CameraConfig> {
+pub(super) fn full(request: &ScanRequest, before: &CameraConfig) -> Result<CameraConfig> {
     let exposure = match request.exposure_ms {
         Some(ms) => Duration::try_from_secs_f64(ms / 1e3)
             .map_err(|e| Error::invalid_argument(format!("an exposure of {ms} ms: {e}")))?,
@@ -282,6 +282,7 @@ pub fn preview(rig: &ScanRig<'_>, request: &ScanRequest) -> Result<Plan> {
         grid,
         field,
         estimate_s,
+        timing,
     })
 }
 
@@ -371,11 +372,10 @@ fn run(
         .join()
         .map_err(|_| Error::internal("the scan's writer panicked"))?;
     // A writer that failed is the cause; else the tiles taken are kept, whatever stopped
-    // the scan, and none leave no dataset.
-    let writer = written?;
-    let finished = (writer.written() > 0).then(|| writer.finish());
+    // the scan. None leave no dataset: the writer refuses to finish it, and clears it.
+    let finished = written?.finish();
     taken?;
-    let dataset = finished.ok_or_else(|| Error::internal("a scan of no tiles"))??;
+    let dataset = finished?;
     Ok((dataset, tiles))
 }
 

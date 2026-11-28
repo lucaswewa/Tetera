@@ -255,6 +255,28 @@ fn a_dataset_reads_back_exactly_in_8_and_16_bits_raw_or_grey() {
 }
 
 #[test]
+fn a_frame_written_with_metadata_of_the_callers_keeps_it() {
+    let scratch = Scratch::new();
+    let store = Store::open(&scratch.0).unwrap();
+    store.create_project("p").unwrap();
+    let (_pool, frames) = frames(bayer16(), 2);
+    let mut w = store.create_dataset("p", spec(bayer16(), 2)).unwrap();
+    let mut meta = frames[0].meta().clone();
+    meta.position = Some(tetera_core::StagePos::new(
+        tetera_core::Um(1.0),
+        tetera_core::Um(2.0),
+        tetera_core::Um(3.0),
+    ));
+    assert_ne!(meta, *frames[0].meta());
+    w.append_as(&frames[0], meta.clone()).unwrap();
+    w.append(&frames[1]).unwrap();
+    let r = store.read(&w.finish().unwrap().id).unwrap();
+    assert_eq!(r.read(0).unwrap(), expected(&frames[0]));
+    assert_eq!(r.read(1).unwrap(), expected(&frames[1]));
+    assert_eq!(r.metadata().frames, [meta, frames[1].meta().clone()]);
+}
+
+#[test]
 fn a_datasets_image_is_ome_zarr_v3_with_ome_ngff_0_5s_metadata() {
     let scratch = Scratch::new();
     let store = Store::open(&scratch.0).unwrap();

@@ -134,6 +134,19 @@ fn a_z_scan_rises_by_range_or_around_the_current_z() {
     )
     .unwrap();
     assert_eq!(p.len(), 3, "a step that doesn't divide the range: up to it");
+    let (p, _) = positions(
+        &Pattern::ZRange {
+            from: 0.0,
+            to: 2.0,
+            step: 0.5,
+        },
+        here,
+        [1.0, 1.0],
+        &caps(),
+    )
+    .unwrap();
+    let zs: Vec<f64> = p.iter().map(|q| q.z.um()).collect();
+    assert_eq!(zs, [0.0, 0.5, 1.0, 1.5, 2.0]);
     let (p, grid) = positions(
         &Pattern::ZAround {
             planes: 4,
@@ -173,11 +186,17 @@ fn bad_patterns_and_positions_beyond_the_travel_are_refused() {
             planes: 3,
             step: -1.0,
         },
+        Pattern::ZAround {
+            planes: 3,
+            step: 0.0,
+        },
     ] {
         let e = positions(&bad, here, [10.0, 8.0], &caps()).unwrap_err();
         assert_eq!(e.kind(), ErrorKind::InvalidArgument, "{bad:?}");
     }
-    assert!(positions(&snake(0.0, 0.0, 1.0, 1.0, 0.1), here, [0.0, 8.0], &caps()).is_err());
+    for field in [[0.0, 8.0], [10.0, 0.0]] {
+        assert!(positions(&snake(0.0, 0.0, 1.0, 1.0, 0.1), here, field, &caps()).is_err());
+    }
     // The stage's travel: x up to 100 mm.
     assert!(
         positions(
@@ -218,6 +237,8 @@ fn a_moves_time_is_the_simulated_stages_own() {
         at(1_000.0, 1_000.0, 1_007.9),
         at(1_000.0, 1_000.0, 3_000.0),
         at(1_200.0, 900.0, 1_010.0),
+        at(500.0, 1_000.0, 1_000.0),
+        at(400.0, 300.0, 990.0),
     ] {
         let theirs = Profile::new(from, to, None, &limits)
             .unwrap()
@@ -467,6 +488,10 @@ fn a_snake_is_taken_stop_and_go_its_positions_recorded_and_settled() {
     for (f, t) in meta.frames.iter().zip(&r.tiles) {
         assert_eq!(f.position, Some(t.recorded));
     }
+    assert!(
+        (meta.spec.pixel_size_um - 0.12).abs() < 1e-12,
+        "2.4 µm at 20×"
+    );
     assert_eq!(
         meta.spec.instrument["scan"]["plan"]["grid"],
         serde_json::json!([3, 2])
@@ -579,6 +604,7 @@ fn a_scan_cancelled_at_any_tile_keeps_those_taken_as_a_valid_dataset() {
 fn a_z_scan_takes_its_planes_rising() {
     let _cpu = crate::tests::shared();
     let b = bench(FOCUS);
+    let mut done = Vec::new();
     let r = scan(
         &b.rig(),
         &request(Pattern::ZAround {
@@ -586,9 +612,15 @@ fn a_z_scan_takes_its_planes_rising() {
             step: 1.25,
         }),
         &ScanControl::default(),
-        &mut going,
+        &mut |d, msg| {
+            if msg.starts_with("tile ") {
+                done.push(d);
+            }
+            Ok(())
+        },
     )
     .unwrap();
+    assert_eq!(done, [0.0, 0.2, 0.4, 0.6, 0.8], "each plane's start, done");
     let zs: Vec<f64> = r.tiles.iter().map(|t| t.recorded.z.um()).collect();
     assert_eq!(
         zs,
@@ -659,4 +691,106 @@ fn bad_requests_are_refused_before_anything_moves() {
     );
     assert_eq!(b.here(), here, "nothing moved");
     assert!(request(three_by_two()).check().is_ok());
+}
+
+#[test]
+fn a_requests_settle_exposure_and_throughput_are_checked_at_their_edges() {
+    let with = |settle_ms, exposure_ms, write_mb_s| {
+        ScanRequest {
+            settle_ms,
+            exposure_ms,
+            write_mb_s,
+            ..request(three_by_two())
+        }
+        .check()
+        .is_ok()
+    };
+    assert!(with(Some(0.0), Some(5.0), Some(50.0)));
+    assert!(with(None, Some(0.1), Some(1_000.0)));
+    for bad in [0.0, -1.0, f64::INFINITY, f64::NAN] {
+        assert!(!with(None, Some(bad), None), "an exposure of {bad}");
+        assert!(!with(None, None, Some(bad)), "a throughput of {bad}");
+    }
+    for bad in [-1.0, f64::INFINITY, f64::NAN] {
+        assert!(!with(Some(bad), None, None), "a settle of {bad}");
+    }
+}
+
+#[test]
+fn a_scans_camera_is_the_whole_sensor_at_12_bits_its_exposure_asked_or_the_live_views() {
+    let live = CameraConfig {
+        mode: 1,
+        bit_depth: 8,
+        binning: tetera_core::frame::format::Binning { x: 2, y: 2 },
+        roi: Some(tetera_core::Rect {
+            x: 4,
+            y: 2,
+            width: 32,
+            height: 16,
+        }),
+        exposure: Duration::from_millis(10),
+        gain: 3.0,
+        trigger: tetera_hal::camera::Trigger::Software,
+    };
+    let mut asked = request(three_by_two());
+    asked.exposure_ms = Some(2.5);
+    let config = engine::full(&asked, &live).unwrap();
+    assert_eq!(
+        config,
+        CameraConfig {
+            mode: 0,
+            bit_depth: 12,
+            binning: Default::default(),
+            roi: None,
+            exposure: Duration::from_micros(2_500),
+            ..live.clone()
+        }
+    );
+    asked.exposure_ms = None;
+    assert_eq!(engine::full(&asked, &live).unwrap().exposure, live.exposure);
+}
+
+#[test]
+fn a_plans_time_is_its_moves_reports_settles_frames_writes_and_autofocus() {
+    let _cpu = crate::tests::shared();
+    let b = bench(FOCUS);
+    let mut asked = request(three_by_two());
+    asked.settle_ms = Some(30.0);
+    asked.exposure_ms = Some(5.0);
+    asked.write_mb_s = Some(2.0);
+    asked.autofocus = AutofocusAt::Every { tiles: 2 };
+    let plan = preview(&b.rig(), &asked).unwrap();
+    // Mode 0 at 12 bits: its rate in 16-bit words.
+    let camera = b.camera.capabilities();
+    let full = camera.modes.iter().find(|m| m.id == 0).unwrap();
+    let interval = 1e3 / full.max_fps_16;
+    assert!(interval > 5.0 && full.max_fps_16 != full.max_fps);
+    let frame = 1.5 * interval + 5.0;
+    let here = b.here();
+    let d = depth_of_field(20.0, 0.42, 2.4);
+    let up = move_time(here, at(2_000.0, 2_000.0, FOCUS + d), &caps()).unwrap();
+    let want = Timing {
+        report_ms: 15.0,
+        settle_ms: 30.0,
+        frame_ms: frame,
+        write_ms: 192.0 * 128.0 * 2.0 / 2e6 * 1e3,
+        switch_ms: 700.0,
+        autofocus_ms: 26.0 * (up * 1e3 + 15.0 + 1.5 * frame),
+    };
+    for (got, want, what) in [
+        (plan.timing.report_ms, want.report_ms, "report"),
+        (plan.timing.settle_ms, want.settle_ms, "settle"),
+        (plan.timing.frame_ms, want.frame_ms, "frame"),
+        (plan.timing.write_ms, want.write_ms, "write"),
+        (plan.timing.switch_ms, want.switch_ms, "switch"),
+        (plan.timing.autofocus_ms, want.autofocus_ms, "autofocus"),
+    ] {
+        assert!((got - want).abs() < 1e-9, "{what}: {got} against {want}");
+    }
+    let estimate_s = estimate(&plan.positions, here, &caps(), &want, |i| i % 2 == 0).unwrap();
+    assert!(
+        (plan.estimate_s - estimate_s).abs() < 1e-9,
+        "{} {estimate_s}",
+        plan.estimate_s
+    );
 }
