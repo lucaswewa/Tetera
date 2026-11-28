@@ -100,6 +100,9 @@ pub struct SimulatorConfig {
     pub sample: Option<Sample>,
     /// How fast the simulated clock runs: 1 is real time.
     pub clock_rate: f64,
+    /// Whether the clock moves only when stepped, as tests step it; `clock_rate` is then
+    /// ignored.
+    pub stepped: bool,
     /// Whether to render on the GPU when there is one.
     pub gpu: bool,
     /// The camera's sensor.
@@ -125,6 +128,7 @@ impl Default for SimulatorConfig {
         Self {
             sample: Some(Sample::default()),
             clock_rate: 1.0,
+            stepped: false,
             gpu: true,
             sensor: SensorSize::Auto,
             light: 1_000.0,
@@ -204,7 +208,9 @@ impl std::fmt::Debug for Instrument {
 impl Instrument {
     /// The instrument `simulator` and `objectives` describe, its light on.
     pub fn new(simulator: &SimulatorConfig, objectives: &ObjectivesConfig) -> Result<Self> {
-        let rate = if simulator.clock_rate == 1.0 {
+        let rate = if simulator.stepped {
+            Rate::Stepped
+        } else if simulator.clock_rate == 1.0 {
             Rate::RealTime
         } else {
             Rate::Faster(simulator.clock_rate)
@@ -355,6 +361,20 @@ pub(crate) mod tests {
                 gpu: false,
                 sensor: SensorSize::Tiny,
                 clock_rate: 10.0,
+                ..SimulatorConfig::default()
+            },
+            &ObjectivesConfig::default(),
+        )
+        .unwrap()
+    }
+
+    /// The same, on a clock that moves only when the test steps it.
+    pub(crate) fn stepped() -> Instrument {
+        Instrument::new(
+            &SimulatorConfig {
+                gpu: false,
+                sensor: SensorSize::Tiny,
+                stepped: true,
                 ..SimulatorConfig::default()
             },
             &ObjectivesConfig::default(),

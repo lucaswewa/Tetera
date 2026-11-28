@@ -92,6 +92,11 @@ impl Config {
         {
             *dir = config.data.root.join(&*dir);
         }
+        if config.simulator.stepped {
+            return Err(Error::invalid_argument(
+                "the configuration: the simulator's clock can't be stepped in the server; only tests step it",
+            ));
+        }
         if config.simulator.clock_rate.is_nan() || config.simulator.clock_rate < 1.0 {
             return Err(Error::invalid_argument(format!(
                 "the configuration: the simulator's clock runs at 1 or more, not {}",
@@ -244,6 +249,7 @@ mod tests {
             ("[server]\naddress = \"localhost\"", "address"),
             ("[simulator]\nsensor = \"huge\"", "huge"),
             ("[simulator]\nclock_rate = 0.5", "clock"),
+            ("[simulator]\nstepped = true", "stepped"),
             (
                 "[simulator]\nsample = { seed = 1, colour = \"red\" }",
                 "colour",

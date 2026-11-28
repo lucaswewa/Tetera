@@ -4,8 +4,8 @@
 //!   instrument foresaw (a bad argument, a busy or faulty device, a timeout, something not
 //!   there) is teta-wot's handled error, its message led by its kind; a cancellation ends the
 //!   invocation as `cancelled`; anything else is logged with its cause, as unexpected.
-//! - **A property's failure:** a value the device refuses is a 422, as an invalid value is;
-//!   anything else is a 500 with its kind and message.
+//! - **A property's failure:** a value the device refuses, or names something it doesn't
+//!   have, is a 422, as an invalid value is; anything else is a 500 with its kind and message.
 
 use teta_wot::prelude::{ActionError, Cancelled, PropertyError};
 use teta_wot::validate::{LocItem, ValidationError};
@@ -23,11 +23,13 @@ pub fn action(error: Error) -> ActionError {
 /// `error` as a property's failure, `value` the value written, if one was.
 pub fn property(error: Error, value: Option<&serde_json::Value>) -> PropertyError {
     match error.kind() {
-        ErrorKind::InvalidArgument => PropertyError::Invalid(ValidationError::value_error(
-            vec![LocItem::Key("body".into())],
-            &error.to_string(),
-            value.cloned().unwrap_or(serde_json::Value::Null),
-        )),
+        ErrorKind::InvalidArgument | ErrorKind::NotFound => {
+            PropertyError::Invalid(ValidationError::value_error(
+                vec![LocItem::Key("body".into())],
+                &error.to_string(),
+                value.cloned().unwrap_or(serde_json::Value::Null),
+            ))
+        }
         kind => PropertyError::failed(anyhow::anyhow!("{}: {error}", kind.name())),
     }
 }
