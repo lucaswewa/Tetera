@@ -70,7 +70,11 @@ async fn main() -> anyhow::Result<()> {
             println!(
                 "  {:>3.0} %  {}",
                 progress * 100.0,
-                job["message"].as_str().unwrap_or_default()
+                job["message"]
+                    .as_str()
+                    .filter(|m| !m.is_empty())
+                    .or(job["state"].as_str())
+                    .unwrap_or_default()
             );
         }
         if matches!(
