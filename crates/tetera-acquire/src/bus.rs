@@ -282,6 +282,13 @@ mod tests {
         // Only the newest is held: the rest went back to the pool.
         drop(got);
         assert_eq!(pool.stats().in_use, 0);
+        // A camera streams into the bus as its sink.
+        FrameSink::deliver(&*bus, frame(&pool, 5));
+        assert_eq!(
+            latest.recv(Duration::from_millis(10)).map(|f| f.meta().seq),
+            Some(5)
+        );
+        assert_eq!(bus.published(), 6);
     }
 
     #[test]
@@ -366,6 +373,50 @@ mod tests {
         bus.publish(frame(&pool, 2));
         assert_eq!(pool.stats().in_use, 0, "no subscriber holds a frame");
         assert!(bus.lossless(0).is_err());
+        let s = lock(&bus.subscribers);
+        assert!(
+            s.lossless.is_empty() && s.latest.is_empty(),
+            "the dropped are let go"
+        );
+    }
+
+    #[test]
+    fn a_lossless_queue_counts_its_frames_and_its_publishers_waits() {
+        let bus = FrameBus::new();
+        let lossless = bus.lossless(3).unwrap();
+        let pool = pool(8);
+        assert_eq!(
+            (lossless.len(), lossless.is_empty(), lossless.waits()),
+            (0, true, 0)
+        );
+        let started = Instant::now();
+        assert!(lossless.recv(Duration::from_millis(30)).is_none());
+        assert!(
+            started.elapsed() >= Duration::from_millis(30),
+            "waited for a frame"
+        );
+        for seq in 0..2 {
+            bus.publish(frame(&pool, seq));
+        }
+        assert_eq!(
+            (lossless.len(), lossless.is_empty(), lossless.waits()),
+            (2, false, 0)
+        );
+        bus.publish(frame(&pool, 2));
+        // Full: the publisher waits for room, until a frame is taken.
+        let publisher = {
+            let bus = bus.clone();
+            let next = frame(&pool, 3);
+            std::thread::spawn(move || bus.publish(next))
+        };
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(!publisher.is_finished(), "waiting for room");
+        let taken = lossless
+            .recv(Duration::from_millis(10))
+            .map(|f| f.meta().seq);
+        assert_eq!(taken, Some(0));
+        publisher.join().unwrap();
+        assert_eq!((lossless.len(), lossless.waits()), (3, 1));
     }
 
     #[test]

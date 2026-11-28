@@ -156,7 +156,8 @@ pub fn statistics(
     let sites = mosaic.sites();
     let pattern = layout.pattern;
     let bins = params.bins;
-    let bin = |v: u16| ((usize::from(v.min(full)) * bins) / (usize::from(full) + 1)).min(bins - 1);
+    // Below `bins`, as no count is above the full scale.
+    let bin = |v: u16| (usize::from(v.min(full)) * bins) / (usize::from(full) + 1);
     let cells = (mw * mh) as usize;
     let sums = (0..h)
         .into_par_iter()
@@ -502,7 +503,7 @@ mod tests {
 
     #[test]
     fn live_statistics_come_at_most_ten_a_second_and_follow_their_parameters() {
-        use std::sync::mpsc::channel;
+        use std::sync::mpsc::{RecvTimeoutError, channel};
         use tetera_core::frame::pool::HostAllocator;
         use tetera_core::{FrameLayout, FramePool, PixelFormat};
         let bus = FrameBus::new();
@@ -550,9 +551,30 @@ mod tests {
             "the new bins"
         );
         stats.stop();
+        let _ = rx.try_iter().count();
         publish(seq);
-        std::thread::sleep(Duration::from_millis(150));
-        assert!(rx.try_iter().next().is_none(), "nothing once stopped");
+        assert!(
+            matches!(
+                rx.recv_timeout(Duration::from_millis(300)),
+                Err(RecvTimeoutError::Disconnected)
+            ),
+            "nothing once stopped"
+        );
+        let (tx, dropped) = channel();
+        drop(
+            LiveStats::start(&bus, FASTEST, StatsParams::default(), move |s| {
+                let _ = tx.send(s);
+            })
+            .unwrap(),
+        );
+        publish(seq + 1);
+        assert!(
+            matches!(
+                dropped.recv_timeout(Duration::from_millis(300)),
+                Err(RecvTimeoutError::Disconnected)
+            ),
+            "nor once dropped"
+        );
         assert!(
             format!(
                 "{:?}",
@@ -596,5 +618,48 @@ mod tests {
                 "{bad:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_bins_split_the_full_scale_evenly_and_the_least_frame_is_four_each_way() {
+        let p = StatsParams::default();
+        // Three bins over 8 bits, each 256 / 3 counts wide.
+        for (v, b) in [(85, 0), (86, 1), (170, 1), (171, 2), (255, 2)] {
+            let m = mosaic(4, 4, 8, BayerPattern::Rggb, |_, _| v);
+            let three = StatsParams {
+                bins: 3,
+                ..p.clone()
+            };
+            let s = statistics(&m, 0, Timestamp(0), &three).unwrap();
+            assert_eq!(s.histogram[1][b], 8, "{v} in bin {b}");
+        }
+        let flat = |w, h| mosaic(w, h, 12, BayerPattern::Rggb, |_, _| 100);
+        for (w, h) in [(2, 8), (8, 2)] {
+            assert!(
+                statistics(&flat(w, h), 0, Timestamp(0), &p).is_err(),
+                "{w} × {h}"
+            );
+        }
+        assert!(
+            statistics(&flat(4, 4), 0, Timestamp(0), &p).is_ok(),
+            "4 × 4, the least"
+        );
+        let varied = mosaic(64, 48, 12, BayerPattern::Rggb, |x, y| {
+            ((x * 31 + y * 17) % 4_096) as u16
+        });
+        let through = |row, column| {
+            let at = StatsParams {
+                row: Some(row),
+                column: Some(column),
+                ..p.clone()
+            };
+            statistics(&varied, 0, Timestamp(0), &at).unwrap()
+        };
+        let (beyond, last) = (through(1_000, 1_000), through(47, 63));
+        assert_eq!(
+            (beyond.row_profile, beyond.column_profile),
+            (last.row_profile, last.column_profile),
+            "a row or column beyond the frame is its last"
+        );
     }
 }

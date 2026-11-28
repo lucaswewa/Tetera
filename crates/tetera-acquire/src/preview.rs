@@ -122,7 +122,7 @@ pub struct Preview {
     pub width: u32,
     /// Its height.
     pub height: u32,
-    /// Its quality.
+    /// The quality it was encoded at.
     pub quality: u8,
     /// The JPEG.
     pub jpeg: Vec<u8>,
@@ -328,6 +328,34 @@ fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1e3
 }
 
+/// The last second's previews, with one whose stages took `times` made at `now`: the rate,
+/// previews a second, and each stage's mean time.
+fn window(
+    recent: &mut VecDeque<(Instant, StageTimes)>,
+    now: Instant,
+    times: StageTimes,
+) -> (f64, StageTimes) {
+    recent.push_back((now, times));
+    while recent
+        .front()
+        .is_some_and(|(t, _)| now - *t > Duration::from_secs(1))
+    {
+        recent.pop_front();
+    }
+    let n = recent.len() as f64;
+    let mean = |f: fn(&StageTimes) -> f64| recent.iter().map(|(_, t)| f(t)).sum::<f64>() / n;
+    let means = StageTimes {
+        convert: mean(|t| t.convert),
+        isp: mean(|t| t.isp),
+        jpeg: mean(|t| t.jpeg),
+        total: mean(|t| t.total),
+    };
+    let span = recent
+        .front()
+        .map_or(0.0, |(t, _)| (now - *t).as_secs_f64());
+    (if span > 0.0 { (n - 1.0) / span } else { 0.0 }, means)
+}
+
 /// The session's thread: the newest frame, at most at the maximum rate, to a preview.
 fn run(shared: &Shared, latest: &Latest, compute: &Compute, mut deliver: impl FnMut(Preview)) {
     let registry = Registry::stock();
@@ -363,33 +391,11 @@ fn run(shared: &Shared, latest: &Latest, compute: &Compute, mut deliver: impl Fn
                 drop(frame);
                 {
                     let mut stats = lock(&shared.stats);
-                    let now = Instant::now();
-                    stats.1.push_back((now, made.times));
-                    while stats
-                        .1
-                        .front()
-                        .is_some_and(|(t, _)| now - *t > Duration::from_secs(1))
-                    {
-                        stats.1.pop_front();
-                    }
-                    let n = stats.1.len() as f64;
-                    let sum = |f: fn(&StageTimes) -> f64| {
-                        stats.1.iter().map(|(_, t)| f(t)).sum::<f64>() / n
-                    };
-                    let mean = StageTimes {
-                        convert: sum(|t| t.convert),
-                        isp: sum(|t| t.isp),
-                        jpeg: sum(|t| t.jpeg),
-                        total: sum(|t| t.total),
-                    };
-                    let span = stats
-                        .1
-                        .front()
-                        .map_or(0.0, |(t, _)| (now - *t).as_secs_f64());
+                    let (rate, mean) = window(&mut stats.1, Instant::now(), made.times);
                     stats.0.previews += 1;
                     stats.0.replaced = latest.replaced();
                     stats.0.mean = mean;
-                    stats.0.rate = if span > 0.0 { (n - 1.0) / span } else { 0.0 };
+                    stats.0.rate = rate;
                 }
                 deliver(made);
             }
@@ -454,14 +460,15 @@ fn preview(
     if encoder.as_ref().is_none_or(|e| e.quality() != quality) {
         *encoder = Some(JpegEncoder::new(quality)?);
     }
+    let encoder = encoder.as_mut().expect("made above");
     let jpeg_start = Instant::now();
-    let jpeg = encoder.as_mut().expect("made above").encode(&image)?;
+    let jpeg = encoder.encode(&image)?;
     let jpeg_time = jpeg_start.elapsed();
     Ok(Preview {
         meta: frame.meta().clone(),
         width: image.width(),
         height: image.height(),
-        quality,
+        quality: encoder.quality(),
         jpeg,
         times: StageTimes {
             convert: ms(convert),
@@ -475,7 +482,7 @@ fn preview(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc::{Receiver, channel};
+    use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
     use tetera_core::frame::format::BayerPattern;
     use tetera_core::frame::pool::HostAllocator;
     use tetera_core::{FrameLayout, FramePool, PixelFormat, Timestamp};
@@ -543,6 +550,14 @@ mod tests {
         assert_eq!(binning((2_736, 1_824), (640, 427)), 4);
         assert_eq!(binning((2_736, 1_824), (960, 640)), 2);
         assert_eq!(binning((5_472, 3_648), (1_920, 1_280)), 2);
+        // Each way on its own: a width that would bin by 4, a height that won't.
+        assert_eq!(binning((2_000, 1_000), (500, 900)), 1);
+        assert_eq!(binning((1_000, 2_000), (900, 500)), 1);
+        assert_eq!(
+            fit((2_736, 1_824), (1_920, 1_000), 0.5),
+            (750, 500),
+            "the height binds"
+        );
         let raw = MosaicLayout {
             width: 2_736,
             height: 1_824,
@@ -585,6 +600,11 @@ mod tests {
         assert_eq!((decoded.width(), decoded.height()), (128, 96));
         assert!(p.times.isp > 0.0 && p.times.jpeg > 0.0 && p.times.convert > 0.0);
         assert!(p.times.total >= p.times.isp + p.times.jpeg);
+        assert!(
+            p.times.total > 0.05 && p.times.total < 60_000.0,
+            "milliseconds: {:?}",
+            p.times
+        );
         // An even grey: (2000 − 100) / (4095 − 100) of white in each colour, in sRGB.
         let level = (2_000.0 - 100.0) / (4_095.0 - 100.0);
         let srgb = 1.055 * f64::powf(level, 1.0 / 2.4) - 0.055;
@@ -599,7 +619,23 @@ mod tests {
         assert_eq!((stats.previews, stats.failed), (1, 0));
         assert!(stats.mean.total > 0.0);
         assert!(format!("{s:?}").contains("Session"));
+        assert_eq!(
+            s.params(),
+            PreviewParams {
+                width: 128,
+                height: 128,
+                ..PreviewParams::default()
+            }
+        );
         s.stop();
+        bus.publish(frame(&pool, 2, 2_000));
+        assert!(
+            matches!(
+                rx.recv_timeout(Duration::from_millis(500)),
+                Err(RecvTimeoutError::Disconnected)
+            ),
+            "nothing once stopped"
+        );
     }
 
     #[test]
@@ -613,6 +649,7 @@ mod tests {
             (256, 1_920),
             "the whole frame"
         );
+        assert_eq!(s.last_error(), None, "none failed yet");
         s.set_params(PreviewParams {
             width: 64,
             height: 64,
@@ -689,6 +726,14 @@ mod tests {
         }
         assert_eq!(s.stats().failed, 1, "a region outside the frame");
         assert!(s.last_error().is_some());
+        drop(s);
+        assert!(
+            matches!(
+                rx.recv_timeout(Duration::from_millis(500)),
+                Err(RecvTimeoutError::Disconnected)
+            ),
+            "a session dropped stops"
+        );
     }
 
     #[test]
@@ -738,7 +783,19 @@ mod tests {
                 ..PreviewParams::default()
             },
             PreviewParams {
-                roi: Some(Rect::new(0, 0, 8, 8)),
+                white_balance: [1.0, 0.0, 1.0],
+                ..PreviewParams::default()
+            },
+            PreviewParams {
+                white_balance: [f64::INFINITY, 1.0, 1.0],
+                ..PreviewParams::default()
+            },
+            PreviewParams {
+                roi: Some(Rect::new(0, 0, 8, 64)),
+                ..PreviewParams::default()
+            },
+            PreviewParams {
+                roi: Some(Rect::new(0, 0, 64, 8)),
                 ..PreviewParams::default()
             },
         ] {
@@ -747,5 +804,73 @@ mod tests {
                 Session::start(&bus, Arc::new(Compute::cpu_only().unwrap()), bad, |_| {}).is_err()
             );
         }
+        assert!(
+            PreviewParams {
+                roi: Some(Rect::new(0, 0, 16, 16)),
+                ..PreviewParams::default()
+            }
+            .check()
+            .is_ok(),
+            "a region of 16 × 16, the least"
+        );
+    }
+
+    #[test]
+    fn a_session_previews_each_frame_that_comes_slower_than_its_maximum_rate() {
+        let bus = FrameBus::new();
+        let pool = pool();
+        let (s, rx) = session(
+            &bus,
+            PreviewParams {
+                width: 64,
+                height: 64,
+                ..PreviewParams::default()
+            },
+        );
+        for seq in 0..10 {
+            bus.publish(frame(&pool, seq, 1_000));
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let mut made: Vec<Preview> = Vec::new();
+        while made.last().is_none_or(|p| p.meta.seq < 9) {
+            made.push(next(&rx));
+        }
+        assert!(
+            made.len() >= 6,
+            "up to 60 a second, so most of 20 a second: {}",
+            made.len()
+        );
+        s.stop();
+    }
+
+    #[test]
+    fn the_rate_and_the_mean_times_are_over_the_last_second() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let times = |total: f64| StageTimes {
+            convert: total / 4.0,
+            isp: total / 2.0,
+            jpeg: total / 8.0,
+            total,
+        };
+        let mut recent = VecDeque::new();
+        assert_eq!(
+            window(&mut recent, at(0), times(8.0)),
+            (0.0, times(8.0)),
+            "no rate from one"
+        );
+        assert_eq!(
+            window(&mut recent, at(500), times(16.0)),
+            (2.0, times(12.0))
+        );
+        // One made a second ago is still in the last second.
+        assert_eq!(
+            window(&mut recent, at(1_000), times(24.0)),
+            (2.0, times(16.0))
+        );
+        let (rate, mean) = window(&mut recent, at(1_600), times(32.0));
+        assert_eq!(recent.len(), 2, "those more than a second old let go");
+        assert!((rate - 1.0 / 0.6).abs() < 1e-9, "{rate}");
+        assert_eq!(mean, times(28.0));
     }
 }
