@@ -1,4 +1,4 @@
-//! A synthetic [`FocusProbe`](super::FocusProbe), for tests and examples: a stage whose
+//! A synthetic [`FocusProbe`], for tests and examples: a stage whose
 //! carriage lags its screw by its backlash and moves in whole steps, and a focus curve of a
 //! known shape, peak and width, with noise.
 
