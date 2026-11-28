@@ -461,9 +461,13 @@ pub(crate) mod tests {
             c.device.is_some() && c.memory.is_some() && c.reason.is_none(),
             "{c:?}"
         );
-        // A frame on the GPU, its tiles taken from the budget.
+        // A frame on the GPU, its tiles taken from the budget: the whole sensor, binned 2 × 2
+        // for the live view (D5).
         let frame = i.camera.snap(std::time::Duration::from_secs(10)).unwrap();
-        assert_eq!(frame.layout().width, 5_472);
+        assert_eq!(
+            (frame.layout().width, frame.layout().height),
+            (2_736, 1_824)
+        );
     }
 
     #[test]

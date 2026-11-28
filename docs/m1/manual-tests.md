@@ -310,5 +310,5 @@ The owner runs this at Checkpoint C, with B's and C's; the agent ran and recorde
 - **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU.
 - [ ] `cargo run --release -p tetera-acquire --features cuda --example preview-pipeline` — expect the camera in mode 1 at 8 bits near its 53 fps; both sessions, 1920 × 1280 and 640 × 427, at the camera's rate, 30 a second or more, each with its stages' times (the frame to a mosaic, the live recipe, the JPEG); the statistics at about 8 to 10 a second. Look at the JPEGs in `target/preview-pipeline/`: H&E at 20×, glass white, the stage moving from one to the next.
 - [ ] `cargo run --release -p tetera-acquire --example preview-pipeline -- --smoke` — expect `smoke: ok`.
-- [ ] `cargo test -p tetera-acquire` — expect 12 tests to pass.
+- [ ] `cargo test -p tetera-acquire` — expect 16 tests to pass.
 - **Result:** see the [notes](notes/P1.14a-the-frame-bus-and-the-preview-pipeline.md#manual-test).
