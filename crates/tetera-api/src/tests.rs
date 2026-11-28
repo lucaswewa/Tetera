@@ -586,6 +586,12 @@ async fn the_camera_is_configured_property_by_property_and_streams() {
         json!({"x": 1, "y": 1})
     );
     assert_eq!(client.get("/camera/roi").await.json(), Value::Null);
+    let start = client.get("/camera/white_balance").await.json();
+    assert_eq!(
+        [&start["red"], &start["green"], &start["blue"]].map(|g| g.as_f64().unwrap()),
+        instrument.white_balance(),
+        "balanced for the light at the start"
+    );
     let balance = json!({"red": 1.5, "green": 1.0, "blue": 0.8});
     assert_eq!(
         client

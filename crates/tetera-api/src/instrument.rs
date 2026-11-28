@@ -14,10 +14,11 @@ use tetera_hal::camera::{Camera, CameraConfig};
 use tetera_hal::illumination::Illumination;
 use tetera_hal::objective::{ManualObjectiveMount, ObjectiveCatalogue, ObjectiveMount};
 use tetera_sim::camera::{Backend, Scene, VirtualCamera, VirtualCameraConfig};
-use tetera_sim::light::CHANNEL;
-use tetera_sim::optics::{MICHROME_20, Sensor};
+use tetera_sim::light::{CHANNEL, DEFAULT_KELVIN};
+use tetera_sim::optics::{MICHROME_20, Sensor, blackbody};
 use tetera_sim::{
-    HeSample, Rate, SectionConfig, SimClock, VirtualIllumination, VirtualStage, VirtualStageConfig,
+    HeSample, Rate, SectionConfig, SensorModel, SimClock, VirtualIllumination, VirtualStage,
+    VirtualStageConfig,
 };
 
 /// The camera's mode to begin with, the live view's (D5): binned 2 × 2.
@@ -300,6 +301,22 @@ impl Instrument {
         })
     }
 
+    /// The white balance for the light as it is now: red's, green's and blue's gains that make
+    /// white glass white under its colour temperature, through the sensor's quantum
+    /// efficiency.
+    pub fn white_balance(&self) -> [f64; 3] {
+        let kelvin = self
+            .light
+            .state(CHANNEL)
+            .ok()
+            .and_then(|s| s.colour_temperature_k)
+            .unwrap_or(DEFAULT_KELVIN);
+        let warmth = blackbody(kelvin as f32);
+        let qe = SensorModel::default().quantum_efficiency;
+        let seen = |c: usize| f64::from(warmth[c] * qe[c]);
+        std::array::from_fn(|c| seen(1) / seen(c))
+    }
+
     /// Where the camera renders.
     pub fn compute(&self) -> &Compute {
         &self.compute
@@ -480,6 +497,26 @@ pub(crate) mod tests {
             (frame.layout().width, frame.layout().height),
             (2_736, 1_824)
         );
+    }
+
+    #[test]
+    fn the_white_balance_follows_the_lights_colour_temperature() {
+        let i = instrument();
+        let warm = i.white_balance();
+        assert_eq!(warm[1], 1.0, "green is the reference");
+        assert!(warm[0] < 1.0 && warm[2] > 1.5, "a warm light: {warm:?}");
+        i.light
+            .set(
+                CHANNEL,
+                LightState {
+                    on: true,
+                    intensity: 1.0,
+                    colour_temperature_k: Some(6_500.0),
+                },
+            )
+            .unwrap();
+        let cool = i.white_balance();
+        assert!(cool[0] > warm[0] && cool[2] < warm[2], "{cool:?}");
     }
 
     #[test]
