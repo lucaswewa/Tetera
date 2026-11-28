@@ -1444,6 +1444,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tetera-acquire"
+version = "0.1.0"
+dependencies = [
+ "rayon",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tetera-compute",
+ "tetera-core",
+ "tetera-hal",
+ "tetera-imaging",
+ "tetera-pipeline",
+ "tetera-sim",
+]
+
+[[package]]
 name = "tetera-api"
 version = "0.1.0"
 dependencies = [

@@ -16,6 +16,7 @@ repository = "https://github.com/lucaswewa/Tetera"
 publish = false
 
 [workspace.dependencies]
+tetera-acquire = { path = "crates/tetera-acquire" }
 tetera-api = { path = "crates/tetera-api" }
 tetera-compute = { path = "crates/tetera-compute" }
 tetera-core = { path = "crates/tetera-core" }
