@@ -41,7 +41,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.15c | The recorder and ingest | Done | [P1.15c](P1.15c-the-recorder-and-ingest.md) |
 | P1.15d | Capture and its Things | Done | [P1.15d](P1.15d-capture-and-its-things.md) |
 | P1.16a | Focus measures and the search | Done | [P1.16a](P1.16a-focus-measures-and-the-search.md) |
-| P1.16b | Autofocus on the instrument | In progress | [P1.16b](P1.16b-autofocus-on-the-instrument.md) |
+| P1.16b | Autofocus on the instrument | Done | [P1.16b](P1.16b-autofocus-on-the-instrument.md) |
 | P1.17 | Snake scan and z-scan | Not started | — |
 | P1.18 | Calibration | Not started | — |
 | P1.19 | Batch processing | Not started | — |
