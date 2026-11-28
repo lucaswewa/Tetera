@@ -7,13 +7,13 @@
 use crate::clock::SimClock;
 use crate::he::HeSample;
 use crate::light::{CHANNEL, VirtualIllumination};
-use crate::optics::{FieldOfView, MICHROME_20, Motion, Optics, Sensor, field_moving};
+use crate::optics::{FieldOfView, MICHROME_20, Motion, Optics, Sensor, bare_field, field_moving};
 use crate::sensor::{Exposure, SensorModel, bayer, expose};
 use crate::stage::VirtualStage;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use tetera_core::frame::format::BayerPattern;
@@ -186,7 +186,7 @@ impl VirtualCameraConfig {
 }
 
 /// What the camera looks at: the stage that carries the slide, the objectives, the light,
-/// and the sample on the slide. The stage's clock is the camera's.
+/// and the sample on the slide to begin with. The stage's clock is the camera's.
 #[derive(Clone)]
 pub struct Scene {
     /// The stage.
@@ -273,6 +273,8 @@ struct Shared {
     made: VirtualCameraConfig,
     scene: Scene,
     renderer: Renderer,
+    /// The sample on the stage now, if any.
+    sample: RwLock<Option<HeSample>>,
     /// The camera's own threads, so its frames don't queue behind other work on rayon's
     /// global pool.
     workers: rayon::ThreadPool,
@@ -365,6 +367,7 @@ impl VirtualCamera {
                 capabilities,
                 made: config,
                 clock: scene.stage.clock().clone(),
+                sample: RwLock::new(Some(scene.sample)),
                 scene,
                 renderer,
                 workers,
@@ -378,6 +381,30 @@ impl VirtualCamera {
     /// Its clock: the stage's.
     pub fn clock(&self) -> &Arc<SimClock> {
         &self.shared.clock
+    }
+
+    /// The sample on the stage, if there is one.
+    pub fn sample(&self) -> Option<HeSample> {
+        *self
+            .shared
+            .sample
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Puts `sample` on the stage, or takes the slide away: frames show bare glass. Takes
+    /// effect from the next frame.
+    pub fn set_sample(&self, sample: Option<HeSample>) -> Result<()> {
+        #[cfg(feature = "cuda")]
+        if let Renderer::Gpu(tiles, _) = &self.shared.renderer {
+            tiles.set_sample(sample)?;
+        }
+        *self
+            .shared
+            .sample
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = sample;
+        Ok(())
     }
 
     /// The timing of its frames as it is set now.
@@ -476,7 +503,8 @@ impl Shared {
         if fitted.is_none() {
             light.intensity = 0.0;
         }
-        let thickness = f64::from(self.scene.sample.section().thickness);
+        let sample = *self.sample.read().unwrap_or_else(PoisonError::into_inner);
+        let thickness = sample.map_or(0.0, |s| f64::from(s.section().thickness));
         let reach = optics.defocus_for_blur(self.made.max_blur);
         let focus = (middle.z.um() - self.made.section_z).clamp(-reach, thickness + reach);
         let fov = FieldOfView {
@@ -504,7 +532,10 @@ impl Shared {
         let stride = frame.layout().stride;
         match &self.renderer {
             Renderer::Cpu => {
-                let field = field_moving(&self.scene.sample, &fov, &motion, &light, focus)?;
+                let field = match &sample {
+                    Some(sample) => field_moving(sample, &fov, &motion, &light, focus)?,
+                    None => bare_field(&fov, &light),
+                };
                 let raw = expose(
                     &field.rgb,
                     sensor.width,
@@ -1255,6 +1286,28 @@ mod tests {
         assert!((mean(&samples(&frame)) - 100.0).abs() < 2.0);
         assert_eq!(frame.meta().objective, None);
         assert_eq!(frame.meta().black_level, 100);
+    }
+
+    #[test]
+    fn a_sample_is_taken_away_and_another_put_on_the_stage() {
+        let camera = camera(scene(Rate::Faster(10.0), Some("20x")), None);
+        let snap = || samples(&camera.snap(Duration::from_secs(5)).unwrap());
+        let loaded = snap();
+        camera.set_sample(None).unwrap();
+        assert_eq!(camera.sample(), None);
+        let bare = snap();
+        // Bare glass: the light alone, brighter than tissue, and even but for the noise.
+        assert!(
+            mean(&bare) > mean(&loaded),
+            "{} against {}",
+            mean(&bare),
+            mean(&loaded)
+        );
+        let other = HeSample::new(9, SectionConfig::default()).unwrap();
+        camera.set_sample(Some(other)).unwrap();
+        assert_eq!(camera.sample(), Some(other));
+        let again = snap();
+        assert!((mean(&again) - mean(&bare)).abs() > 1.0, "tissue again");
     }
 
     #[test]

@@ -1,0 +1,32 @@
+[package]
+name = "tetera-api"
+description = "Tetera's HTTP interface: the instrument's Things on teta-wot."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# The camera and the sample on the GPU, when there is one.
+cuda = ["dep:tetera-compute", "tetera-compute/cuda", "tetera-sim/cuda"]
+
+[dependencies]
+anyhow.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+teta-wot.workspace = true
+tetera-compute = { workspace = true, optional = true }
+tetera-core.workspace = true
+tetera-hal.workspace = true
+tetera-sim.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+teta-wot = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

@@ -7,7 +7,7 @@ use crate::optics::{Field, FieldOfView, Grid, Light, Motion, blackbody, depth_gr
 use crate::render::{Depth, Region, Rendered};
 use crate::sensor::{Exposure, SensorModel};
 use crate::tiles::{CacheStats, TILE, TileCache, TileDepth, TileKey};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use tetera_compute::budget::{Budget, Grant};
 use tetera_compute::field::{FieldLight, FieldPlanes, SensorView, TileGrid};
 use tetera_compute::half;
@@ -145,7 +145,7 @@ pub struct DeviceTile {
 /// budget.
 pub struct HeTiles {
     gpu: Arc<CudaBackend>,
-    sample: HeSample,
+    sample: RwLock<Option<HeSample>>,
     budget: Budget,
     cache: Mutex<TileCache<Arc<DeviceTile>>>,
     planes: Mutex<Option<FieldPlanes>>,
@@ -167,7 +167,7 @@ impl HeTiles {
         let cache = TileCache::new(budget.limit(), TILE_BYTES)?;
         Ok(Self {
             gpu,
-            sample,
+            sample: RwLock::new(Some(sample)),
             budget,
             cache: Mutex::new(cache),
             planes: Mutex::new(None),
@@ -175,12 +175,28 @@ impl HeTiles {
         })
     }
 
+    /// The sample on the slide, if there is one.
+    pub fn sample(&self) -> Option<HeSample> {
+        *self.sample.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Puts `sample` on the stage, or takes the slide away: the tiles held are let go.
+    pub fn set_sample(&self, sample: Option<HeSample>) -> Result<()> {
+        *self.sample.write().unwrap_or_else(PoisonError::into_inner) = sample;
+        let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
+        *cache = TileCache::new(self.budget.limit(), TILE_BYTES)?;
+        Ok(())
+    }
+
     /// The tile for `key`, made if it isn't held.
     pub fn tile(&self, key: TileKey) -> Result<Arc<DeviceTile>> {
+        let sample = self
+            .sample()
+            .ok_or_else(|| tetera_core::Error::not_found("there is no sample on the stage"))?;
         let mut cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
         cache.get_or_make(key, |key| {
             let grant = self.budget.allocate(TILE_BYTES)?;
-            let buffer = self.sample.render_on(&self.gpu, &key.region())?;
+            let buffer = sample.render_on(&self.gpu, &key.region())?;
             Ok(Arc::new(DeviceTile {
                 buffer,
                 _grant: grant,
@@ -231,7 +247,10 @@ impl HeTiles {
         with: impl FnOnce(&FieldPlanes) -> Result<R>,
     ) -> Result<R> {
         let s = fov.optics.sensor;
-        let groups = depth_groups(&fov.optics, focus, self.sample.section().thickness);
+        let Some(sample) = self.sample() else {
+            return self.bare_with(fov, light, with);
+        };
+        let groups = depth_groups(&fov.optics, focus, sample.section().thickness);
         let widest = groups.iter().map(|g| g.sigma).fold(0.0, f32::max);
         let grid = Grid::new(fov, widest, motion.travel(s.height));
         let (tile, columns, rows) = grid.tiles();
@@ -283,6 +302,35 @@ impl HeTiles {
             self.gpu
                 .field_blur(planes, &gaussian(group.sigma), k == 0)?;
         }
+        let lit = FieldLight {
+            intensity: light.intensity,
+            unevenness: light.unevenness,
+            vignetting: fov.optics.vignetting,
+            warmth: blackbody(light.colour_temperature),
+        };
+        self.gpu.field_light(planes, &lit)?;
+        with(planes)
+    }
+
+    /// The field with no slide: the planes' sums cleared, and lit. The twin of
+    /// `optics::bare_field`.
+    fn bare_with<R>(
+        &self,
+        fov: &FieldOfView,
+        light: &Light,
+        with: impl FnOnce(&FieldPlanes) -> Result<R>,
+    ) -> Result<R> {
+        let s = fov.optics.sensor;
+        let mut planes = self.planes.lock().unwrap_or_else(PoisonError::into_inner);
+        if planes
+            .as_ref()
+            .is_none_or(|p| (p.width, p.height) != (s.width, s.height))
+        {
+            *planes = None;
+            *planes = Some(self.gpu.field_planes(s.width, s.height)?);
+        }
+        let planes = planes.as_mut().expect("planes made");
+        self.gpu.field_clear(planes)?;
         let lit = FieldLight {
             intensity: light.intensity,
             unevenness: light.unevenness,
@@ -632,6 +680,77 @@ mod tests {
                 "{m}×, focus {focus}: {worst}"
             );
         }
+    }
+
+    #[test]
+    fn with_no_slide_the_gpu_field_is_the_light_and_a_new_sample_is_rendered() {
+        use crate::optics::{FieldOfView, Light, Optics, Sensor, bare_field, field};
+        let gpu = tetera_compute::cuda_or_skip!();
+        let tiles = tiles_on(gpu, sample(false), 256);
+        let light = Light::default();
+        let fov = FieldOfView {
+            centre: (1_000.0, 1_000.0),
+            optics: Optics {
+                sensor: Sensor {
+                    width: 96,
+                    height: 64,
+                    pixel: 2.4,
+                },
+                ..Optics::new(20.0, 0.42, 0.0).unwrap()
+            },
+        };
+        let loaded = tiles.field(&fov, &light, 2.0).unwrap();
+        assert!(tiles.stats().misses > 0);
+        tiles.set_sample(None).unwrap();
+        assert_eq!(tiles.sample(), None);
+        assert_eq!(tiles.stats().misses, 0, "its tiles let go");
+        let bare = tiles.field(&fov, &light, 2.0).unwrap();
+        // Another size of sensor: its planes made again, with no slide too.
+        let smaller = FieldOfView {
+            optics: Optics {
+                sensor: fov.optics.sensor.binned(2),
+                ..fov.optics
+            },
+            ..fov
+        };
+        let half = tiles.field(&smaller, &light, 2.0).unwrap();
+        assert_eq!((half.width, half.height, half.rgb.len()), (48, 32, 48 * 32));
+        let bare = {
+            let again = tiles.field(&fov, &light, 2.0).unwrap();
+            assert_eq!(again, bare, "the same light again");
+            again
+        };
+        let cpu = bare_field(&fov, &light);
+        let worst = cpu
+            .rgb
+            .iter()
+            .zip(&bare.rgb)
+            .flat_map(|(a, b)| (0..3).map(move |c| (a[c] - b[c]).abs()))
+            .fold(0.0, f32::max);
+        assert!(worst < 1e-3 * light.intensity, "{worst}");
+        assert!(
+            tiles
+                .tile(TileKey {
+                    level: 0,
+                    column: 0,
+                    row: 0,
+                    depth: TileDepth::Whole
+                })
+                .is_err()
+        );
+        // Another sample: its own field, from tiles made again.
+        let other = HeSample::new(8, SectionConfig::default()).unwrap();
+        tiles.set_sample(Some(other)).unwrap();
+        let again = tiles.field(&fov, &light, 2.0).unwrap();
+        let expected = field(&other, &fov, &light, 2.0).unwrap();
+        assert_ne!(again, loaded, "another sample");
+        let worst = expected
+            .rgb
+            .iter()
+            .zip(&again.rgb)
+            .flat_map(|(a, b)| (0..3).map(move |c| (a[c] - b[c]).abs()))
+            .fold(0.0, f32::max);
+        assert!(worst < 3e-3 * light.intensity, "{worst}");
     }
 
     #[test]

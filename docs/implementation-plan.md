@@ -123,8 +123,8 @@ Each row is this draft's reading of the spec. Each becomes an ADR or a phase dec
 | D13 | Package format | A `.tetx` zip: a manifest (TOML), payloads, and the licences | Q30 | ADR-0025 |
 | D14 | Datasets | **Confirmed.** OME-Zarr v3 (OME-NGFF 0.5) through `zarrs`. Every capture, multi-capture or scan is one dataset with its metadata. Datasets are grouped into projects, which the Gallery shows as cards. OME-TIFF and PNG/TIFF are export formats | Q36, Q37 | ADR-0021 |
 | D15 | Jobs | Hardware jobs run one at a time from a queue. Compute jobs run in parallel on a pool that shares the GPU. Every job has progress, logs and cancel. The history is kept in SQLite | — | ADR-0020 |
-| D16 | Configuration | TOML. The service's data is in `/var/lib/tetera/`; development uses `./.tetera/` | — | P1.13 |
-| D17 | Default port | 8310, so Tetera and OScope can run side by side | Q48 | P1.13 |
+| D16 | Configuration | TOML. The service's data is in `/var/lib/tetera/`; development uses `./.tetera/` | — | P1.13a |
+| D17 | Default port | 8310, so Tetera and OScope can run side by side | Q48 | P1.13a |
 | D18 | Units | µm as `f64`, and ms, at every API | — | ADR-0006 |
 | D19 | Access | **Confirmed.** No accounts in v1. The service listens on localhost, and on the LAN only when configured to | Q5, Q11 | ADR-0017 |
 | D20 | Power | **Confirmed.** Four actions: restart the service; restart WSL; reboot or shut down the Windows host, through WSL interop. Every action has a dry run for tests | Q13 | ADR-0024 |
@@ -236,8 +236,8 @@ A crate depends only on crates in lower layers, plus the few edges within a laye
 | | `tetera-ext-sdk` | What Rust extension authors build against *(unsafe in generated glue)* | P2.02 |
 | L4 Services | `tetera-acquire` | The frame bus, preview, live statistics and the recorder | P1.14a |
 | | `tetera-workflows` | Capture, autofocus, scans, calibration, batch processing; the workflow trait that extensions implement | P1.15b |
-| L5 Interface | `tetera-api` | teta-wot Things and the media-plane routes. **The only crate that depends on `teta-wot`** | P1.13 |
-| L6 Applications | `tetera-server` | The binary: configuration, systemd integration, the web app's static files | P1.13 |
+| L5 Interface | `tetera-api` | teta-wot Things and the media-plane routes. **The only crate that depends on `teta-wot`** | P1.13a |
+| L6 Applications | `tetera-server` | The binary: configuration, systemd integration, the web app's static files | P1.13a |
 
 Beside the layers: `xtask/` (gates, the layering check, `doctor`, licences), `python/tetera-ext/` (the Python SDK, M2), `extensions/` (first-party extensions, M3) and `web/` (the app, M4).
 
@@ -266,12 +266,12 @@ Tetera/
 
 | Thing | Holds | From |
 |---|---|---|
-| `system` | Version, platform (WSL, kernel, distro), GPU, disks, memory, licences | P1.13 |
-| `camera` | Mode, exposure, gain, pixel format, binning, ROI, white balance, streaming | P1.13 |
-| `stage` | Position, moving, move, jog, stop, home, limits, speed | P1.13 |
-| `objective` | The catalogue, which objective is fitted | P1.13 |
-| `illumination` | On/off, intensity, colour temperature (simulated, or manual) | P1.13 |
-| `simulation` | Samples (choose, load, unload), illumination model, imperfections on demand | P1.13 |
+| `system` | Version, platform (WSL, kernel, distro), GPU, disks, memory, licences | P1.13a |
+| `camera` | Mode, exposure, gain, pixel format, binning, ROI, white balance, streaming | P1.13b |
+| `stage` | Position, moving, move, jog, stop, home, limits, speed | P1.13b |
+| `objective` | The catalogue, which objective is fitted | P1.13b |
+| `illumination` | On/off, intensity, colour temperature (simulated, or manual) | P1.13b |
+| `simulation` | Samples (choose, load, unload), illumination model, imperfections on demand | P1.13a |
 | `preview` | Preview defaults, sessions, and the binary stream | P1.14b |
 | `jobs` | Queue, history, progress, cancel | P1.15a |
 | `capture` | Single and multiple captures | P1.15b |
@@ -614,7 +614,8 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 
 | ID | Phase | Scope | Try it | ADRs |
 |---|---|---|---|---|
-| P1.13 | The server and the device Things | `tetera-server` on teta-wot v0.2.0; configuration; data roots; the systemd unit in WSL; Things for system, camera, stage, objective, illumination and simulation | `curl` and teta-wot's `/docs` | 0017, 0018 |
+| P1.13a | The server, configuration and systemd | `tetera-server` on teta-wot v0.2.0; configuration; data roots; the systemd unit in WSL; the `system` and `simulation` Things | `curl` and teta-wot's `/docs` | 0017, 0018 |
+| P1.13b | The device Things | Things for the camera, stage, objective and illumination | `curl` for each Thing, a move and its timing | — |
 | P1.14a | The frame bus and the preview pipeline | Frame bus (lossless and latest-wins subscribers); preview sessions: crop or bin, the fused ISP on the GPU, JPEG; live statistics; no network yet | `ex-preview-pipeline` | — |
 | P1.14b | The preview protocol | The binary WebSocket with acknowledgements, and MJPEG; the `preview` Thing. **Checkpoint B:** live H&E in a browser while jogging | `ex-live-view`: one plain HTML page | 0019 |
 | P1.15a | The job service | Jobs, the hardware queue and the compute pool, cancel, the SQLite history; the `jobs` Thing | `ex-jobs` | 0020 |
@@ -699,7 +700,7 @@ Each driver phase is *Done* only after the owner has run its manual test on the 
 | P5.06 | Performance | The raw path at the camera's rate to scratch; preview latency and rate; GPU tuning; memory; several clients; H.264 only if needed | — |
 | P5.07 | Packaging and release 1.0 | A `.deb` and the systemd unit for WSL; a Windows bootstrap (`.wslconfig`, the task, usbipd); a 24-hour soak; the user's guide; the release; the retrospective | 0042 |
 
-**In all:** 74 phases, plus the spike: M1 37, M2 8, M3 10, M4 12, M5 7.
+**In all:** 75 phases, plus the spike: M1 38, M2 8, M3 10, M4 12, M5 7.
 
 **Each phase's status** is in [`m1/notes/README.md`](m1/notes/README.md): *Not started*, *In review* or *Done*.
 
@@ -727,8 +728,8 @@ Numbered across the project. Each is written in the phase named.
 | 0014 | The simulated clock | P1.10a |
 | 0015 | Simulated samples on the GPU | P1.11a |
 | 0016 | The virtual camera's model | P1.12a |
-| 0017 | Control plane and media plane | P1.13 |
-| 0018 | The service in WSL2: systemd, start-up, networking, devices | P1.13 |
+| 0017 | Control plane and media plane | P1.13a |
+| 0018 | The service in WSL2: systemd, start-up, networking, devices | P1.13a |
 | 0019 | The preview protocol | P1.14b |
 | 0020 | The job service | P1.15a |
 | 0021 | Datasets on disk | P1.15b |
@@ -929,8 +930,8 @@ A first draft. **From P1.01, [`setup/toolchain.md`](setup/toolchain.md) is the g
 | R4 | **The camera's raw isn't the ADC's 12 bits.** OScope found that the SDK applies gamma and white balance, and rescales to about 58,000 levels with a black offset near 2,000 | Dark, flat and CCM nodes built for linear 12-bit data misbehave on real frames | Bayer16 with `significant_bits` and the black level in the metadata; the SDK set to its linear settings (gamma 128, contrast 32); the virtual camera can mimic the SDK (Q16, Q27) |
 | R5 | **CUDA under WSL2 has limits** that native Linux doesn't. NVIDIA's WSL guide lists them | A feature Tetera plans to use may not work, such as pinned memory at size, or IPC to Python workers | P1.04 checks each feature Tetera uses. Python workers get frames through host shared memory, not CUDA IPC |
 | R6 | **Disk:** OScope's phases built 60–70 GB each. WSL's virtual disk grows and doesn't shrink by itself | Full disks break WSL | `doctor` checks before G2 and G3; `sparseVhd`; the distro on D: (§12.1); cleaning between milestones |
-| R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13 for development, P5.07 hardened) (Q12) |
-| R8 | **Scope:** 74 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
+| R7 | **WSL doesn't start without a login,** and stops when idle | The instrument isn't there after a reboot | `instanceIdleTimeout=-1` in `.wslconfig`; a Windows task at boot (P1.13a for development, P5.07 hardened) (Q12) |
+| R8 | **Scope:** 75 phases | A long project | Checkpoints give usable increments. Estimates before the code. Cut lines: P3.08 (object recognition), P3.05 (tiled z-stack) and P4.10's reports can move to a later release |
 | R9 | **The extension ABI** must stay stable across SDK versions | Old extensions break, or crash the server | A versioned C ABI checked at install; panics caught; tests against the previous SDK version; Python in separate processes |
 | R10 | **Extensions as the only home** of stitching, deep zoom, depth from focus and volumes | The SDK must be rich enough for heavy, GPU-bound nodes | P2.03 gives Rust extensions the GPU; P3.01 is a small extension that proves the path before P3.02 |
 | R11 | **The host's sleep, and WSL's clock drift** | Wrong wall-clock times in metadata | A monotonic clock; UTC mapped at start-up and re-checked; a status warning on drift |
@@ -1163,3 +1164,6 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-27 | **P1.12b measured 1,822 lines against its second estimate of 1,150 (×1.58):** code 698, tests 777, examples 317. The resampling kernel no longer divides in double precision, so a full field takes half its time: 5, 10 and 25 ms at 5×, 20× and 50× still, and 50× now within the 40 ms budget moving, closing P1.12a's gap. A raw frame at 20×, field and sensor, takes 27 ms still and 33 ms jogging ([notes](m1/notes/P1.12b-the-sensor-and-motion.md#size)) |
 | 2026-11-27 | **P1.12c's second estimate,** before its code: code 700 (modes, rates and capabilities 100; the frame loop on the clock 250; the scene and its motion 120; rendering on either backend into the pool 120; the SDK's processing 60; configuration 50) · tests 450 · examples 200 · docs-as-code 60 · glue 30 = **1,440**, 1,872 at ×1.3, against 1,190 from P1.12b's split. P1.13's section now names P1.12c as its dependency, as the index did |
 | 2026-11-28 | **P1.12c measured 2,009 lines against its second estimate of 1,440 (×1.40):** code 865, tests 781, examples 346. **Checkpoint A passed:** G2 on a fresh clone, and the virtual MIChrome 20 live on the GPU at every mode's rate. A still full frame takes 17 to 29 ms; jogging at 20×, within 40 ms up to 250 µm/s, about 50 ms at 500 µm/s and 75 ms at 1 mm/s, still at the full rate ([notes](m1/notes/P1.12c-the-virtual-camera.md#size)) |
+| 2026-11-28 | **P1.13's first estimate** is 1,980 lines, 2,574 at ×1.3. Over 2,000: **split by the agent** under the owner's standing approval, as its ready split proposed, into P1.13a (the server, configuration, systemd, and the `system` and `simulation` Things) and P1.13b (the camera, stage, objective and illumination Things). P1.14a and P1.15a now depend on P1.13b. 75 phases, M1 38 |
+| 2026-11-28 | **P1.13a's second estimate,** before its code: code 730 (the command line, configuration, data roots and shutdown 250; the instrument from configuration 150; error mapping 60; `system` 150; `simulation` 120) · tests 350 · docs-as-code 200 · glue 40 = **1,320**, 1,716 at ×1.3 |
+| 2026-11-28 | **P1.13a measured 2,527 lines against its second estimate of 1,320 (×1.91),** over the 2,000 cap: code 1,235, tests 976. The instrument's assembly from configuration took twice its estimate, and the tests each Thing over HTTP, each bad configuration, and the binary as a subprocess. The server serves `system` and `simulation` on teta-wot v0.2.0; under systemd it restarts after it is killed; Windows reaches it at `localhost:8310` ([notes](m1/notes/P1.13a-the-server-configuration-and-systemd.md#size)) |

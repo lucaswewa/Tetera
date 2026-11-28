@@ -283,3 +283,15 @@ The owner runs this at Checkpoint C, with B's and C's; the agent ran and recorde
 - [ ] `cargo run --release -p tetera-sim --features cuda --example virtual-sensor` — expect raw frames still, smeared, skewed and grainy, and the noise against the model.
 - [ ] `cargo run --release -p tetera-sim --features cuda --example virtual-camera` — expect live H&E at the camera's rates while the stage jogs, as in P1.12c's entry. Look at the JPEG strip.
 - **Result:** see the [notes](notes/P1.12c-the-virtual-camera.md#checkpoint-a).
+## P1.13a: The server, configuration and systemd
+
+- **Prerequisites:** the phase's branch; systemd in WSL (`/etc/wsl.conf`); the GPU for the full sensor.
+- [ ] `cargo run --release -p tetera-server` — expect `serving url=http://127.0.0.1:8310 backend=cuda sensor=[5472, 3648]`, then teta-wot's `serving 2 Things`.
+- [ ] `curl http://127.0.0.1:8310/system/platform`, then `system/compute`, `system/memory` and `system/disks` — expect the kernel, Ubuntu, WSL's version; the RTX 3070 Ti and the full sensor; the memory; the data and scratch roots' disk.
+- [ ] `curl http://127.0.0.1:8310/simulation/sample`, then `POST simulation/load` with `{"seed": 8}`, `POST simulation/unload`, and `POST simulation/inject` with `{"imperfection": "stage_alarm"}` — expect seed 7, then 8, then `null`; each invocation `completed`.
+- [ ] On Windows, open <http://localhost:8310/docs> — expect the interactive docs, with `system` and `simulation`.
+- [ ] `cargo run -p tetera-server -- --check`, and again with a configuration that has `prot = 1` under `[server]` — expect the configuration printed, then `unknown field` and `prot`, exit code 2.
+- [ ] Install the unit as a user unit, as `packaging/linux/README.md` says; `systemctl --user start tetera`; `systemctl --user kill -s KILL tetera` — expect it active again within a few seconds, with a new PID and one restart. `systemctl --user stop tetera` — expect it to stop cleanly, and stay down.
+- [ ] `cargo test -p tetera-api -p tetera-server` — expect 15 and 6 tests to pass.
+- **Result:** see the [notes](notes/P1.13a-the-server-configuration-and-systemd.md#manual-test).
+
