@@ -1,7 +1,8 @@
 //! Autofocus over HTTP: a job that finds focus and leaves the stage there; a blank field's
 //! failure, the stage back; refusals; and a cancel through the `jobs` Thing.
 
-use crate::tests::{Scratch, client, invoke};
+use crate::instrument::{Instrument, ObjectivesConfig, SensorSize, SimulatorConfig};
+use crate::tests::{Scratch, invoke, serve};
 use serde_json::{Value, json};
 use std::time::Duration;
 use teta_wot::testing::TestClient;
@@ -11,6 +12,21 @@ const FOCUS: f64 = 1_002.0;
 
 /// 20×'s depth of field with 2.4 µm pixels.
 const D: f64 = 0.55 / (0.42 * 0.42) + 2.4 / (20.0 * 0.42);
+
+/// The server for a tiny instrument on a real-time clock: the CPU renders its live mode's
+/// 53 frames a second, not ten times as many, and leaves the other tests room.
+async fn client(scratch: &Scratch) -> (TestClient, std::sync::Arc<Instrument>) {
+    let instrument = Instrument::new(
+        &SimulatorConfig {
+            gpu: false,
+            sensor: SensorSize::Tiny,
+            ..SimulatorConfig::default()
+        },
+        &ObjectivesConfig::default(),
+    )
+    .unwrap();
+    serve(scratch, instrument).await
+}
 
 /// Job `id`, once it has ended.
 async fn ended(client: &TestClient, id: &str) -> Value {
@@ -46,6 +62,7 @@ async fn to(client: &TestClient, z: f64) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn autofocus_over_http_finds_focus_as_a_job_and_a_blank_field_fails_cleanly() {
+    let _cpu = crate::tests::CPU.write().await;
     let scratch = Scratch::new();
     let (client, _) = client(&scratch).await;
     to(&client, FOCUS + 2.5 * D).await;
@@ -108,6 +125,7 @@ async fn autofocus_over_http_finds_focus_as_a_job_and_a_blank_field_fails_cleanl
 
 #[tokio::test(flavor = "multi_thread")]
 async fn autofocus_is_refused_without_an_objective_or_with_bad_options_and_cancels_through_jobs() {
+    let _cpu = crate::tests::CPU.write().await;
     let scratch = Scratch::new();
     let (client, _) = client(&scratch).await;
     let bad = invoke(

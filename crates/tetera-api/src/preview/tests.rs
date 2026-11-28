@@ -209,6 +209,7 @@ async fn send(socket: &mut Socket, state: Value) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_gets_two_frames_until_it_acknowledges_them() {
+    let _cpu = crate::tests::CPU.read().await;
     let served = Served::start().await;
     let mut socket = served.socket().await;
     send(
@@ -278,6 +279,7 @@ async fn a_client_gets_two_frames_until_it_acknowledges_them() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_slow_client_never_gets_a_stale_frame_and_its_link_steps_down() {
+    let _cpu = crate::tests::CPU.read().await;
     let served = Served::start().await;
     let mut socket = served.socket().await;
     let publisher = Publisher::start(&served.instrument, Duration::from_millis(10));
@@ -344,6 +346,7 @@ async fn a_slow_client_never_gets_a_stale_frame_and_its_link_steps_down() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_that_says_nothing_gets_the_defaults_and_the_cameras_white_balance() {
+    let _cpu = crate::tests::CPU.read().await;
     let served = Served::start().await;
     let defaults = json!({"width": 96, "height": 96, "quality": 55});
     assert!(
@@ -382,6 +385,7 @@ async fn a_client_that_says_nothing_gets_the_defaults_and_the_cameras_white_bala
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_clients_state_changes_its_preview_and_a_bad_one_is_answered() {
+    let _cpu = crate::tests::CPU.read().await;
     let served = Served::start().await;
     let mut socket = served.socket().await;
     let _publisher = Publisher::start(&served.instrument, Duration::from_millis(10));
@@ -436,6 +440,7 @@ async fn the_clients_state_changes_its_preview_and_a_bad_one_is_answered() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_mjpeg_stream_ends_with_the_server_at_once() {
+    let _cpu = crate::tests::CPU.read().await;
     use std::io::{Read, Write};
     let served = Served::start().await;
     let _publisher = Publisher::start(&served.instrument, Duration::from_millis(10));
