@@ -8,7 +8,8 @@ Tetera's HTTP interface, L5 (plan §6.2, [ADR-0017](../../docs/adr/0017-control-
   - the virtual camera, on the GPU when there is one;
   - the objective mount;
   - the light, on at the start;
-  - the sample on the stage.
+  - the sample on the stage;
+  - the frame bus, which the camera's stream goes into, and where previews are made, on the GPU when the camera renders there.
 
   `load` and `unload` change the sample while the camera runs.
 - **The Things,** each with its Thing Description at `/{thing}/`:
@@ -17,10 +18,11 @@ Tetera's HTTP interface, L5 (plan §6.2, [ADR-0017](../../docs/adr/0017-control-
   |---|---|---|
   | `system` | `version`; `platform` (the kernel, the distribution, WSL's version); `compute` (the GPU or the CPU, and the camera's sensor); `memory`; `disks` (the data and scratch roots') | — |
   | `simulation` | `sample` (its seed and section, or `null`) | `load` (`seed`, `thickness`, `folds`), `unload`, `inject` (`stage_stall`, `stage_alarm`, `stage_limit`) |
-  | `camera` | `capabilities`; `config`, and each of its settings: `mode`, `exposure` (ms), `gain`, `bit_depth`, `binning`, `roi`; `pixel_format`; `white_balance`, for the preview; `streaming`, `frames` (delivered and dropped), `last_frame` (its metadata) | `start_streaming`, `stop_streaming` |
+  | `camera` | `capabilities`; `config`, and each of its settings: `mode`, `exposure` (ms), `gain`, `bit_depth`, `binning`, `roi`; `pixel_format`; `white_balance`, for the preview; `streaming`, `frames` (delivered and dropped), `last_frame` (its metadata) | `start_streaming`, `stop_streaming`: the stream goes into the frame bus |
   | `stage` | `capabilities`; `position` (µm), `state`, `moving`, kept current as it moves, so they can be watched; `speed`, the speed of moves that name none, a setting | `move_to`, `move_by` (each ends when the stage is still, and stops it if cancelled), `jog`, `stop_jog`, `halt`, `home` |
   | `objective` | `catalogue`; `fitted`, by name, written to say which is fitted; `objective`, in full | `remove`, to say none is |
   | `illumination` | `capabilities`; `on`, `intensity` (0 to 1), `colour_temperature` (K) | — |
+  | `preview` | `defaults`, what a client's preview starts from (the viewport, region, quality and rate), a setting; `sessions`, the previews open | —; its `stream` is the live preview's WebSocket |
 
   teta-wot takes a `null` body as a missing one, as FastAPI does, so a property can't be written to `null`: an action does that, as `remove` does for the objective.
 - **`error`** maps Tetera's errors to teta-wot's.
@@ -76,4 +78,27 @@ curl -N http://127.0.0.1:8310/stage/position -H 'Accept: text/event-stream'   # 
 
 The invocation's `timeStarted` and `timeCompleted` are about 0.6 s apart, plus up to 25 ms for the stage's next report. Over WebSocket, `/stage/ws` with `{"messageType": "addPropertyObservation", "data": {"position": true}}` sends the position as it changes.
 
-The tests run each Thing through teta-wot's in-process test client: `cargo test -p tetera-api`.
+## The preview stream
+
+`ws://127.0.0.1:8310/preview/stream` is a WebSocket of frames ([ADR-0019](../../docs/adr/0019-the-preview-protocol.md)). Each binary message is a frame: a 64-byte header, little-endian, then a JPEG. The header carries:
+
+- the frame's sequence number;
+- its exposure's start and end on the instrument's clock, and its end in UTC;
+- when it was sent, in UTC;
+- the image's size, its quality, and whether a slow link lowered it.
+
+The client sends its whole state as JSON text, `{"width", "height", "roi", "quality", "max_rate", "ack"}`, when it changes and once it has painted each frame:
+
+- a field left out takes `preview/defaults`;
+- `ack` is the last frame painted, by its sequence number, and no more than two frames go unacknowledged;
+- a state no preview can take is answered with `{"error": …}` and changes nothing.
+
+When the window holds previews back for more than half of a second, the link steps down: the quality capped at 60, then 40, then the viewport scaled to 0.75 and 0.5. It steps back up after two quick seconds.
+
+```bash
+cargo run --release -p tetera-api --features cuda --example preview-stream
+```
+
+It serves the virtual instrument on a loopback port, streams the camera in its binned live mode, and connects two clients: a quick one, and one that takes 200 ms over each frame. On this PC the quick one gets the camera's 51 frames a second, 34 ms from each frame's exposure to its receipt. The slow one gets five a second, its link down to quality 40. `-- --smoke` runs a small sensor on the CPU.
+
+The tests run each Thing through teta-wot's in-process test client, and the preview's stream over a real socket: `cargo test -p tetera-api`.

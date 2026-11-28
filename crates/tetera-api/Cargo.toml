@@ -9,8 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [features]
-# The camera and the sample on the GPU, when there is one.
-cuda = ["dep:tetera-compute", "tetera-compute/cuda", "tetera-sim/cuda"]
+# The camera, the sample and the previews on the GPU, when there is one.
+cuda = ["tetera-acquire/cuda", "tetera-compute/cuda", "tetera-sim/cuda"]
 
 [dependencies]
 anyhow.workspace = true
@@ -18,7 +18,8 @@ schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 teta-wot.workspace = true
-tetera-compute = { workspace = true, optional = true }
+tetera-acquire.workspace = true
+tetera-compute.workspace = true
 tetera-core.workspace = true
 tetera-hal.workspace = true
 tetera-sim.workspace = true
@@ -26,7 +27,10 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+futures-util.workspace = true
 teta-wot = { workspace = true, features = ["testing"] }
+tetera-imaging.workspace = true
+tokio-tungstenite.workspace = true
 
 [lints]
 workspace = true

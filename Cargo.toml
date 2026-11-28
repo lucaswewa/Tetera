@@ -52,6 +52,9 @@ tracing = "0.1.44"
 turbojpeg = { version = "1.5.1", default-features = false, features = ["cmake", "require-simd"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "registry", "fmt", "ansi", "env-filter"] }
 uuid = { version = "1.29.2", features = ["v7", "serde"] }
+# The preview stream's WebSocket client, in tests and examples, as axum's own (P1.14b).
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
+tokio-tungstenite = "0.29.0"
 
 # Every crate takes these with `[lints] workspace = true`, except the few allowed unsafe
 # code, which set their own (ADR-0005). The gates turn warnings into errors.

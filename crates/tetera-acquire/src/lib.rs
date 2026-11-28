@@ -5,11 +5,14 @@
 //!   exposed after a time.
 //! - [`preview`]: preview sessions: the newest frame to a JPEG of a viewport's size, through
 //!   a live recipe fused on the GPU, each stage timed.
+//! - [`protocol`]: the preview protocol's messages (ADR-0019): each frame's header, the
+//!   client's state, the acknowledgement window and the slow link's control.
 //! - [`stats`]: live statistics from the raw frame: histograms, the saturation mask, line
 //!   profiles, a region's statistics, a focus value.
 
 pub mod bus;
 pub mod preview;
+pub mod protocol;
 pub mod stats;
 
 pub use bus::{FrameBus, Latest, Lossless};

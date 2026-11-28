@@ -1464,15 +1464,19 @@ name = "tetera-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures-util",
  "schemars",
  "serde",
  "serde_json",
  "teta-wot",
+ "tetera-acquire",
  "tetera-compute",
  "tetera-core",
  "tetera-hal",
+ "tetera-imaging",
  "tetera-sim",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
 ]
 
