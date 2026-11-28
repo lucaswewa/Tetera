@@ -101,6 +101,21 @@ fn expected(f: &Frame) -> Samples {
     }
 }
 
+/// The bytes of every file under `dir`.
+fn tree_bytes(dir: &Path) -> u64 {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .map(|e| {
+            if e.path().is_dir() {
+                tree_bytes(&e.path())
+            } else {
+                e.metadata().unwrap().len()
+            }
+        })
+        .sum()
+}
+
 fn read_json(path: &Path) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
@@ -210,6 +225,20 @@ fn a_dataset_reads_back_exactly_in_8_and_16_bits_raw_or_grey() {
         let kinds: Vec<&str> = files.iter().map(|f| f.kind.as_str()).collect();
         assert_eq!(kinds, ["ome-zarr", "metadata", "thumbnail"]);
         assert!(files.iter().all(|f| f.bytes > 0));
+        let dir = scratch.0.join(&info.path);
+        assert_eq!(
+            files[0].bytes,
+            tree_bytes(&dir.join(IMAGE)),
+            "the whole tree"
+        );
+        assert_eq!(
+            files[1].bytes,
+            std::fs::metadata(dir.join(METADATA)).unwrap().len()
+        );
+        assert_eq!(
+            files[2].bytes,
+            std::fs::metadata(dir.join(THUMBNAIL)).unwrap().len()
+        );
         assert_eq!(info.bytes, files.iter().map(|f| f.bytes).sum::<u64>());
         // The thumbnail: a JPEG, each 2 × 2 cell a pixel.
         let jpeg = store.thumbnail(&info.id).unwrap();
@@ -494,4 +523,130 @@ fn a_large_frames_thumbnail_is_shrunk_to_fit() {
     let mean = image.data().iter().map(|&v| f64::from(v)).sum::<f64>() / image.data().len() as f64;
     let expected = (200.0f64 / 255.0).powf(1.0 / 2.2) * 255.0;
     assert!((mean - expected).abs() < 3.0, "{mean} against {expected}");
+}
+
+/// The thumbnail's pixels worked out plainly: cell by cell, colour by colour.
+fn reference_thumbnail(samples: &Samples, spec: &DatasetSpec) -> (u32, u32, Vec<u8>) {
+    let (w, h) = (spec.width as usize, spec.height as usize);
+    let at = |x: usize, y: usize| match samples {
+        Samples::U8(s) => f64::from(s[y * w + x]),
+        Samples::U16(s) => f64::from(s[y * w + x]),
+    };
+    let (full, pattern) = match spec.format {
+        PixelFormat::Bayer16 {
+            pattern,
+            significant_bits,
+        } => (f64::from((1u32 << significant_bits) - 1), Some(pattern)),
+        PixelFormat::Bayer8 { pattern } => (255.0, Some(pattern)),
+        PixelFormat::Mono16 => (65_535.0, None),
+        _ => (255.0, None),
+    };
+    let (cw, ch) = (w / 2, h / 2);
+    let mut step = 1;
+    while cw / step > THUMBNAIL_SIZE as usize || ch / step > THUMBNAIL_SIZE as usize {
+        step += 1;
+    }
+    let (tw, th) = (cw / step, ch / step);
+    let level = |v: f64| {
+        let v8 = ((v / full).clamp(0.0, 1.0) * 255.0).round();
+        ((v8 / 255.0).powf(1.0 / 2.2) * 255.0).round() as u8
+    };
+    let mut rgb = Vec::new();
+    for ty in 0..th {
+        for tx in 0..tw {
+            let (x0, y0) = (tx * step * 2, ty * step * 2);
+            let cell = [(x0, y0), (x0 + 1, y0), (x0, y0 + 1), (x0 + 1, y0 + 1)];
+            match pattern {
+                Some(p) => {
+                    for want in [0, 1, 2] {
+                        let vals: Vec<f64> = cell
+                            .iter()
+                            .filter(|&&(x, y)| {
+                                let c = match p.channel_at(x as u32, y as u32) {
+                                    tetera_core::frame::format::Channel::Red => 0,
+                                    tetera_core::frame::format::Channel::Blue => 2,
+                                    _ => 1,
+                                };
+                                c == want
+                            })
+                            .map(|&(x, y)| at(x, y))
+                            .collect();
+                        rgb.push(level(vals.iter().sum::<f64>() / vals.len() as f64));
+                    }
+                }
+                None => {
+                    let mean = cell.iter().map(|&(x, y)| at(x, y)).sum::<f64>() / 4.0;
+                    rgb.extend([level(mean); 3]);
+                }
+            }
+        }
+    }
+    (tw as u32, th as u32, rgb)
+}
+
+#[test]
+fn a_thumbnails_pixels_are_each_cells_colours_every_steps_cell() {
+    for (format, w, h) in [
+        (bayer16(), 64, 48),
+        (
+            PixelFormat::bayer16(BayerPattern::Bggr, 10).unwrap(),
+            1_100,
+            520,
+        ),
+        (
+            PixelFormat::Bayer8 {
+                pattern: BayerPattern::Grbg,
+            },
+            36,
+            1_030,
+        ),
+        (PixelFormat::Mono16, 2_000, 30),
+        (PixelFormat::Mono8, 2, 2),
+    ] {
+        let s = DatasetSpec {
+            width: w,
+            height: h,
+            ..spec(format, 1)
+        };
+        let n = (w * h) as usize;
+        let value = |i: usize| (i * 2_654_435_761 % 65_536) as u32;
+        let samples = if format.bytes_per_sample() == 1 {
+            Samples::U8((0..n).map(|i| value(i) as u8).collect())
+        } else {
+            let full = match format {
+                PixelFormat::Bayer16 {
+                    significant_bits, ..
+                } => 1u32 << significant_bits,
+                _ => 65_536,
+            };
+            Samples::U16((0..n).map(|i| (value(i) % full) as u16).collect())
+        };
+        let got = crate::dataset::thumbnail_rgb(&samples, &s).unwrap();
+        assert_eq!(
+            got,
+            reference_thumbnail(&samples, &s),
+            "{format:?} {w} × {h}"
+        );
+        assert!(got.0 <= THUMBNAIL_SIZE && got.1 <= THUMBNAIL_SIZE);
+    }
+    // The least frame: 2 × 2, one pixel.
+    let scratch = Scratch::new();
+    let store = Store::open(&scratch.0).unwrap();
+    store.create_project("p").unwrap();
+    let least = DatasetSpec {
+        width: 2,
+        height: 2,
+        ..spec(PixelFormat::Mono8, 1)
+    };
+    let pool = FramePool::new(
+        FrameLayout::new(PixelFormat::Mono8, 2, 2).unwrap(),
+        1,
+        &HostAllocator,
+    )
+    .unwrap();
+    let mut f = pool.take(Duration::from_secs(5)).unwrap();
+    f.data_mut().fill(9);
+    let mut writer = store.create_dataset("p", least).unwrap();
+    writer.append(&f.freeze()).unwrap();
+    assert_eq!(writer.finish().unwrap().frames, 1);
 }

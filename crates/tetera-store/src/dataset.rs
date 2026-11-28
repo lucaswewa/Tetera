@@ -236,10 +236,18 @@ impl DatasetReader {
     }
 }
 
-/// A JPEG thumbnail of `samples`, a frame of `spec`: each 2 × 2 Bayer cell as one pixel, its
-/// red, the mean of its greens, and its blue (grey frames 2 × 2 binned), shrunk to at most
-/// [`THUMBNAIL_SIZE`] across, brightened by a display gamma of 2.2.
+/// A JPEG thumbnail of `samples`, a frame of `spec`, of [`thumbnail_rgb`]'s pixels.
 pub(crate) fn thumbnail(samples: &Samples, spec: &DatasetSpec) -> Result<Vec<u8>> {
+    let (w, h, rgb) = thumbnail_rgb(samples, spec)?;
+    let image = tetera_imaging::Image::new(w, h, 3, rgb)?;
+    tetera_imaging::jpeg::encode(&image, 80)
+}
+
+/// A thumbnail's pixels, red, green and blue, and its size: each 2 × 2 Bayer cell as one
+/// pixel, its red, the mean of its greens, and its blue (grey frames 2 × 2 binned), every
+/// `step`th cell so that it is at most [`THUMBNAIL_SIZE`] each way, brightened by a display
+/// gamma of 2.2.
+pub(crate) fn thumbnail_rgb(samples: &Samples, spec: &DatasetSpec) -> Result<(u32, u32, Vec<u8>)> {
     let (w, h) = (spec.width as usize, spec.height as usize);
     let full = match spec.format {
         PixelFormat::Bayer16 {
@@ -302,8 +310,7 @@ pub(crate) fn thumbnail(samples: &Samples, spec: &DatasetSpec) -> Result<Vec<u8>
             }
         }
     }
-    let image = tetera_imaging::Image::new(tw as u32, th as u32, 3, rgb)?;
-    tetera_imaging::jpeg::encode(&image, 80)
+    Ok((tw as u32, th as u32, rgb))
 }
 
 /// The bytes the files under `dir` take.

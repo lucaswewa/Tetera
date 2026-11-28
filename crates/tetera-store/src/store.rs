@@ -83,12 +83,10 @@ impl Store {
         for info in &abandoned {
             shared.remove(info)?;
         }
-        if !abandoned.is_empty() {
-            tracing::info!(
-                abandoned = abandoned.len(),
-                "datasets left unfinished removed"
-            );
-        }
+        tracing::debug!(
+            abandoned = abandoned.len(),
+            "datasets left unfinished removed"
+        );
         Ok(Self { shared })
     }
 
@@ -274,7 +272,7 @@ impl DatasetWriter {
             .take()
             .ok_or_else(|| Error::invalid_argument("a dataset of no frames"))?;
         let written = self.written();
-        if written < self.spec.frames {
+        if written != self.spec.frames {
             let array = self.array.as_mut().expect("made with the writer");
             let mut shape = array.shape().to_vec();
             shape[0] = written;
