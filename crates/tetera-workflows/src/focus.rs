@@ -305,8 +305,20 @@ fn median(values: &[f64]) -> f64 {
 /// all of a broad peak's, so its flat top has curvature enough to fit.
 pub fn vertex(points: &[(f64, f64)]) -> f64 {
     let values: Vec<f64> = points.iter().map(|p| p.1).collect();
-    let (peak, best) = highest_of(&values);
+    let (peak, _) = highest_of(&values);
     let zp = points[peak].0;
+    let (from, to) = window(&values);
+    let window = &points[from..=to];
+    if window.len() < 3 {
+        return zp;
+    }
+    fit(window, zp).unwrap_or(zp)
+}
+
+/// The points [`vertex`] fits, first and last: around the highest of `values`, those in its
+/// top half, then the higher neighbour each time until there are three, where there are.
+fn window(values: &[f64]) -> (usize, usize) {
+    let (peak, best) = highest_of(values);
     let lowest = values.iter().copied().fold(f64::INFINITY, f64::min);
     let half = (best + lowest) / 2.0;
     let (mut from, mut to) = (peak, peak);
@@ -330,10 +342,13 @@ pub fn vertex(points: &[(f64, f64)]) -> f64 {
             to += 1;
         }
     }
-    let window = &points[from..=to];
-    if window.len() < 3 {
-        return zp;
-    }
+    (from, to)
+}
+
+/// The vertex of the parabola through `window`'s logarithms, or its values if any is 0 or
+/// below, `zp` the highest point's z: if it opens downward and the vertex lies within the
+/// window.
+fn fit(window: &[(f64, f64)], zp: f64) -> Option<f64> {
     // The logarithm, where every value is above 0: a Gaussian's is a parabola.
     let logs = window.iter().all(|p| p.1 > 0.0);
     let y = |v: f64| if logs { v.ln() } else { v };
@@ -353,19 +368,12 @@ pub fn vertex(points: &[(f64, f64)]) -> f64 {
         st2y += t * t * yv;
     }
     let m = [[s, st, st2], [st, st2, st3], [st2, st3, st4]];
-    let Some([_, b, c]) = solve3(m, [sy, sty, st2y]) else {
-        return zp;
-    };
+    let [_, b, c] = solve3(m, [sy, sty, st2y])?;
     if c >= 0.0 {
-        return zp;
+        return None;
     }
-    let t = -b / (2.0 * c);
-    let z = zp + t;
-    if z >= window[0].0 && z <= window[window.len() - 1].0 {
-        z
-    } else {
-        zp
-    }
+    let z = zp - b / (2.0 * c);
+    (z >= window[0].0 && z <= window[window.len() - 1].0).then_some(z)
 }
 
 /// `m x = r` by Cramer's rule: `None` when `m` is singular.
@@ -376,7 +384,7 @@ fn solve3(m: [[f64; 3]; 3], r: [f64; 3]) -> Option<[f64; 3]> {
             + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
     };
     let d = det(&m);
-    if d.abs() < 1e-300 || !d.is_finite() {
+    if d == 0.0 || !d.is_finite() {
         return None;
     }
     let mut x = [0.0; 3];

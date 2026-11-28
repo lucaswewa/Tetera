@@ -74,6 +74,7 @@ fn backlash_is_taken_up_before_each_sweep_and_the_focus() {
     let mut probe = Synthetic::new(2_000.0, 2_013.0, 7);
     probe.backlash = 6.0;
     probe.width = d;
+    probe.base = 2.0;
     let options = SearchOptions::default();
     let focus = search(&mut probe, d, TRAVEL, &options, &mut going).unwrap();
     // The carriage lags the screw by the backlash, measured and final alike.
@@ -134,7 +135,23 @@ fn backlash_is_taken_up_before_each_sweep_and_the_focus() {
         "around the coarse peak: {fine:?}"
     );
     assert_eq!((focus.start, focus.depth_of_field), (2_000.0, d));
-    assert!(focus.contrast > 1.0, "{}", focus.contrast);
+    // The contrast: the coarse peak over the coarse sweep's median, the ninth of 17.
+    let mut values: Vec<f64> = focus
+        .curve
+        .iter()
+        .filter(|p| p.sweep == Sweep::Coarse)
+        .map(|p| p.value)
+        .collect();
+    values.sort_by(f64::total_cmp);
+    assert!((focus.contrast - (values[16] / values[8] - 1.0)).abs() < 1e-12);
+    // The focus: the fine sweep's vertex.
+    let fine_points: Vec<(f64, f64)> = focus
+        .curve
+        .iter()
+        .filter(|p| p.sweep == Sweep::Fine)
+        .map(|p| (p.z, p.value))
+        .collect();
+    assert_eq!(focus.z, Some(vertex(&fine_points)));
 }
 
 #[test]
@@ -179,6 +196,15 @@ fn a_flat_curve_finds_no_focus_and_the_stage_goes_back_to_its_start_from_below()
         .unwrap();
         assert_eq!(focus.z.is_some(), found, "{height}: {focus:?}");
     }
+    // A contrast of exactly the least isn't flat: its peak, the first of equals, is at the end.
+    let mut probe = Synthetic::new(1_500.0, 1_500.0, 3);
+    probe.shape = Shape::Flat;
+    let at_least = SearchOptions {
+        min_contrast: 0.0,
+        ..SearchOptions::default()
+    };
+    let focus = search(&mut probe, 3.4, TRAVEL, &at_least, &mut going).unwrap();
+    assert!(focus.why_not.unwrap().contains("range's end"));
     // Nothing measured but 0: flat.
     let mut probe = Synthetic::new(1_500.0, 1_500.0, 3);
     probe.base = 0.0;
@@ -315,14 +341,16 @@ fn bad_options_and_a_range_beyond_the_travel_are_refused_before_a_move() {
             "{d}"
         );
     }
-    // ±8 d, a fine reach of 2 d below the first, and the take-up: 1,000 − 16 − 4 − 10 = 970.
+    // ±8 d of 3 µm, a fine reach of 2 d below the first, and the take-up:
+    // 1,000 − 24 − 6 − 10 = 960; and 1,000 + 24 + 6 = 1,030.
     for (limits, fits) in [
-        ((970.0, 1_020.0), true),
-        ((970.1, 1_020.0), false),
-        ((970.0, 1_019.9), false),
+        ((960.0, 1_030.0), true),
+        ((960.1, 1_030.0), false),
+        ((960.0, 1_029.9), false),
     ] {
         let mut probe = Synthetic::new(1_000.0, 1_000.0, 1);
-        let r = search(&mut probe, 2.0, limits, &base, &mut going);
+        probe.width = 3.0;
+        let r = search(&mut probe, 3.0, limits, &base, &mut going);
         assert_eq!(r.is_ok(), fits, "{limits:?}: {r:?}");
         assert_eq!(probe.moves.is_empty(), !fits);
     }
@@ -330,11 +358,12 @@ fn bad_options_and_a_range_beyond_the_travel_are_refused_before_a_move() {
 
 #[test]
 fn the_step_says_where_the_search_is_and_its_error_stops_it() {
-    let mut probe = Synthetic::new(1_000.0, 1_004.0, 2);
+    let mut probe = Synthetic::new(1_000.0, 1_006.0, 2);
+    probe.width = 3.0;
     let mut seen = Vec::new();
     search(
         &mut probe,
-        2.0,
+        3.0,
         TRAVEL,
         &SearchOptions::default(),
         &mut |done, msg| {
@@ -429,6 +458,14 @@ fn the_vertex_is_the_parabolas_through_the_peaks_logarithm() {
         .collect();
     assert!(raw[1].1 < 0.0);
     assert!((vertex(&raw) - 2.3).abs() < 1e-9, "{}", vertex(&raw));
+    // A value of exactly 0 among them: the measure itself, as ln 0 can't be fitted. Through
+    // (1, 0), (2, 1), (3, 0.5): the vertex at 2 + 1/6.
+    let zero = [(0.0, -1.0), (1.0, 0.0), (2.0, 1.0), (3.0, 0.5), (4.0, -1.0)];
+    assert!(
+        (vertex(&zero) - (2.0 + 1.0 / 6.0)).abs() < 1e-12,
+        "{}",
+        vertex(&zero)
+    );
     // A singular system: every z the same.
     assert_eq!(vertex(&[(1.0, 1.0), (1.0, 3.0), (1.0, 2.0)]), 1.0);
     // The window: the top half around the peak, a lower point beyond it left out.
@@ -445,6 +482,39 @@ fn the_vertex_is_the_parabolas_through_the_peaks_logarithm() {
 }
 
 #[test]
+fn the_window_is_the_peaks_top_half_and_three_at_least() {
+    // The top half, above (10 + 1) / 2: 6, 9, 10, 8; not the 5s beyond.
+    assert_eq!(window(&[1.0, 5.0, 6.0, 9.0, 10.0, 8.0, 5.0, 1.0]), (2, 5));
+    // At an end: the three nearest it.
+    assert_eq!(window(&[10.0, 2.0, 1.0, 1.0]), (0, 2));
+    assert_eq!(window(&[1.0, 1.0, 2.0, 10.0]), (1, 3));
+    // The higher neighbour first, the left of equals.
+    assert_eq!(window(&[1.0, 3.0, 10.0, 2.0, 1.0]), (1, 3));
+    assert_eq!(window(&[3.0, 2.0, 10.0, 2.0, 9.0]), (0, 2));
+    // Two: both. Above the midpoint of 9 and 10: all but the lowest.
+    assert_eq!(window(&[1.0, 2.0]), (0, 1));
+    assert_eq!(window(&[9.0, 10.0, 9.5, 9.8, 9.9]), (1, 4));
+}
+
+#[test]
+fn three_equations_are_solved_and_a_singular_set_isnt() {
+    // 2x + y = 5, x + 3y + z = 10, y + 4z = 14: x = 29/18, y = 16/9, z = 55/18.
+    let m = [[2.0, 1.0, 0.0], [1.0, 3.0, 1.0], [0.0, 1.0, 4.0]];
+    let x = solve3(m, [5.0, 10.0, 14.0]).unwrap();
+    for (got, want) in x.iter().zip([29.0 / 18.0, 16.0 / 9.0, 55.0 / 18.0]) {
+        assert!((got - want).abs() < 1e-12, "{x:?}");
+    }
+    assert_eq!(solve3([[1.0; 3]; 3], [1.0, 2.0, 3.0]), None);
+    assert_eq!(solve3([[f64::NAN; 3]; 3], [1.0, 2.0, 3.0]), None);
+    let tiny = [[1e-110, 0.0, 0.0], [0.0, 1e-110, 0.0], [0.0, 0.0, 1e-110]];
+    assert_eq!(
+        solve3(tiny, [1e-110, 2e-110, 3e-110]).map(|x| x.map(f64::round)),
+        Some([1.0, 2.0, 3.0]),
+        "small, not singular"
+    );
+}
+
+#[test]
 fn positions_and_the_median_are_as_said() {
     assert_eq!(positions(10.0, 2.0, 1.0), [8.0, 9.0, 10.0, 11.0, 12.0]);
     assert_eq!(positions(0.0, 1.0, 0.25).len(), 9);
@@ -454,7 +524,9 @@ fn positions_and_the_median_are_as_said() {
         "a step beyond the reach: the centre"
     );
     assert_eq!(median(&[3.0, 1.0, 2.0]), 2.0);
+    assert_eq!(median(&[5.0, 1.0, 4.0, 2.0, 3.0]), 3.0);
     assert_eq!(median(&[4.0, 1.0, 3.0, 2.0]), 2.5);
+    assert_eq!(median(&[6.0, 1.0, 5.0, 2.0, 4.0, 3.0]), 3.5);
     assert_eq!(highest_of(&[1.0, 3.0, 2.0, 3.0]), (1, 3.0));
 }
 
@@ -479,6 +551,17 @@ fn the_synthetic_stage_has_backlash_and_steps_and_its_noise_is_normal() {
     assert_eq!(p.carriage(), 10.0, "down past it: pushed");
     p.move_to(10.0).unwrap();
     assert_eq!(p.moves.len(), 4);
+    let _ = p.measure().unwrap();
+    // Up, then nowhere: still risen.
+    p.move_to(11.0).unwrap();
+    p.move_to(11.0).unwrap();
+    let _ = p.measure().unwrap();
+    assert_eq!(
+        p.measured_rising,
+        [false, true],
+        "nowhere keeps the last direction"
+    );
+    assert_eq!(p.carriage(), 10.0, "within the play");
     // The measure: (1 + 3 · shape) at the carriage, 2 µm wide.
     let mut p = Synthetic::new(1.0, 0.0, 9);
     assert!((p.measure().unwrap() - (1.0 + 3.0 * (-0.125f64).exp())).abs() < 1e-12);
@@ -487,6 +570,17 @@ fn the_synthetic_stage_has_backlash_and_steps_and_its_noise_is_normal() {
     p.shape = Shape::Flat;
     assert_eq!(p.measure().unwrap(), 1.0);
     assert_eq!(p.measured_rising, [false, false, false]);
+    // SplitMix64: its first output from a seed of 0 is 0xE220A8397B1DCDAF; the noise is Box
+    // and Muller's from the two that follow it.
+    let mut q = Synthetic::new(0.0, 0.0, 0);
+    let first = (0xE220_A839_7B1D_CDAFu64 >> 11) as f64 / (1u64 << 53) as f64;
+    assert_eq!(q.uniform(), first);
+    let mut r = q.clone();
+    let (u, v) = (r.uniform(), r.uniform());
+    q.noise = 1.0;
+    q.shape = Shape::Flat;
+    let n = (-2.0 * u.ln()).sqrt() * (std::f64::consts::TAU * v).cos();
+    assert!((q.measure().unwrap() - (1.0 + n)).abs() < 1e-12);
     // Its noise: mean 0, standard deviation 1, from numbers in [0, 1).
     p.noise = 1.0;
     let n = 20_000;

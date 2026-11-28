@@ -22,8 +22,9 @@ fn each_measure_gives_the_known_value_of_a_simple_image() {
     // A ramp across: every difference two apart is 2a.
     let ramp = image(6, 4, |x, _| 3.0 * x as f64 + 7.0);
     assert!(near(brenner(&ramp), 36.0), "{}", brenner(&ramp));
-    // A plane: Sobel's gradients are 8a and 8b everywhere.
-    let plane = image(5, 4, |x, y| 2.0 * x as f64 + 3.0 * y as f64 + 1.0);
+    // A plane: Sobel's gradients are 8a and 8b everywhere. Its size makes no two counts of
+    // the interior alike.
+    let plane = image(5, 6, |x, y| 2.0 * x as f64 + 3.0 * y as f64 + 1.0);
     assert!(
         near(tenengrad(&plane), 64.0 * 13.0),
         "{}",
@@ -35,9 +36,12 @@ fn each_measure_gives_the_known_value_of_a_simple_image() {
     });
     assert!(near(laplacian_variance(&checker), 64.0));
     assert!(near(normalised_variance(&checker), 0.1));
-    // A parabola's Laplacian is constant: no variance.
+    // A parabola's Laplacian is constant: no variance. Across, and down, where the
+    // neighbours above and below count, its mean 6, the interior 3 × 4.
     let bowl = image(5, 5, |x, _| (x * x) as f64);
     assert!(near(laplacian_variance(&bowl), 0.0));
+    let trough = image(5, 6, |_, y| 3.0 * (y * y) as f64);
+    assert_eq!(laplacian_variance(&trough), 0.0);
     // A flat image is no sharper than any.
     let flat = image(5, 5, |_, _| 100.0);
     for m in FocusMeasure::ALL {
@@ -161,6 +165,10 @@ fn the_green_channel_is_binned_to_fit_and_a_part_block_left_out() {
     assert_eq!(green(&m, 12).unwrap().width(), 12);
     assert_eq!(green(&m, 11).unwrap().width(), 6);
     assert!(green(&m, 2).is_err());
+    assert!(green(&m, 0).is_err(), "refused, not divided by");
+    let square = mosaic(BayerPattern::Rggb, 24, 24, |x, y, _| (x + y) as u16);
+    let three = green(&square, 3).unwrap();
+    assert_eq!((three.width(), three.height()), (3, 3), "binned 4 × 4");
     let tiny = mosaic(BayerPattern::Rggb, 4, 4, |_, _, _| 1);
     assert!(green(&tiny, 512).is_err(), "2 × 2 cells");
 }

@@ -107,4 +107,6 @@ exclude_re = [
     "replace < with <= in LiveStats::start",
     # A series' wait: `now < next` and `now <= next` differ only at the exact nanosecond.
     "replace < with <= in take",
+    # The Laplacian's sum negated: its mean's sign changes, and only its square counts.
+    "replace \\+= with -= in laplacian_variance",
 ]
