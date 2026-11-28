@@ -199,7 +199,9 @@ fn compute_jobs_run_side_by_side_up_to_the_pool_and_their_vram() {
         Some(budgets.reserve("compute jobs", 512 * MIB).unwrap()),
     )
     .unwrap();
-    let run = |vram: u64, n: usize| {
+    // Each job waits, up to 5 s, until `expect` are running, then holds 30 ms: on a busy CPU
+    // the pool still fills, and one that let more in would show it.
+    let run = |vram: u64, n: usize, expect: usize| {
         let running = Arc::new(AtomicUsize::new(0));
         let most = Arc::new(AtomicUsize::new(0));
         let ids: Vec<String> = (0..n)
@@ -208,7 +210,11 @@ fn compute_jobs_run_side_by_side_up_to_the_pool_and_their_vram() {
                 jobs.submit(JobKind::Compute, "denoise", vram, move |ctx| {
                     let now = running.fetch_add(1, Ordering::SeqCst) + 1;
                     most.fetch_max(now, Ordering::SeqCst);
-                    ctx.sleep(Duration::from_millis(60))?;
+                    let deadline = Instant::now() + Duration::from_secs(5);
+                    while running.load(Ordering::SeqCst) < expect && Instant::now() < deadline {
+                        ctx.sleep(Duration::from_millis(2))?;
+                    }
+                    ctx.sleep(Duration::from_millis(30))?;
                     running.fetch_sub(1, Ordering::SeqCst);
                     Ok(json!(null))
                 })
@@ -220,8 +226,8 @@ fn compute_jobs_run_side_by_side_up_to_the_pool_and_their_vram() {
         }
         most.load(Ordering::SeqCst)
     };
-    assert_eq!(run(0, 6), 3, "the pool's three, asking no VRAM");
-    assert_eq!(run(200 * MIB, 6), 2, "200 MiB each of 512: two at once");
+    assert_eq!(run(0, 6, 3), 3, "the pool's three, asking no VRAM");
+    assert_eq!(run(200 * MIB, 6, 2), 2, "200 MiB each of 512: two at once");
     assert_eq!(budgets.reserved(), 512 * MIB, "the budget's grants gone");
     // More than the whole budget: refused when its turn comes.
     let big = jobs
@@ -545,6 +551,11 @@ fn the_history_follows_a_job_as_it_goes_and_dropping_the_service_stops_it() {
     assert_eq!(h.get(&id).unwrap().unwrap().state, JobState::Queued);
     go.send(()).unwrap();
     until_running(&jobs, &id);
+    // The history is written just after the change in memory: it catches up.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while h.get(&id).unwrap().unwrap().state != JobState::Running && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
     assert_eq!(h.get(&id).unwrap().unwrap().state, JobState::Running);
     assert_eq!(h.get(&blocker).unwrap().unwrap().state, JobState::Succeeded);
     // Dropped while the job runs: it is asked to stop, and waited for.
