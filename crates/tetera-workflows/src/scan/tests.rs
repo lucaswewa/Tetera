@@ -423,9 +423,15 @@ fn a_snake_is_taken_stop_and_go_its_positions_recorded_and_settled() {
         "a preview moves nothing"
     );
     let control = ScanControl::default();
-    let r = scan(&b.rig(), &request(three_by_two()), &control, &mut going).unwrap();
+    // A settle near the stream's 138 ms interval: without it, a frame's exposure would start
+    // anywhere in the interval after the stage stopped, and six would clear it only by chance.
+    let settled = ScanRequest {
+        settle_ms: Some(120.0),
+        ..request(three_by_two())
+    };
+    let r = scan(&b.rig(), &settled, &control, &mut going).unwrap();
     assert_eq!((r.dataset.frames, r.tiles.len()), (6, 6));
-    assert_eq!(r.plan, plan);
+    assert_eq!(r.plan.positions, plan.positions);
     let step = 0.3125;
     for (t, planned) in r.tiles.iter().zip(&plan.positions) {
         assert_eq!(t.planned, *planned);
@@ -444,7 +450,7 @@ fn a_snake_is_taken_stop_and_go_its_positions_recorded_and_settled() {
         );
         // The settle between the stage's report and the exposure.
         assert!(
-            since(t.exposure_start, t.still_at) >= Duration::from_millis(50),
+            since(t.exposure_start, t.still_at) >= Duration::from_millis(120),
             "{t:?}"
         );
     }
