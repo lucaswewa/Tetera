@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tetera live view</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f4f4f2; --fg: #1d1d1b; --muted: #6b6b66; --panel: #ffffff; --line: #d9d9d4; --accent: #2f6db5; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececea; --muted: #9a9a94; --panel: #20201f; --line: #34342f; --accent: #6ea4e8; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  main { display: grid; grid-template-columns: 1fr 300px; gap: 12px; padding: 12px; height: 100vh; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; height: auto; } }
+  #stage { position: relative; background: #000; border-radius: 6px; overflow: hidden; min-height: 240px; }
+  #view { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #overlay { position: absolute; left: 8px; top: 8px; padding: 4px 8px; border-radius: 4px; background: rgba(0,0,0,.55); color: #fff; font: 12px/1.5 ui-monospace, monospace; white-space: pre; }
+  aside { display: flex; flex-direction: column; gap: 12px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  button { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); cursor: pointer; }
+  button:active, button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .pad { display: grid; grid-template-columns: repeat(3, 44px); gap: 4px; justify-content: center; }
+  .pad button { height: 40px; padding: 0; }
+  label { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin: 4px 0; }
+  #histogram { width: 100%; height: 120px; display: block; }
+  #error { color: #c0392b; min-height: 1.4em; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <div id="stage"><canvas id="view"></canvas><div id="overlay">connecting…</div></div>
+  <aside>
+    <section>
+      <h2>Camera</h2>
+      <button id="start">Start</button> <button id="stop">Stop</button>
+      <label>Quality <input id="quality" type="range" min="20" max="95" value="80"></label>
+      <div id="error"></div>
+    </section>
+    <section>
+      <h2>Stage</h2>
+      <label>Speed <select id="speed"><option>100</option><option selected>500</option><option>2000</option></select> µm/s</label>
+      <div class="pad">
+        <span></span><button data-axis="y" data-dir="-1" title="Jog up">↑</button><span></span>
+        <button data-axis="x" data-dir="-1" title="Jog left">←</button><span></span><button data-axis="x" data-dir="1" title="Jog right">→</button>
+        <span></span><button data-axis="y" data-dir="1" title="Jog down">↓</button><span></span>
+      </div>
+    </section>
+    <section>
+      <h2>Histogram</h2>
+      <canvas id="histogram"></canvas>
+    </section>
+    <section>
+      <h2>Elsewhere</h2>
+      <a href="/api/v1/preview/mjpeg">MJPEG stream</a> · <a href="/docs">API docs</a>
+    </section>
+  </aside>
+</main>
+<script>
+"use strict";
+const view = document.getElementById("view");
+const ctx = view.getContext("2d");
+const overlay = document.getElementById("overlay");
+const errorBox = document.getElementById("error");
+const state = { width: 1280, height: 853, quality: 80 };
+let socket = null;
+let decoding = Promise.resolve();
+const painted = [];  // paint times, ms, over the last second
+let lastLatency = null, lastHeader = null;
+// The server's times are on its clock's mapping to UTC, which can disagree with this one by
+// seconds: the least gap between a frame's receipt and its sending is that disagreement, plus
+// the shortest trip, a fraction of a millisecond on localhost (ADR-0019).
+let skew = Infinity;
+
+function post(path, body) {
+  return fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined })
+    .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(new Error(`${path}: ${r.status} ${t}`))))
+    .catch(e => { errorBox.textContent = e.message; });
+}
+
+function viewport() {
+  const r = view.getBoundingClientRect();
+  const scale = window.devicePixelRatio || 1;
+  state.width = Math.max(16, Math.min(8192, Math.round(r.width * scale)));
+  state.height = Math.max(16, Math.min(8192, Math.round(r.height * scale)));
+}
+
+function send() {
+  if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(state));
+}
+
+// A frame message: a 64-byte header, little-endian, then the JPEG (ADR-0019).
+function parse(buffer) {
+  const v = new DataView(buffer);
+  if (buffer.byteLength < 64 || String.fromCharCode(v.getUint8(0), v.getUint8(1), v.getUint8(2), v.getUint8(3)) !== "TPV1") {
+    throw new Error("not a preview frame");
+  }
+  const length = v.getUint16(4, true);
+  return {
+    seq: Number(v.getBigUint64(8, true)),
+    exposureEndMs: Number(v.getBigInt64(32, true)) / 1000,
+    sentMs: Number(v.getBigInt64(40, true)) / 1000,
+    width: v.getUint32(48, true),
+    height: v.getUint32(52, true),
+    quality: v.getUint8(56),
+    lowered: (v.getUint8(57) & 1) === 1,
+    jpeg: new Uint8Array(buffer, length, v.getUint32(60, true)),
+  };
+}
+
+function show(header, bitmap) {
+  requestAnimationFrame(() => {
+    if (view.width !== bitmap.width || view.height !== bitmap.height) {
+      view.width = bitmap.width;
+      view.height = bitmap.height;
+    }
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const now = performance.timeOrigin + performance.now();
+    lastLatency = now - header.exposureEndMs - skew;
+    lastHeader = header;
+    painted.push(now);
+    while (painted.length && now - painted[0] > 1000) painted.shift();
+    state.ack = header.seq;
+    send();
+  });
+}
+
+function connect() {
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  socket = new WebSocket(`${scheme}://${location.host}/preview/stream`);
+  socket.binaryType = "arraybuffer";
+  socket.onopen = () => { viewport(); send(); errorBox.textContent = ""; };
+  socket.onmessage = e => {
+    if (typeof e.data === "string") {
+      errorBox.textContent = JSON.parse(e.data).error || e.data;
+      return;
+    }
+    const header = parse(e.data);
+    skew = Math.min(skew, performance.timeOrigin + performance.now() - header.sentMs);
+    decoding = decoding
+      .then(() => createImageBitmap(new Blob([header.jpeg], { type: "image/jpeg" })))
+      .then(bitmap => show(header, bitmap))
+      .catch(err => { errorBox.textContent = err.message; });
+  };
+  socket.onclose = () => { overlay.textContent = "disconnected: reconnecting…"; setTimeout(connect, 1000); };
+}
+
+setInterval(() => {
+  if (!lastHeader) return;
+  const h = lastHeader;
+  overlay.textContent =
+    `frame ${h.seq}  ${h.width} × ${h.height}  quality ${h.quality}${h.lowered ? " (lowered)" : ""}\n` +
+    `${painted.length} fps   exposure to paint ${lastLatency.toFixed(0)} ms`;
+}, 250);
+
+// The histogram, from the live statistics.
+const histogram = document.getElementById("histogram");
+const hctx = histogram.getContext("2d");
+async function drawHistogram() {
+  try {
+    const r = await fetch("/preview/statistics");
+    const s = r.ok ? await r.json() : null;
+    if (s) {
+      histogram.width = histogram.clientWidth * (window.devicePixelRatio || 1);
+      histogram.height = histogram.clientHeight * (window.devicePixelRatio || 1);
+      hctx.clearRect(0, 0, histogram.width, histogram.height);
+      hctx.globalCompositeOperation = "lighter";
+      const colours = ["rgba(220,60,60,.8)", "rgba(60,180,80,.8)", "rgba(70,110,230,.8)"];
+      s.histogram.forEach((bins, c) => {
+        const top = Math.max(...bins.map(n => Math.log1p(n))) || 1;
+        hctx.fillStyle = colours[c];
+        const w = histogram.width / bins.length;
+        bins.forEach((n, b) => {
+          const h = Math.log1p(n) / top * histogram.height;
+          hctx.fillRect(b * w, histogram.height - h, Math.max(1, w), h);
+        });
+      });
+      hctx.globalCompositeOperation = "source-over";
+    }
+  } catch (e) { /* the next poll tries again */ }
+  setTimeout(drawHistogram, 250);
+}
+
+document.getElementById("start").onclick = () => post("/camera/start_streaming");
+document.getElementById("stop").onclick = () => post("/camera/stop_streaming");
+document.getElementById("quality").oninput = e => { state.quality = Number(e.target.value); send(); };
+for (const b of document.querySelectorAll(".pad button")) {
+  const start = e => { e.preventDefault(); b.classList.add("on"); post("/stage/jog", { axis: b.dataset.axis, speed: Number(b.dataset.dir) * Number(document.getElementById("speed").value) }); };
+  const stop = () => { if (b.classList.contains("on")) { b.classList.remove("on"); post("/stage/stop_jog"); } };
+  b.addEventListener("pointerdown", start);
+  b.addEventListener("pointerup", stop);
+  b.addEventListener("pointerleave", stop);
+}
+window.addEventListener("resize", () => { viewport(); send(); });
+
+connect();
+drawHistogram();
+</script>
+</body>
+</html>

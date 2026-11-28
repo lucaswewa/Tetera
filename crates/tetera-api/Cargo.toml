@@ -14,6 +14,7 @@ cuda = ["tetera-acquire/cuda", "tetera-compute/cuda", "tetera-sim/cuda"]
 
 [dependencies]
 anyhow.workspace = true
+futures-util.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -27,7 +28,6 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-futures-util.workspace = true
 teta-wot = { workspace = true, features = ["testing"] }
 tetera-imaging.workspace = true
 tokio-tungstenite.workspace = true

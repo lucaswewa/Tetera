@@ -171,7 +171,7 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
             "illumination",
             &["capabilities", "on", "intensity", "colour_temperature"],
         ),
-        ("preview", &["defaults", "sessions", "stream"]),
+        ("preview", &["defaults", "sessions", "statistics", "stream"]),
     ];
     let named: Vec<String> = devices
         .iter()
@@ -813,5 +813,126 @@ async fn the_light_is_turned_dimmed_and_warmed() {
     assert_eq!(client.get("/illumination/on").await.json(), false);
     let caps = client.get("/illumination/capabilities").await.json();
     assert_eq!(caps["channels"][0]["name"], "transmitted", "{caps}");
+    client.stop().await;
+}
+
+/// Publishes `n` frames into `instrument`'s bus, 10 ms apart, each exposed now.
+fn publish_frames(instrument: &Instrument, n: u64) {
+    use tetera_core::frame::format::BayerPattern;
+    use tetera_core::frame::pool::HostAllocator;
+    use tetera_core::{FrameLayout, FramePool, PixelFormat};
+    let format = PixelFormat::Bayer8 {
+        pattern: BayerPattern::Rggb,
+    };
+    let pool = FramePool::new(
+        FrameLayout::new(format, 256, 192).unwrap(),
+        8,
+        &HostAllocator,
+    )
+    .unwrap();
+    for seq in 1..=n {
+        let mut f = pool.take(Duration::from_secs(5)).unwrap();
+        f.data_mut().fill(if seq % 2 == 0 { 255 } else { 90 });
+        let now = instrument.clock.now();
+        let meta = f.meta_mut();
+        meta.seq = seq;
+        meta.exposure_start = now;
+        meta.exposure_end = now;
+        instrument.bus.publish(f.freeze());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_preview_plays_as_mjpeg_and_bad_queries_are_refused() {
+    use futures_util::StreamExt;
+    let scratch = Scratch::new();
+    let (client, instrument) = client(&scratch).await;
+    let response = client
+        .stream("/api/v1/preview/mjpeg?width=64&height=64&quality=60")
+        .await;
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers()["content-type"],
+        "multipart/x-mixed-replace; boundary=tetera-frame"
+    );
+    let publisher = {
+        let instrument = instrument.clone();
+        std::thread::spawn(move || publish_frames(&instrument, 30))
+    };
+    let mut body = response.into_body().into_data_stream();
+    let mut parts = Vec::new();
+    while parts.len() < 3 {
+        let chunk = tokio::time::timeout(Duration::from_secs(10), body.next())
+            .await
+            .expect("a part within 10 s")
+            .expect("the stream goes on")
+            .unwrap();
+        parts.push(chunk);
+    }
+    for part in &parts {
+        let text = String::from_utf8_lossy(&part[..part.len().min(80)]).to_string();
+        assert!(
+            text.starts_with("--tetera-frame\r\nContent-Type: image/jpeg\r\nContent-Length: "),
+            "{text}"
+        );
+        let head_end = part.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+        let length: usize = text
+            ["--tetera-frame\r\nContent-Type: image/jpeg\r\nContent-Length: ".len()..]
+            .split("\r\n")
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(part.len(), head_end + length + 2, "the JPEG, then CRLF");
+        let jpeg = tetera_imaging::jpeg::decode_rgb(&part[head_end..head_end + length]).unwrap();
+        assert_eq!((jpeg.width(), jpeg.height()), (64, 48));
+    }
+    publisher.join().unwrap();
+    for bad in ["zoom=2", "quality=0", "width=8"] {
+        let r = client.stream(&format!("/api/v1/preview/mjpeg?{bad}")).await;
+        assert_eq!(r.status(), 400, "{bad}");
+    }
+    // Its end with the server is tested over a real socket, in `preview::tests`: the
+    // in-process client has no shutdown.
+    drop(body);
+    client.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_live_statistics_and_the_page_are_served() {
+    let scratch = Scratch::new();
+    let (client, instrument) = client(&scratch).await;
+    assert_eq!(client.get("/preview/statistics").await.json(), Value::Null);
+    let publisher = {
+        let instrument = instrument.clone();
+        std::thread::spawn(move || publish_frames(&instrument, 30))
+    };
+    publisher.join().unwrap();
+    let mut stats = Value::Null;
+    for _ in 0..200 {
+        stats = client.get("/preview/statistics").await.json();
+        if !stats.is_null() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        stats["histogram"][1].as_array().map(Vec::len),
+        Some(256),
+        "{stats}"
+    );
+    assert_eq!(stats["mask"], json!([48, 32]));
+    assert!(stats["seq"].as_u64().is_some_and(|s| s >= 1));
+    let page = client.get("/live-view").await;
+    assert_eq!(page.status, 200);
+    assert!(
+        page.header("content-type")
+            .is_some_and(|t| t.starts_with("text/html"))
+    );
+    let html = page.text();
+    assert!(
+        html.contains("/preview/stream") && html.contains("TPV1") && html.contains("/stage/jog")
+    );
     client.stop().await;
 }
