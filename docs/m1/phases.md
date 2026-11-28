@@ -72,7 +72,7 @@ Each phase has:
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13b | 1,410 | — | G1 |
 | [P1.15b](#p115b-the-dataset-store) | The dataset store | P1.15a | 1,190 | — | G1 |
 | [P1.15c](#p115c-the-recorder-and-ingest) | The recorder and ingest | P1.14a, P1.15b | 980 | — | G1 |
-| [P1.15d](#p115d-capture-and-its-things) | Capture and its Things | P1.15c | 960 | — | G1 |
+| [P1.15d](#p115d-capture-and-its-things) | Capture and its Things | P1.15c | 1,100 | — | G1 |
 | [P1.16](#p116-autofocus) | Autofocus | P1.15d | 1,300 | Yes | G1 |
 | [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16 | 1,530 | — | G1 |
 | [P1.18](#p118-calibration) | Calibration (**Checkpoint C**) | P1.17 | 1,900 | Yes | G1, G1c, G2 |
@@ -1368,7 +1368,7 @@ Each phase has:
 | Depends on | P1.15c |
 | ADRs | — |
 | Gates | G1 |
-| First estimate | code 420 (capture: one frame, N at an interval, or a burst, and the mode switch and back 180; the `capture` and `datasets` Things 240) · tests 420 · examples 60 · docs-as-code 40 · glue 20 = **960**, from P1.15b's split on 2026-11-28 |
+| Second estimate | code 480 (capture: one frame, N at an interval, or a burst through the recorder, the mode switch and back, and the clean-up after a cancel 200; the `capture` and `datasets` Things and the thumbnail's route 220; the store and the live stream's sink on the server 60) · tests 480 · examples 80 · docs-as-code 40 · glue 20 = **1,100** (1,430 at ×1.3). The first, 960, from P1.15b's split on 2026-11-28 |
 
 **Goal.** Captures that land on disk as datasets, in projects, without losing a frame.
 
