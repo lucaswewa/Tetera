@@ -63,7 +63,7 @@ Each phase has:
 | [P1.11b](#p111b-the-he-sample-on-the-gpu-and-its-tiles) | The H&E sample on the GPU, and its tiles | P1.11a | 1,340 | Yes | G1, G1c |
 | [P1.12a](#p112a-optics-and-light-the-field-the-sensor-sees) | Optics and light: the field the sensor sees | P1.06b, P1.10b, P1.11b | 1,470 | — | G1, G1c |
 | [P1.12b](#p112b-the-sensor-and-motion) | The sensor and motion | P1.12a | 1,150 | — | G1, G1c |
-| [P1.12c](#p112c-the-virtual-camera-checkpoint-a) | The virtual camera (**Checkpoint A**) | P1.12b | 1,190 | — | G1, G1c, G2 |
+| [P1.12c](#p112c-the-virtual-camera-checkpoint-a) | The virtual camera (**Checkpoint A**) | P1.12b | 1,440 | — | G1, G1c, G2 |
 | [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12c | 1,980 | — | G1 |
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13 | 1,050 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
@@ -1035,7 +1035,7 @@ Each phase has:
 | Depends on | P1.12b |
 | ADRs | — (0016) |
 | Gates | G1, G1c, **G2 (Checkpoint A)** |
-| Estimate | code 560 (modes and rates 100; the frame loop on the clock 200; `VirtualCamera` and the contract 200; the SDK's processing 60) · tests 400 · examples 150 · docs-as-code 60 · glue 20 = **1,190**, from P1.12b's split; its own second estimate comes before its code |
+| Second estimate | code 700 (modes, rates and capabilities 100; the frame loop on the clock, with streaming, snaps, triggers and drops, 250; the scene, from the stage, the objective and the light, with the motion during each frame, 120; rendering on either backend into the frame pool 120; the SDK's processing 60; configuration 50) · tests 450 · examples 200 · docs-as-code 60 · glue 30 = **1,440** (1,872 at ×1.3). The first, 1,190, came from P1.12b's split |
 
 **Goal.** A MIChrome 20 that images the simulated slide through the fitted objective, live, at its real modes and rates.
 
@@ -1068,7 +1068,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-api` (new, L5), `tetera-server` (new, L6) |
-| Depends on | P1.12b |
+| Depends on | P1.12c |
 | ADRs | 0017 control plane and media plane · 0018 the service in WSL2: systemd, start-up, networking, devices |
 | Gates | G1 |
 | First estimate | code 1,300 · tests 500 · examples 60 · docs-as-code 120 = **1,980** |

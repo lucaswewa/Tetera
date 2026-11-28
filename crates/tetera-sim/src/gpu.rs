@@ -95,8 +95,8 @@ pub fn sensor_params(
     }
 }
 
-/// A raw frame on the GPU from a `width` × `height` field there, into `raw`: the twin of
-/// `sensor::expose`.
+/// A raw frame on the GPU from a `width` × `height` field there, into `raw`, its rows
+/// `raw.len() / height` counts apart: the twin of `sensor::expose`.
 #[allow(clippy::too_many_arguments)]
 pub fn expose_on(
     gpu: &CudaBackend,
@@ -233,7 +233,7 @@ impl HeTiles {
         let s = fov.optics.sensor;
         let groups = depth_groups(&fov.optics, focus, self.sample.section().thickness);
         let widest = groups.iter().map(|g| g.sigma).fold(0.0, f32::max);
-        let grid = Grid::new(fov, widest, motion.extent(s.height));
+        let grid = Grid::new(fov, widest, motion.travel(s.height));
         let (tile, columns, rows) = grid.tiles();
         let tiles = TileGrid {
             first: grid.first,
@@ -294,8 +294,8 @@ impl HeTiles {
     }
 
     /// A raw frame, row by row: the field made on the GPU, the stage moving as `motion` says,
-    /// and exposed there as `shot` says, its buffer kept for the next frame. The twin of
-    /// `optics::field_moving` then `sensor::expose`.
+    /// and exposed there as `shot` says. The twin of `optics::field_moving` then
+    /// `sensor::expose`.
     pub fn frame(
         &self,
         fov: &FieldOfView,
@@ -304,14 +304,51 @@ impl HeTiles {
         focus: f64,
         shot: &Shot,
     ) -> Result<Vec<u16>> {
+        let s = fov.optics.sensor;
+        let samples = s.width as usize * s.height as usize;
+        self.exposed(fov, motion, light, focus, shot, samples, |raw| {
+            self.gpu.download(raw)
+        })
+    }
+
+    /// The same, straight into `out`: 16-bit little-endian counts, its sensor's rows evenly
+    /// spaced through it, as a frame from a pool holds them; pinned memory takes it fastest.
+    /// The sensor's launch refuses rows that don't fit, and the download a buffer of an odd
+    /// length.
+    pub fn frame_into(
+        &self,
+        fov: &FieldOfView,
+        motion: &Motion,
+        light: &Light,
+        focus: f64,
+        shot: &Shot,
+        out: &mut [u8],
+    ) -> Result<()> {
+        let samples = out.len() / 2;
+        self.exposed(fov, motion, light, focus, shot, samples, |raw| {
+            self.gpu.download_into_bytes(raw, out)
+        })
+    }
+
+    /// The raw frame on the GPU, in a buffer of `samples` counts kept for the next frame,
+    /// handed to `then`.
+    #[allow(clippy::too_many_arguments)]
+    fn exposed<R>(
+        &self,
+        fov: &FieldOfView,
+        motion: &Motion,
+        light: &Light,
+        focus: f64,
+        shot: &Shot,
+        samples: usize,
+        then: impl FnOnce(&DeviceBuffer<u16>) -> Result<R>,
+    ) -> Result<R> {
         shot.exposure.check()?;
-        let mut raw =
-            vec![0u16; fov.optics.sensor.width as usize * fov.optics.sensor.height as usize];
         self.field_moving_with(fov, motion, light, focus, |planes| {
             let mut kept = self.raw.lock().unwrap_or_else(PoisonError::into_inner);
-            if kept.as_ref().is_none_or(|r| r.len() != raw.len()) {
+            if kept.as_ref().is_none_or(|r| r.len() != samples) {
                 *kept = None;
-                *kept = Some(self.gpu.zeros(raw.len())?);
+                *kept = Some(self.gpu.zeros(samples)?);
             }
             let buffer = kept.as_mut().expect("raw made");
             expose_on(
@@ -325,9 +362,8 @@ impl HeTiles {
                 shot.frame,
                 buffer,
             )?;
-            self.gpu.download_into(buffer, &mut raw)
-        })?;
-        Ok(raw)
+            then(buffer)
+        })
     }
 
     /// The field, brought back to the host.
@@ -797,6 +833,31 @@ mod tests {
             ((quarter - black) / (full - black) - 4.0).abs() < 0.2,
             "binned 2 × 2, four pixels' light: {full} then {quarter}"
         );
+        // Straight into a frame's bytes, its rows padded: the same counts.
+        let stride = 2 * 160 + 64;
+        let mut bytes = vec![0u8; stride * 120];
+        tiles
+            .frame_into(&fov, &motion, &light, 2.0, &shot, &mut bytes)
+            .unwrap();
+        for (row, line) in bytes.chunks(stride).enumerate() {
+            let counts: Vec<u16> = line[..320]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| u16::from_le_bytes(*p))
+                .collect();
+            assert_eq!(counts, raw[row * 160..][..160], "row {row}");
+        }
+        // Rows a byte apart from whole counts, too narrow, not whole rows, a byte over.
+        for len in [321 * 120, 318 * 120, 320 * 119, 320 * 120 + 1] {
+            let mut out = vec![0u8; len];
+            assert!(
+                tiles
+                    .frame_into(&fov, &motion, &light, 2.0, &shot, &mut out)
+                    .is_err(),
+                "{len} bytes"
+            );
+        }
         let bad = Shot {
             exposure: exposure(5, 1.0, 10, 1),
             ..shot

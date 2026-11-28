@@ -39,7 +39,13 @@ Tetera's simulated world, L2 (plan §8, [ADR-0014](../../docs/adr/0014-the-simul
 - **`VirtualStage::position_at`:** where the stage's plan puts it at any time, ahead of now or behind: where the camera looks during a frame.
 - **`VirtualIllumination`** implements `Illumination`: a transmitted channel, dimmable, from 2,700 to 6,500 K, which becomes the field's `Light`.
 
-The virtual camera joins in P1.12c.
+- **`VirtualCamera`** implements `Camera` (P1.12c): a MIChrome 20 looking at a `Scene`, the virtual stage, the objective mount, the virtual light and the sample.
+  - **Its modes:** the whole sensor at 7.24 frames a second in 16-bit words and 14.49 in 8 bits; binned 2 × 2 at 26.57 and 53.14; binned 3 × 3 at 33.87 and 67.26, as OScope measured the real camera.
+  - **Its frames are timed on the stage's clock:** rows a line time apart, the stage moving meanwhile, each frame made once its last row has read out; free-running or on a software trigger; frames it falls behind on are dropped, and said to be. On a stepped clock, a seed gives the same frames, bit for bit.
+  - **It renders on the GPU** (`Backend::Gpu`), straight into pinned frames, or **on the CPU** (`Backend::Cpu`) on its own threads, with a small sensor for tests. Changing the objective changes the field and the blur; far from focus, the blur is held at 48 pixels.
+  - **`SdkProcessing`** mimics the real SDK's raw, as an option: white balance, gamma, and 58,000 levels above an offset of 2,000, in 16 bits.
+
+  On the RTX 3070 Ti Laptop GPU, a full frame still takes 17 to 27 ms, and every mode reaches its rate; jogging at 20×, a frame is made within 40 ms at up to 250 µm/s.
 
 ## How to try it
 
@@ -49,6 +55,7 @@ cargo run -p tetera-sim --example virtual-stage
 cargo run --release -p tetera-sim --example he-sample
 cargo run --release -p tetera-sim --example virtual-optics
 cargo run --release -p tetera-sim --example virtual-sensor
+cargo run --release -p tetera-sim --features cuda --example virtual-camera
 ```
 
 `sim-clock` runs the clock for 100 ms of the host's time at 1× and 10×, wakes a waiting thread with five steps of 10 ms, then samples a move from the origin to (2000, 1000, 300) µm every 20 ms of stepped time, and holds it at 100 ms. `-- --smoke` waits 25 ms instead.
@@ -60,5 +67,7 @@ cargo run --release -p tetera-sim --example virtual-sensor
 `virtual-optics` writes the field the sensor sees as PNGs in `target/virtual-optics/`. On a 912 × 608 sensor on the CPU: at 5×, 20× and 50×; through focus at 50×; and under a cool, uneven light at 20×. With `--features cuda` and a GPU, it also times the full 5472 × 3648 field at each objective, cold, still and moving 100 pixels a frame, against the 40 ms budget. `-- --smoke` makes fewer and smaller fields.
 
 `virtual-sensor` writes raw frames at 20× as PNGs in `target/virtual-sensor/`, each 2 × 2 of the mosaic one pixel: still, in 8 bits, drifting 200 µm/s during the exposure, skewed by the rolling shutter at 2 mm/s, and dim at a gain of 16. It then measures the noise of an even field against the model at six levels of light. With `--features cuda` and a GPU, it times the full raw frame, still and moving, and compares the GPU's sensor with the CPU's. `-- --smoke` makes them small.
+
+`virtual-camera` runs the virtual MIChrome 20 in real time over the sample at 20×: live in mode 0 while the stage jogs at 1 mm/s, written as a strip of JPEGs in `target/virtual-camera/`; jogging at four speeds, each frame's time against the budget; then each mode at each bit depth, its rate against the camera's. With `--features cuda` and a GPU it is the full sensor on the GPU; otherwise, or with `--cpu`, a 912 × 608 sensor on the CPU. `-- --smoke` runs a small sensor on the CPU, briefly.
 
 The examples share one PNG writer, `examples/common/png.rs`.

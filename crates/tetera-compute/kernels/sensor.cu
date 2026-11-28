@@ -57,9 +57,9 @@ __device__ float poisson(u32 seed, int col, int row, u32 frame_lo, u32 frame_hi,
 }
 
 // The frame: `rgb` the field's irradiance, three to a pixel, photoelectrons a ms at quantum
-// efficiency 1 for one 2.4 um pixel; `raw` a count to a pixel.
+// efficiency 1 for one 2.4 um pixel; `raw` a count to a pixel, its rows `pitch` counts apart.
 extern "C" __global__ void sensor_expose(
-    unsigned short* raw, const float* rgb, int width, int height,
+    unsigned short* raw, int pitch, const float* rgb, int width, int height,
     unsigned int seed, unsigned int frame_lo, unsigned int frame_hi,
     float qe_r, float qe_g, float qe_b, float full_well, float read_noise, float dark_current,
     float black_level, float electrons_per_count, float ms, float gain, int bits, int binning)
@@ -83,5 +83,5 @@ extern "C" __global__ void sensor_expose(
     float counts = roundf(__fadd_rn(black_level, __fdiv_rn(__fmul_rn(well, gain), electrons_per_count)));
     counts = fminf(fmaxf(counts, 0.0f), 4095.0f);
     unsigned short c = (unsigned short)counts;
-    raw[at] = bits == 8 ? (unsigned short)(c >> 4) : c;
+    raw[(long long)row * pitch + col] = bits == 8 ? (unsigned short)(c >> 4) : c;
 }

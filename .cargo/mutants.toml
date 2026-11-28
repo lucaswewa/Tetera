@@ -91,4 +91,7 @@ exclude_re = [
     # probability zero, and its cap of 64 counts is reached with probability about 1e-20.
     "replace > with >= in poisson",
     "replace < with <= in poisson",
+    # The virtual camera's velocity over a frame's span: the span is never zero, as the
+    # shortest exposure is 0.1 ms, so `>` and `>=` divide alike.
+    "replace > with >= in Shared::render_here",
 ]

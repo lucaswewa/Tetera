@@ -102,6 +102,18 @@ impl Optics {
         let circle = defocus.abs() * na / (1.0 - na * na).sqrt();
         (airy * airy + circle * circle / 4.0).sqrt()
     }
+
+    /// The defocus, µm, at which the blur reaches `sigma` sensor pixels: `blur`'s inverse.
+    /// None, for a blur within the Airy disc's own.
+    pub fn defocus_for_blur(&self, sigma: f64) -> f64 {
+        let na = self.numerical_aperture;
+        let airy = 0.21 * self.wavelength / na;
+        let s = sigma * self.pixel();
+        if s <= airy {
+            return 0.0;
+        }
+        2.0 * (s * s - airy * airy).sqrt() * (1.0 - na * na).sqrt() / na
+    }
 }
 
 /// Where the sensor looks: its middle on the slide, and its optics.
@@ -290,9 +302,11 @@ impl Motion {
         (travel.ceil() as u32).clamp(1, 16)
     }
 
-    /// How far the field moves over a frame of `rows`, µm.
-    pub fn extent(&self, rows: u32) -> f64 {
-        self.velocity.0.hypot(self.velocity.1) * (f64::from(rows) * self.line_time + self.exposure)
+    /// How far the field moves over a frame of `rows`, µm, each way: from the first row's
+    /// start to the last row's end.
+    pub fn travel(&self, rows: u32) -> (f64, f64) {
+        let t = f64::from(rows) * self.line_time + self.exposure;
+        (self.velocity.0 * t, self.velocity.1 * t)
     }
 }
 
@@ -331,12 +345,15 @@ pub struct Grid {
 }
 
 impl Grid {
-    /// The grid for `fov`, its widest blur `sigma` sensor pixels, moving `moved` µm over a frame.
-    pub fn new(fov: &FieldOfView, sigma: f32, moved: f64) -> Self {
+    /// The grid for `fov`, its widest blur `sigma` sensor pixels, the field moving `travel`
+    /// µm over a frame: wider only on the side it moves to.
+    pub fn new(fov: &FieldOfView, sigma: f32, travel: (f64, f64)) -> Self {
         let level = TileKey::level_for(fov.optics.pixel());
         let p = FINEST * f64::from(1u32 << level);
-        let margin = (f64::from(sigma) * 3.0 + 2.0) * fov.optics.pixel() + 2.0 * p + moved;
+        let margin = (f64::from(sigma) * 3.0 + 2.0) * fov.optics.pixel() + 2.0 * p;
         let (x0, y0, x1, y1) = fov.bounds(margin);
+        let (x0, x1) = (x0 + travel.0.min(0.0), x1 + travel.0.max(0.0));
+        let (y0, y1) = (y0 + travel.1.min(0.0), y1 + travel.1.max(0.0));
         let first = ((x0 / p).floor() as i64, (y0 / p).floor() as i64);
         let last = ((x1 / p).ceil() as i64, (y1 / p).ceil() as i64);
         Self {
@@ -456,7 +473,7 @@ pub fn field_moving(
     let s = fov.optics.sensor;
     let groups = depth_groups(&fov.optics, focus, sample.section().thickness);
     let widest = groups.iter().map(|g| g.sigma).fold(0.0, f32::max);
-    let grid = Grid::new(fov, widest, motion.extent(s.height));
+    let grid = Grid::new(fov, widest, motion.travel(s.height));
     let samples = motion.samples(fov.optics.pixel());
     let p = grid.pixel();
     let n = s.width as usize * s.height as usize;
@@ -802,7 +819,14 @@ mod tests {
             centre: (-300.0, 4_000.0),
             optics: small(20.0, 0.42, 0.2),
         };
-        let grid = Grid::new(&fov, 4.0, 0.0);
+        let grid = Grid::new(&fov, 4.0, (0.0, 0.0));
+        // Moving: wider on the side it moves to, and only there.
+        let moving = Grid::new(&fov, 4.0, (30.0, -20.0));
+        let p = grid.pixel();
+        assert_eq!(moving.first.0, grid.first.0);
+        assert!(((grid.first.1 - moving.first.1) as f64 * p - 20.0).abs() <= p);
+        assert!(((moving.size.0 - grid.size.0) as f64 * p - 30.0).abs() <= p);
+        assert!(((moving.size.1 - grid.size.1) as f64 * p - 20.0).abs() <= 2.0 * p);
         assert_eq!(grid.level, 1);
         let p = grid.pixel();
         let (x0, y0, x1, y1) = fov.bounds(0.0);
@@ -970,8 +994,9 @@ mod tests {
         assert_eq!(m.samples(1.25), 4);
         assert_eq!(m.samples(0.1), 16);
         assert_eq!(Motion::STILL.samples(0.1), 1);
-        assert!(near(m.extent(100), 500.0 * (100.0 * 1e-5 + 0.01), 1e-9));
-        assert_eq!(Motion::STILL.extent(3_648), 0.0);
+        let (x, y) = m.travel(100);
+        assert!(near(x, 300.0 * 0.011, 1e-9) && near(y, -400.0 * 0.011, 1e-9));
+        assert_eq!(Motion::STILL.travel(3_648), (0.0, 0.0));
     }
 
     #[test]

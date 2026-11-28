@@ -31,9 +31,20 @@ pub struct SensorParams {
     pub binning: u32,
 }
 
+/// The pitch, in counts, of a `width` × `height` raw frame made from `rgb_len` values into
+/// `raw_len` counts: its rows `raw_len / height` counts apart, if the shapes fit.
+pub fn pitch(rgb_len: usize, raw_len: usize, width: u32, height: u32) -> Option<usize> {
+    let n = width as usize * height as usize;
+    if height == 0 || rgb_len != 3 * n || !raw_len.is_multiple_of(height as usize) {
+        return None;
+    }
+    let pitch = raw_len / height as usize;
+    (pitch >= width as usize).then_some(pitch)
+}
+
 #[cfg(feature = "cuda")]
 mod device {
-    use super::SensorParams;
+    use super::{SensorParams, pitch};
     use crate::kernels::SENSOR;
     use crate::{CudaBackend, DeviceBuffer};
     use cudarc::driver::{LaunchConfig, PushKernelArg};
@@ -41,7 +52,8 @@ mod device {
 
     impl CudaBackend {
         /// A raw frame from `rgb`, a `width` × `height` field's irradiance three to a pixel,
-        /// into `raw`, a count to a pixel.
+        /// into `raw`, a count to a pixel, its `height` rows `raw.len() / height` counts
+        /// apart, as a frame's stride may set them.
         pub fn sensor_expose(
             &self,
             rgb: &DeviceBuffer<f32>,
@@ -50,12 +62,9 @@ mod device {
             params: &SensorParams,
             raw: &mut DeviceBuffer<u16>,
         ) -> Result<()> {
-            let n = width as usize * height as usize;
-            if rgb.len() != 3 * n
-                || raw.len() != n
-                || !matches!(params.bits, 8 | 12)
-                || params.binning == 0
-            {
+            let rows = pitch(rgb.len(), raw.len(), width, height);
+            let Some(pitch) = rows.filter(|_| matches!(params.bits, 8 | 12) && params.binning > 0)
+            else {
                 return Err(Error::invalid_argument(format!(
                     "a {width} × {height} frame from {} values into {}, {} bits, binned {}",
                     rgb.len(),
@@ -63,13 +72,14 @@ mod device {
                     params.bits,
                     params.binning
                 )));
-            }
+            };
             let function = self.module(&SENSOR)?.function("sensor_expose")?;
             let size = |v: u32| {
                 i32::try_from(v)
                     .map_err(|_| Error::invalid_argument(format!("a frame {v} pixels across")))
             };
             let (w, h) = (size(width)?, size(height)?);
+            let pitch = size(u32::try_from(pitch).unwrap_or(u32::MAX))?;
             let (lo, hi) = (params.frame as u32, (params.frame >> 32) as u32);
             let [r, g, b] = params.quantum_efficiency;
             let bits = i32::from(params.bits);
@@ -77,6 +87,7 @@ mod device {
             let mut launch = self.stream().launch_builder(&function);
             launch
                 .arg(raw.slice_mut())
+                .arg(&pitch)
                 .arg(rgb.slice())
                 .arg(&w)
                 .arg(&h)
@@ -100,19 +111,39 @@ mod device {
                 block_dim: (16, 16, 1),
                 shared_mem_bytes: 0,
             };
-            // SAFETY: `sensor_expose` takes (unsigned short* raw, const float* rgb, int width,
+            // SAFETY: `sensor_expose` takes (unsigned short* raw, int pitch, const float* rgb, int width,
             // int height, unsigned int seed, unsigned int frame_lo, unsigned int frame_hi,
             // float qe_r, float qe_g, float qe_b, float full_well, float read_noise,
             // float dark_current, float black_level, float electrons_per_count, float ms,
             // float gain, int bits, int binning), matched here in order and type. Thread
             // (col, row) reads three values at 3 · (row · width + col), inside `rgb` of
-            // 3 · width · height, and writes one at row · width + col, inside `raw` of
-            // width · height, both checked above.
+            // 3 · width · height, and writes one at row · pitch + col, inside `raw` of
+            // pitch · height with width <= pitch, both checked above.
             unsafe { launch.launch(config) }.map_err(|e| {
                 Error::hardware(format!("the sensor_expose kernel wouldn't launch: {e:?}"))
             })?;
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod shapes {
+    use super::pitch;
+
+    #[test]
+    fn a_frames_pitch_comes_from_its_shapes() {
+        assert_eq!(pitch(3 * 48, 48, 8, 6), Some(8));
+        assert_eq!(pitch(3 * 48, 60, 8, 6), Some(10), "rows 10 apart");
+        assert_eq!(pitch(3 * 48, 47, 8, 6), None, "not whole rows");
+        assert_eq!(
+            pitch(3 * 48, 42, 8, 6),
+            None,
+            "rows narrower than the frame"
+        );
+        assert_eq!(pitch(3 * 47, 48, 8, 6), None, "the field the wrong size");
+        assert_eq!(pitch(0, 0, 0, 0), None, "no rows");
+        assert_eq!(pitch(0, 6, 0, 6), Some(1), "rows of nothing, still rows");
     }
 }
 
@@ -199,6 +230,16 @@ mod tests {
                 gpu.sensor_expose(&rgb, width, 8, &p, &mut raw).is_err(),
                 "{width} {p:?}"
             );
+        }
+        // Rows 8 counts apart for a frame 6 wide: the ends of the rows are left alone.
+        let narrow = gpu.upload(&[100.0f32; 3 * 24]).unwrap();
+        let mut pitched = gpu.upload(&[7u16; 32]).unwrap();
+        gpu.sensor_expose(&narrow, 6, 4, &params(), &mut pitched)
+            .unwrap();
+        let rows = gpu.download(&pitched).unwrap();
+        for row in rows.chunks(8) {
+            assert!(row[..6].iter().all(|c| *c >= 100), "{row:?}");
+            assert_eq!(&row[6..], &[7, 7], "{row:?}");
         }
         let eight = SensorParams {
             bits: 8,

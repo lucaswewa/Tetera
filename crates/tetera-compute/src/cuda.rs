@@ -197,6 +197,29 @@ impl CudaBackend {
         self.synchronize()
     }
 
+    /// `buffer`'s 16-bit samples copied into `host`'s bytes, little-endian, as a frame holds
+    /// them; `host` must be twice its length and start on an even address. It returns once
+    /// the copy has written `host`.
+    #[cfg(target_endian = "little")]
+    pub fn download_into_bytes(&self, buffer: &DeviceBuffer<u16>, host: &mut [u8]) -> Result<()> {
+        // SAFETY: any two bytes are a valid u16, and `align_to_mut` gives an aligned middle;
+        // the length and the empty ends are checked before it is used.
+        let (head, samples, tail) = unsafe { host.align_to_mut::<u16>() };
+        if !head.is_empty() || !tail.is_empty() || samples.len() != buffer.len() {
+            return Err(Error::invalid_argument(format!(
+                "a device buffer of {} samples can't be copied into {} bytes{}",
+                buffer.len(),
+                head.len() + 2 * samples.len() + tail.len(),
+                if head.is_empty() {
+                    ""
+                } else {
+                    " at an odd address"
+                }
+            )));
+        }
+        self.download_into(buffer, samples)
+    }
+
     /// Waits until the default stream's work is done.
     pub fn synchronize(&self) -> Result<()> {
         self.stream
@@ -329,6 +352,36 @@ mod tests {
             return None;
         }
         Some(CudaBackend::new(0).expect("TETERA_CUDA=1 promises a working device 0"))
+    }
+
+    #[test]
+    fn samples_download_into_a_frames_bytes() {
+        let Some(gpu) = gpu() else { return };
+        let buffer = gpu.upload(&[0x0102u16, 0xa0b0, 7]).unwrap();
+        let mut bytes = [0u8; 10];
+        // Where in `bytes` an even address starts, and an odd one.
+        let even = usize::from(!(bytes.as_ptr() as usize).is_multiple_of(2));
+        let odd = 1 - even;
+        gpu.download_into_bytes(&buffer, &mut bytes[even..even + 6])
+            .unwrap();
+        assert_eq!(
+            &bytes[even..even + 6],
+            &[0x02, 0x01, 0xb0, 0xa0, 7, 0],
+            "little-endian"
+        );
+        for (from, len, why) in [
+            (even, 4, "too short"),
+            (even, 8, "too long"),
+            (odd, 6, "odd"),
+            (odd, 7, "odd, its samples the right number"),
+            (even, 7, "a byte over"),
+        ] {
+            assert!(
+                gpu.download_into_bytes(&buffer, &mut bytes[from..from + len])
+                    .is_err(),
+                "{why}"
+            );
+        }
     }
 
     #[test]

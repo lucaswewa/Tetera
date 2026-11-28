@@ -28,6 +28,7 @@
 //!   vignetting and light, on the CPU; on the GPU from the tiles, with `cuda`;
 //! - [`light`]: [`VirtualIllumination`], the simulated light.
 
+pub mod camera;
 pub mod clock;
 #[cfg(feature = "cuda")]
 pub mod gpu;
@@ -41,6 +42,7 @@ pub mod sensor;
 pub mod stage;
 pub mod tiles;
 
+pub use camera::{Backend, Scene, SdkProcessing, VirtualCamera, VirtualCameraConfig};
 pub use clock::{Rate, SimClock};
 pub use he::{HeSample, Nucleus, RedCell, SectionConfig, Stains};
 pub use light::VirtualIllumination;
