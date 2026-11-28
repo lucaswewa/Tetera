@@ -65,6 +65,9 @@ async fn autofocus_over_http_finds_focus_as_a_job_and_a_blank_field_fails_cleanl
         "the stage at the focus"
     );
     assert_eq!(job["result"]["measure"], "normalised_variance");
+    // 20×'s, through the tiny sensor's 2.4 µm pixels.
+    let d = job["result"]["focus"]["depth_of_field"].as_f64().unwrap();
+    assert!((d - D).abs() < 1e-9, "{d}");
     assert_eq!(job["result"]["objective"], "20x");
     assert_eq!(&client.get("/autofocus/last").await.json(), &job["result"]);
     assert!(
