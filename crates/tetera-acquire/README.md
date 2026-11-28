@@ -37,4 +37,4 @@ It streams the virtual camera, in its binned live mode at 8 bits, into the bus f
 cargo run --release -p tetera-acquire --features cuda --example recorder
 ```
 
-It records the virtual camera at full resolution, 12 bits, at its full rate, 7.24 frames a second and 289 MB/s, for 4 s, then ingests the frame log into a dataset as a compute job and reads the first frame back against the log's. On this PC every frame was kept, at 284 MB/s, and the camera was never held. `-- --smoke` runs a small sensor on the CPU.
+It records the virtual camera at full resolution, 12 bits, at its full rate, 7.24 frames a second and 289 MB/s, for 4 s, then ingests the frame log into a dataset as a compute job and reads the first frame back against the log's. On this PC every frame was kept and the camera never held, except straight after other large writes, when the system disk can fall behind (P1.15c's notes). `-- --smoke` runs a small sensor on the CPU.
