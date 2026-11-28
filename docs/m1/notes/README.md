@@ -35,7 +35,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.13b | The device Things | Done | [P1.13b](P1.13b-the-device-things.md) |
 | P1.14a | The frame bus and the preview pipeline | Done | [P1.14a](P1.14a-the-frame-bus-and-the-preview-pipeline.md) |
 | P1.14b | The preview stream | Done | [P1.14b](P1.14b-the-preview-stream.md) |
-| P1.14c | MJPEG and the live-view page | In progress | [P1.14c](P1.14c-mjpeg-and-the-live-view-page.md) |
+| P1.14c | MJPEG and the live-view page | Done | [P1.14c](P1.14c-mjpeg-and-the-live-view-page.md) |
 | P1.15a | The job service | Not started | — |
 | P1.15b | Datasets and capture | Not started | — |
 | P1.16 | Autofocus | Not started | — |

@@ -329,7 +329,7 @@ The owner runs this at Checkpoint C, with B's and C's; the agent ran and recorde
 - [ ] `cargo run --release -p tetera-server`, then `curl -s -o /dev/null -w '%{content_type}' 'http://127.0.0.1:8310/api/v1/preview/mjpeg?width=320&height=240' --max-time 2` — expect `multipart/x-mixed-replace; boundary=tetera-frame`.
 - [ ] Open `http://localhost:8310/api/v1/preview/mjpeg?width=960&height=640` in the browser, the camera streaming (`POST /camera/start_streaming`) — expect it to play as a moving image.
 - [ ] `curl http://127.0.0.1:8310/preview/statistics` while the camera streams — expect each colour's 256-bin histogram, the 48 × 32 mask, and the frame's number changing from one read to the next.
-- [ ] `cargo test -p tetera-api` — expect 33 tests to pass.
+- [ ] `cargo test -p tetera-api` — expect 34 tests to pass.
 - **Result:** see the [notes](notes/P1.14c-mjpeg-and-the-live-view-page.md#manual-test).
 
 ## Checkpoint B: live H&E in a browser page while jogging
