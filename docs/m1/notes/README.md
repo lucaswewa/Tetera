@@ -32,7 +32,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.12b | The sensor and motion | Done | [P1.12b](P1.12b-the-sensor-and-motion.md) |
 | P1.12c | The virtual camera | Done | [P1.12c](P1.12c-the-virtual-camera.md) |
 | P1.13a | The server, configuration and systemd | Done | [P1.13a](P1.13a-the-server-configuration-and-systemd.md) |
-| P1.13b | The device Things | Not started | — |
+| P1.13b | The device Things | In progress | [P1.13b](P1.13b-the-device-things.md) |
 | P1.14a | The frame bus and the preview pipeline | Not started | — |
 | P1.14b | The preview protocol | Not started | — |
 | P1.15a | The job service | Not started | — |

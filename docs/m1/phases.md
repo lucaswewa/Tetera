@@ -65,7 +65,7 @@ Each phase has:
 | [P1.12b](#p112b-the-sensor-and-motion) | The sensor and motion | P1.12a | 1,150 | — | G1, G1c |
 | [P1.12c](#p112c-the-virtual-camera-checkpoint-a) | The virtual camera (**Checkpoint A**) | P1.12b | 1,440 | — | G1, G1c, G2 |
 | [P1.13a](#p113a-the-server-configuration-and-systemd) | The server, configuration and systemd | P1.12c | 1,320 | — | G1 |
-| [P1.13b](#p113b-the-device-things) | The device Things | P1.13a | 1,100 | — | G1 |
+| [P1.13b](#p113b-the-device-things) | The device Things | P1.13a | 1,350 | — | G1 |
 | [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13b | 1,050 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
 | [P1.15a](#p115a-the-job-service) | The job service | P1.13b | 800 | — | G1 |
@@ -1116,7 +1116,7 @@ Each phase has:
 | Depends on | P1.13a |
 | ADRs | — (0017) |
 | Gates | G1 |
-| Estimate | code 600 (`camera` 200, `stage` 200, `objective` 60, `illumination` 80, keeping properties current from the devices 60) · tests 400 · docs-as-code 80 (a README with `curl` for each Thing) · glue 20 = **1,100**, from P1.13's split; its own second estimate comes before its code |
+| Second estimate | code 700 (`camera` 230: its configuration, capabilities, white balance and a stream to watch; `stage` 230: position, state and speed kept current, moves that wait and can be cancelled; `objective` 60; `illumination` 90; a stepped clock for tests, and the Things registered, 90) · tests 550 · docs-as-code 80 (a README with `curl` for each Thing) · glue 20 = **1,350** (1,755 at ×1.3). The first, 1,100, came from P1.13's split; P1.13a measured ×1.91 its estimate, and this one allows for its tests |
 
 **Goal.** The virtual instrument's devices as Things, over HTTP.
 
