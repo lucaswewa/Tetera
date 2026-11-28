@@ -129,7 +129,7 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
         "/simulation/unload",
         "/simulation/inject",
     ];
-    let devices: [(&str, &[&str]); 8] = [
+    let devices: [(&str, &[&str]); 9] = [
         (
             "camera",
             &[
@@ -178,6 +178,7 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
             "datasets",
             &["projects", "create_project", "list", "get", "delete"],
         ),
+        ("autofocus", &["last", "autofocus"]),
     ];
     let named: Vec<String> = devices
         .iter()

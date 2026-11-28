@@ -330,6 +330,11 @@ impl Instrument {
         &self.compute
     }
 
+    /// The sensor's pixel pitch, µm.
+    pub fn sensor_pixel_um(&self) -> f64 {
+        self.pixel_um
+    }
+
     /// A sensor pixel's size at the sample, µm, unbinned, through the objective fitted: the
     /// pitch itself with none.
     pub fn pixel_size_um(&self) -> f64 {
