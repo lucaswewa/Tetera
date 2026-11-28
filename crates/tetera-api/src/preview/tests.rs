@@ -263,6 +263,11 @@ async fn a_client_gets_two_frames_until_it_acknowledges_them() {
         .expect("a third");
     assert!(c.seq > b.seq, "newer than the last sent");
     assert!(
+        c.latency_us.is_some_and(|us| us >= 300_000),
+        "a's latency, acknowledged after 300 ms: {:?}",
+        c.latency_us
+    );
+    assert!(
         frame(&mut socket, Duration::from_millis(300))
             .await
             .is_none(),
@@ -310,6 +315,15 @@ async fn a_slow_client_never_gets_a_stale_frame_and_its_link_steps_down() {
     assert!(
         last.lowered && last.quality <= 60,
         "the link stepped down: {last:?}"
+    );
+    // Each frame after the first carries the last acknowledged one's latency: at least the
+    // client's 150 ms of painting, and less than the window's two paints and some.
+    assert!(
+        got.iter().skip(2).all(|(h, _)| h
+            .latency_us
+            .is_some_and(|us| (150_000..500_000).contains(&us))),
+        "{:?}",
+        got.iter().map(|(h, _)| h.latency_us).collect::<Vec<_>>()
     );
     let sessions = served.get("/preview/sessions").await;
     assert_eq!(sessions.as_array().map(Vec::len), Some(1), "{sessions}");

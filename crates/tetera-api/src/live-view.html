@@ -66,11 +66,12 @@ const state = { width: 1280, height: 853, quality: 80 };
 let socket = null;
 let decoding = Promise.resolve();
 const painted = [];  // paint times, ms, over the last second
-let lastLatency = null, lastHeader = null;
-// The server's times are on its clock's mapping to UTC, which can disagree with this one by
-// seconds: the least gap between a frame's receipt and its sending is that disagreement, plus
-// the shortest trip, a fraction of a millisecond on localhost (ADR-0019).
-let skew = Infinity;
+let lastHeader = null;
+// The time from exposure to paint comes from the server's own clock: each frame carries the
+// last acknowledged frame's time from its exposure's end to its acknowledgement, which this
+// page sends once it has painted the frame. This page's clock can't stand in for the server's:
+// WSL2's can disagree with Windows' by seconds, and run at another rate (ADR-0019).
+const NO_LATENCY = 0xffffffff;
 
 function post(path, body) {
   return fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined })
@@ -89,7 +90,7 @@ function send() {
   if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(state));
 }
 
-// A frame message: a 64-byte header, little-endian, then the JPEG (ADR-0019).
+// A frame message: a header of 64 bytes or more, little-endian, then the JPEG (ADR-0019).
 function parse(buffer) {
   const v = new DataView(buffer);
   if (buffer.byteLength < 64 || String.fromCharCode(v.getUint8(0), v.getUint8(1), v.getUint8(2), v.getUint8(3)) !== "TPV1") {
@@ -104,6 +105,7 @@ function parse(buffer) {
     height: v.getUint32(52, true),
     quality: v.getUint8(56),
     lowered: (v.getUint8(57) & 1) === 1,
+    latencyUs: length >= 72 ? v.getUint32(64, true) : NO_LATENCY,
     jpeg: new Uint8Array(buffer, length, v.getUint32(60, true)),
   };
 }
@@ -116,8 +118,7 @@ function show(header, bitmap) {
     }
     ctx.drawImage(bitmap, 0, 0);
     bitmap.close();
-    const now = performance.timeOrigin + performance.now();
-    lastLatency = now - header.exposureEndMs - skew;
+    const now = performance.now();
     lastHeader = header;
     painted.push(now);
     while (painted.length && now - painted[0] > 1000) painted.shift();
@@ -137,7 +138,6 @@ function connect() {
       return;
     }
     const header = parse(e.data);
-    skew = Math.min(skew, performance.timeOrigin + performance.now() - header.sentMs);
     decoding = decoding
       .then(() => createImageBitmap(new Blob([header.jpeg], { type: "image/jpeg" })))
       .then(bitmap => show(header, bitmap))
@@ -149,9 +149,10 @@ function connect() {
 setInterval(() => {
   if (!lastHeader) return;
   const h = lastHeader;
+  const latency = h.latencyUs === NO_LATENCY ? "…" : `${(h.latencyUs / 1000).toFixed(0)} ms`;
   overlay.textContent =
     `frame ${h.seq}  ${h.width} × ${h.height}  quality ${h.quality}${h.lowered ? " (lowered)" : ""}\n` +
-    `${painted.length} fps   exposure to paint ${lastLatency.toFixed(0)} ms`;
+    `${painted.length} fps   exposure to paint ${latency}`;
 }, 250);
 
 // The histogram, from the live statistics.

@@ -83,12 +83,13 @@ The invocation's `timeStarted` and `timeCompleted` are about 0.6 s apart, plus u
 
 ## The preview stream
 
-`ws://127.0.0.1:8310/preview/stream` is a WebSocket of frames ([ADR-0019](../../docs/adr/0019-the-preview-protocol.md)). Each binary message is a frame: a 64-byte header, little-endian, then a JPEG. The header carries:
+`ws://127.0.0.1:8310/preview/stream` is a WebSocket of frames ([ADR-0019](../../docs/adr/0019-the-preview-protocol.md)). Each binary message is a frame: a 72-byte header, little-endian, then a JPEG. The header carries:
 
 - the frame's sequence number;
 - its exposure's start and end on the instrument's clock, and its end in UTC;
 - when it was sent, in UTC;
-- the image's size, its quality, and whether a slow link lowered it.
+- the image's size, its quality, and whether a slow link lowered it;
+- the last acknowledged frame's latency: from its exposure's end to its acknowledgement, on the server's clock.
 
 The client sends its whole state as JSON text, `{"width", "height", "roi", "quality", "max_rate", "ack"}`, when it changes and once it has painted each frame:
 

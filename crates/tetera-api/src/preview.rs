@@ -171,6 +171,7 @@ impl PreviewThing {
                     height: p.height,
                     quality: p.quality,
                     lowered: link.step() > 0,
+                    latency_us: latency.map(|ms| (ms * 1e3).min(f64::from(u32::MAX - 1)) as u32),
                 };
                 if !subscriber.send(header.message(&p.jpeg)) {
                     break Ok(());
@@ -249,7 +250,7 @@ impl PreviewThing {
         Ok(lock(&self.open).values().cloned().collect())
     }
 
-    /// The live preview: a WebSocket of frames, each a 64-byte header and a JPEG (ADR-0019).
+    /// The live preview: a WebSocket of frames, each a 72-byte header and a JPEG (ADR-0019).
     /// The client sends its whole state as JSON, `{"width", "height", "roi", "quality",
     /// "max_rate", "ack"}`, when it changes and once it has painted each frame, by its
     /// sequence number; no more than two frames go unacknowledged.

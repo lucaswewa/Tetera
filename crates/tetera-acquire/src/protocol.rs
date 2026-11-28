@@ -13,7 +13,13 @@ use tetera_core::{Error, Rect, Result, Timestamp};
 pub const MAGIC: [u8; 4] = *b"TPV1";
 
 /// The header's length, bytes.
-pub const HEADER_LEN: usize = 64;
+pub const HEADER_LEN: usize = 72;
+
+/// The first header's length, without the latency: a reader takes either.
+pub const FIRST_HEADER_LEN: usize = 64;
+
+/// The latency field's value when no frame has been acknowledged yet.
+const NO_LATENCY: u32 = u32::MAX;
 
 /// The payload's format: a JPEG.
 pub const JPEG: u16 = 1;
@@ -42,6 +48,10 @@ pub struct Header {
     pub quality: u8,
     /// Whether the link lowered its quality or size.
     pub lowered: bool,
+    /// The last frame acknowledged before this one was sent: from its exposure's end to its
+    /// acknowledgement, µs, on the server's clock. No client clock enters it, so it holds when
+    /// the client's clock runs at another rate (ADR-0019).
+    pub latency_us: Option<u32>,
 }
 
 impl Header {
@@ -62,21 +72,24 @@ impl Header {
         m.push(u8::from(self.lowered));
         m.extend_from_slice(&[0, 0]);
         m.extend_from_slice(&(jpeg.len() as u32).to_le_bytes());
+        m.extend_from_slice(&self.latency_us.unwrap_or(NO_LATENCY).to_le_bytes());
+        m.extend_from_slice(&[0; 4]);
         m.extend_from_slice(jpeg);
         m
     }
 
-    /// A message's header and its JPEG. A header longer than this one's is skipped past.
+    /// A message's header and its JPEG. A header longer than this one's is skipped past; the
+    /// first, shorter one has no latency.
     pub fn parse(message: &[u8]) -> Result<(Header, &[u8])> {
         let bad = |why: &str| Error::invalid_argument(format!("a preview message {why}"));
-        if message.len() < HEADER_LEN || message[..4] != MAGIC {
+        if message.len() < FIRST_HEADER_LEN || message[..4] != MAGIC {
             return Err(bad("without its header"));
         }
         let u16_at = |i: usize| u16::from_le_bytes([message[i], message[i + 1]]);
         let u32_at = |i: usize| u32::from_le_bytes(message[i..i + 4].try_into().expect("4 bytes"));
         let u64_at = |i: usize| u64::from_le_bytes(message[i..i + 8].try_into().expect("8 bytes"));
         let len = usize::from(u16_at(4));
-        if len < HEADER_LEN || u16_at(6) != JPEG {
+        if len < FIRST_HEADER_LEN || u16_at(6) != JPEG {
             return Err(bad("of a header or format this reader doesn't know"));
         }
         let payload = u32_at(60) as usize;
@@ -93,6 +106,9 @@ impl Header {
             height: u32_at(52),
             quality: message[56],
             lowered: message[57] & 1 == 1,
+            latency_us: (len >= HEADER_LEN)
+                .then(|| u32_at(64))
+                .filter(|l| *l != NO_LATENCY),
         };
         Ok((header, &message[len..]))
     }
@@ -318,6 +334,7 @@ mod tests {
             height: 853,
             quality: 72,
             lowered: true,
+            latency_us: Some(41_500),
         }
     }
 
@@ -328,6 +345,7 @@ mod tests {
         assert_eq!(message.len(), HEADER_LEN + jpeg.len());
         assert_eq!(&message[..4], b"TPV1");
         assert_eq!(&message[60..64], &(jpeg.len() as u32).to_le_bytes());
+        assert_eq!(&message[64..68], &41_500u32.to_le_bytes());
         let (got, payload) = Header::parse(&message).unwrap();
         assert_eq!((got, payload), (header(), &jpeg[..]));
         let plain = Header {
@@ -335,6 +353,16 @@ mod tests {
             ..header()
         };
         assert!(!Header::parse(&plain.message(&jpeg)).unwrap().0.lowered);
+        let none = Header {
+            latency_us: None,
+            ..header()
+        };
+        assert_eq!(Header::parse(&none.message(&jpeg)).unwrap().0, none);
+        // The first header, 64 bytes, without the latency.
+        let mut first = message[..FIRST_HEADER_LEN].to_vec();
+        first[4..6].copy_from_slice(&64u16.to_le_bytes());
+        first.extend_from_slice(&jpeg);
+        assert_eq!(Header::parse(&first).unwrap(), (none, &jpeg[..]));
         assert_eq!(
             Header::parse(&header().message(&[])).unwrap(),
             (header(), &[][..]),
@@ -342,7 +370,7 @@ mod tests {
         );
         // A longer header, from a later version, is skipped past.
         let mut longer = message[..HEADER_LEN].to_vec();
-        longer[4..6].copy_from_slice(&72u16.to_le_bytes());
+        longer[4..6].copy_from_slice(&80u16.to_le_bytes());
         longer.extend_from_slice(&[9; 8]);
         longer.extend_from_slice(&jpeg);
         assert_eq!(Header::parse(&longer).unwrap(), (header(), &jpeg[..]));
