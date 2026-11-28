@@ -1,0 +1,26 @@
+# Tetera's server as a systemd service in WSL (ADR-0018). Installed as
+# /etc/systemd/system/tetera.service: see README.md beside this file.
+#
+# It runs as a user of its own, keeps its data in /var/lib/tetera, reads /etc/tetera/tetera.toml,
+# and is restarted when it fails: killed, crashed, or stopped on an error. A clean stop
+# (`systemctl stop`, SIGTERM) shuts it down gracefully, and it stays down.
+
+[Unit]
+Description=Tetera microscope server
+Documentation=https://github.com/lucaswewa/Tetera
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/tetera-server --config /etc/tetera/tetera.toml --data-root /var/lib/tetera
+DynamicUser=yes
+StateDirectory=tetera
+WorkingDirectory=/var/lib/tetera
+Restart=on-failure
+RestartSec=2s
+# The server waits up to 5 s for unfinished work when it stops; then systemd kills it.
+TimeoutStopSec=15s
+
+[Install]
+WantedBy=multi-user.target

@@ -17,6 +17,17 @@
     {
       "type": "lldb",
       "request": "launch",
+      "name": "Debug the server",
+      "cargo": {
+        "args": ["build", "--package", "tetera-server", "--bin", "tetera-server"]
+      },
+      "args": ["--config", "configs/tetera.toml"],
+      "env": { "RUST_LOG": "info,tetera_api=debug" },
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
       "name": "Debug a crate's tests",
       "cargo": {
         "args": ["test", "--no-run", "--package", "${input:package}", "--lib"]

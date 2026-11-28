@@ -9,7 +9,7 @@
 //! - [`error`]: Tetera's errors as teta-wot's.
 //! - [`server`]: the Things served, and shut down gracefully.
 //!
-//! [ADR-0004]: https://github.com/lucaswewa/Tetera/blob/main/docs/adr/0004-teta-wot-v0.2.0-extended-upstream-first.md
+//! [ADR-0004]: https://github.com/lucaswewa/Tetera/blob/main/docs/adr/0004-teta-wot-v0-2-0-extended-upstream-first.md
 //! [ADR-0017]: https://github.com/lucaswewa/Tetera/blob/main/docs/adr/0017-control-plane-and-media-plane.md
 
 pub mod error;
