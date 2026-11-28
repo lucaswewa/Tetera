@@ -546,7 +546,7 @@ fn reference_thumbnail(samples: &Samples, spec: &DatasetSpec) -> (u32, u32, Vec<
     while cw / step > THUMBNAIL_SIZE as usize || ch / step > THUMBNAIL_SIZE as usize {
         step += 1;
     }
-    let (tw, th) = (cw / step, ch / step);
+    let (tw, th) = ((cw / step).max(1), (ch / step).max(1));
     let level = |v: f64| {
         let v8 = ((v / full).clamp(0.0, 1.0) * 255.0).round();
         ((v8 / 255.0).powf(1.0 / 2.2) * 255.0).round() as u8
@@ -602,6 +602,8 @@ fn a_thumbnails_pixels_are_each_cells_colours_every_steps_cell() {
         ),
         (PixelFormat::Mono16, 2_000, 30),
         (PixelFormat::Mono8, 2, 2),
+        (PixelFormat::Mono8, 2, 2_000),
+        (PixelFormat::Mono16, 3_000, 2),
     ] {
         let s = DatasetSpec {
             width: w,

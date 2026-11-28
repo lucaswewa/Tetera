@@ -271,12 +271,8 @@ pub(crate) fn thumbnail_rgb(samples: &Samples, spec: &DatasetSpec) -> Result<(u3
         .div_ceil(THUMBNAIL_SIZE as usize)
         .max(ch.div_ceil(THUMBNAIL_SIZE as usize))
         .max(1);
-    let (tw, th) = (cw / step, ch / step);
-    if tw == 0 || th == 0 {
-        return Err(Error::invalid_argument(format!(
-            "a thumbnail of a {w} × {h} frame"
-        )));
-    }
+    // At least a pixel each way, however skinny the frame: a dataset's frames are 2 × 2 or more.
+    let (tw, th) = ((cw / step).max(1), (ch / step).max(1));
     let gamma: Vec<u8> = (0..=255u32)
         .map(|v| ((v as f32 / 255.0).powf(1.0 / 2.2) * 255.0).round() as u8)
         .collect();
