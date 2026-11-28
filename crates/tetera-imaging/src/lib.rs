@@ -33,6 +33,10 @@
 //! - [`deconvolve`] runs on the GPU too, through cuFFT, within the behaviour spec's tolerance
 //!   of the CPU.
 //!
+//! From P1.16a:
+//! - [`focus`]: focus measures on a raw frame's green channel, binned: Brenner's gradient,
+//!   the variance of the Laplacian, normalised variance and Tenengrad, on the CPU.
+//!
 //! Each operation runs on whichever backend a [`Compute`](tetera_compute::Compute) chose;
 //! `_cpu` runs its twin, and `_device` leaves data on the GPU.
 
@@ -43,6 +47,7 @@ pub mod deconvolve;
 pub mod demosaic;
 pub mod denoise;
 pub mod display;
+pub mod focus;
 pub mod image;
 pub mod isp;
 pub mod jpeg;

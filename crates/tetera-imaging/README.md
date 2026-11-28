@@ -19,6 +19,8 @@ Tetera's imaging algorithms, L1 (plan §6.6). Each has a CPU twin here, and, wit
 - **`psf`:** point spread functions, each centred and summing to 1. The widefield PSF comes from the NA, the wavelength and the pixel size, in focus (the Airy pattern) or through focus (scalar diffraction), each pixel averaged over 5 × 5 points; a measured one comes from a NumPy `.npy` file.
 - **`deconvolve`:** Richardson–Lucy in 2D and 3D on the CPU, with total-variation regularisation if asked for. Its convolutions are FFTs (`rustfft`) over the image mirrored at its edges, padded to sizes of small primes. `convolve_cpu` blurs an image by a PSF the same way. On the GPU (P1.07c), `DeviceDeconvolution` runs the same steps through cuFFT, each element-wise step a kernel matching its CPU twin bit for bit. The two FFTs round differently, so the backends agree within the behaviour spec's tolerance: about 1e-6 relative after 20 iterations, against the 1e-3 allowed. `richardson_lucy` runs on whichever backend was chosen.
 
+- **`focus`** (P1.16a): focus measures, each higher when sharper, on a raw frame's green channel: each 2 × 2 cell's two greens averaged, then binned to at most 512 across. Brenner's gradient, the variance of the Laplacian, normalised variance (the default) and Tenengrad, as P1.16a's behaviour spec chose them. On the CPU only: the binned image is small.
+
 Each operation runs on whichever backend a `Compute` chose. `_cpu` runs its twin, and `_device` leaves data on the GPU.
 
 ## How to try it
