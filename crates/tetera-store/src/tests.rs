@@ -745,7 +745,16 @@ fn a_frame_log_reads_back_in_order_across_its_segments() {
     let mut log = FrameLogWriter::create(&fresh, bayer16(), 32, 48, 2).unwrap();
     let (_pool, frames) = frames(bayer16(), 1);
     assert!(log.append(&frames[0]).is_err(), "64 wide in a log of 32");
+    // A frame appended packed, as the recorder copies it, and one of the wrong size.
+    let (_pool32, narrow) = frames_of(bayer16(), 32, 1);
+    let rows = packed(&narrow[0]);
+    assert!(log.append_packed(narrow[0].meta(), &rows[1..]).is_err());
+    log.append_packed(narrow[0].meta(), &rows).unwrap();
+    assert_eq!(log.finish().unwrap(), 1);
+    assert_eq!(FrameLog::open(&fresh).unwrap().read(0).unwrap().1, rows);
     // A log of no frames.
+    let fresh = scratch.0.join("empty");
+    let log = FrameLogWriter::create(&fresh, bayer16(), 32, 48, 2).unwrap();
     assert_eq!(log.finish().unwrap(), 0);
     let empty = FrameLog::open(&fresh).unwrap();
     assert!(empty.is_empty());
