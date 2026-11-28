@@ -386,3 +386,12 @@ The owner runs this at Checkpoint C, with A's and C's; the agent ran and recorde
 - [ ] `cargo run --release -p tetera-workflows --example focus-search -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-imaging -p tetera-workflows` — expect 106 and 18 tests to pass.
 - **Result:** see the [notes](notes/P1.16a-focus-measures-and-the-search.md#manual-test).
+
+## P1.16b: Autofocus on the instrument
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU.
+- [ ] `cargo run --release -p tetera-api --features cuda --example autofocus` — expect, at 5× and at 50×, at least 95 of 100 searches within a quarter of the depth of field of the section's middle; a search at 10× in 5 s or less; and a blank field finding no focus, the stage where it started. About 8 minutes.
+- [ ] The same with `-- --compare` — expect each of the other three measures within a quarter of the depth of field in at least 24 of 25 at each objective.
+- [ ] `cargo run --release -p tetera-api --example autofocus -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-workflows -p tetera-api` — expect 23 and 41 tests to pass.
+- **Result:** see the [notes](notes/P1.16b-autofocus-on-the-instrument.md#manual-test).

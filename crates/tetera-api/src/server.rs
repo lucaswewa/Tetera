@@ -3,6 +3,7 @@
 //! shut down gracefully. Its services: the instrument, the roots, the job service, and the
 //! dataset store.
 
+use crate::autofocus::AutofocusThing;
 use crate::camera::CameraThing;
 use crate::capture::CaptureThing;
 use crate::datasets::DatasetsThing;
@@ -73,7 +74,7 @@ impl std::fmt::Debug for Service {
 pub const CAMERA: &str = "camera";
 
 /// The names the Things are served under.
-pub const THINGS: [&str; 10] = [
+pub const THINGS: [&str; 11] = [
     "system",
     "simulation",
     CAMERA,
@@ -84,6 +85,7 @@ pub const THINGS: [&str; 10] = [
     "jobs",
     "capture",
     "datasets",
+    "autofocus",
 ];
 
 /// The server for `instrument`, its settings under `roots`, its jobs as `JobsOptions`' defaults.
@@ -133,6 +135,7 @@ pub fn build_with(
         .thing(THINGS[7], JobsThing::default())
         .thing(THINGS[8], CaptureThing::default())
         .thing(THINGS[9], DatasetsThing::default())
+        .thing(THINGS[10], AutofocusThing::default())
         .merge(media)
         .build()
         .map_err(|e| Error::internal(format!("the server won't build: {e}")))?;

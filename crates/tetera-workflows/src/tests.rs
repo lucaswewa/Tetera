@@ -22,6 +22,17 @@ use tetera_sim::{
 };
 use tetera_store::Store;
 
+/// The CPU, as the tests share it: autofocus's take it alone, as the virtual camera renders
+/// every frame of its live stream on the CPU; the captures', whose times a busy CPU would
+/// spoil, share it.
+pub(crate) static CPU: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+/// The CPU, shared.
+fn shared() -> std::sync::RwLockReadGuard<'static, ()> {
+    CPU.read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// A folder of the test's own, removed when it drops.
 struct Scratch(PathBuf);
 
@@ -203,6 +214,7 @@ fn number(text: &str) -> f64 {
 
 #[test]
 fn a_single_frame_is_taken_at_full_resolution_and_the_live_view_comes_back() {
+    let _cpu = shared();
     let s = setup();
     let live = s.camera.config();
     s.camera.start(s.bus.clone()).unwrap();
@@ -246,6 +258,7 @@ fn a_single_frame_is_taken_at_full_resolution_and_the_live_view_comes_back() {
 
 #[test]
 fn a_series_keeps_its_interval_and_a_burst_its_rate_and_count() {
+    let _cpu = shared();
     let s = setup();
     let series = CaptureKind::Series {
         count: 3,
@@ -334,6 +347,7 @@ fn a_series_keeps_its_interval_and_a_burst_its_rate_and_count() {
 
 #[test]
 fn a_cancelled_capture_leaves_no_dataset_and_the_camera_as_it_was() {
+    let _cpu = shared();
     let s = setup();
     let live = s.camera.config();
     s.camera.start(s.bus.clone()).unwrap();
@@ -375,6 +389,7 @@ fn a_cancelled_capture_leaves_no_dataset_and_the_camera_as_it_was() {
 
 #[test]
 fn bad_requests_are_refused_and_a_failed_switch_puts_the_camera_back() {
+    let _cpu = shared();
     let s = setup();
     let before = s.camera.config();
     for kind in [
@@ -437,6 +452,7 @@ fn bad_requests_are_refused_and_a_failed_switch_puts_the_camera_back() {
 
 #[test]
 fn the_capture_mode_is_the_whole_sensor_at_12_bits_whatever_the_live_view_set() {
+    let _cpu = shared();
     let s = setup();
     let camera = fake();
     let live = camera.config();
@@ -470,6 +486,7 @@ fn the_capture_mode_is_the_whole_sensor_at_12_bits_whatever_the_live_view_set() 
 
 #[test]
 fn a_series_waits_out_its_interval_and_says_how_far_it_has_got() {
+    let _cpu = shared();
     let s = setup();
     let camera = fake();
     let began = Instant::now();
@@ -529,6 +546,7 @@ fn a_series_waits_out_its_interval_and_says_how_far_it_has_got() {
 
 #[test]
 fn a_bursts_drops_are_counted_once_and_its_progress_said_as_it_records_and_ingests() {
+    let _cpu = shared();
     let s = setup();
     let camera = fake();
     // The stream's first two frames lost, and said to be.

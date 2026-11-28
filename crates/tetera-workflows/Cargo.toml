@@ -15,11 +15,11 @@ serde_json.workspace = true
 tetera-acquire.workspace = true
 tetera-core.workspace = true
 tetera-hal.workspace = true
+tetera-imaging.workspace = true
 tetera-store.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-tetera-imaging.workspace = true
 tetera-sim.workspace = true
 
 [lints]

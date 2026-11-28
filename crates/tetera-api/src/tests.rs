@@ -13,6 +13,11 @@ use tetera_core::Clock;
 use tetera_hal::camera::Camera;
 use tetera_sim::GrblState;
 
+/// The CPU, as the tests share it: autofocus's take it alone, as the virtual camera renders
+/// every frame of its live stream on the CPU; the preview's, whose times a busy CPU would
+/// spoil, share it.
+pub(crate) static CPU: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
+
 /// A folder of the test's own, removed when it drops.
 pub(crate) struct Scratch(pub(crate) PathBuf);
 
@@ -36,7 +41,10 @@ pub(crate) async fn client(scratch: &Scratch) -> (TestClient, Arc<Instrument>) {
 }
 
 /// The server for `instrument`, in-process, its roots in `scratch`.
-async fn serve(scratch: &Scratch, instrument: Instrument) -> (TestClient, Arc<Instrument>) {
+pub(crate) async fn serve(
+    scratch: &Scratch,
+    instrument: Instrument,
+) -> (TestClient, Arc<Instrument>) {
     let roots = Roots::make(scratch.0.join("data"), scratch.0.join("scratch")).unwrap();
     let instrument = Arc::new(instrument);
     let service = build(instrument.clone(), roots).unwrap();
@@ -129,7 +137,7 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
         "/simulation/unload",
         "/simulation/inject",
     ];
-    let devices: [(&str, &[&str]); 8] = [
+    let devices: [(&str, &[&str]); 9] = [
         (
             "camera",
             &[
@@ -178,6 +186,7 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
             "datasets",
             &["projects", "create_project", "list", "get", "delete"],
         ),
+        ("autofocus", &["last", "autofocus"]),
     ];
     let named: Vec<String> = devices
         .iter()

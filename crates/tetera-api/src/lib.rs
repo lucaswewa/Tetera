@@ -14,12 +14,14 @@
 //! - [`capture`]: the `capture` Thing: a frame, a series or a burst into a dataset, as a job.
 //! - [`datasets`]: the `datasets` Thing: projects, datasets, their metadata, and delete
 //!   (ADR-0021).
+//! - [`autofocus`]: the `autofocus` Thing: autofocus as a job, the focus curve its result.
 //! - [`error`]: Tetera's errors as teta-wot's.
 //! - [`server`]: the Things served, and shut down gracefully.
 //!
 //! [ADR-0004]: https://github.com/lucaswewa/Tetera/blob/main/docs/adr/0004-teta-wot-v0-2-0-extended-upstream-first.md
 //! [ADR-0017]: https://github.com/lucaswewa/Tetera/blob/main/docs/adr/0017-control-plane-and-media-plane.md
 
+pub mod autofocus;
 pub mod camera;
 pub mod capture;
 pub mod datasets;
