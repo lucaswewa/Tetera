@@ -432,8 +432,12 @@ async fn an_mjpeg_stream_ends_with_the_server_at_once() {
             got.extend_from_slice(&buf[..n]);
         }
         let _ = part_seen.send(());
-        // Then to its end: the read fails only after 10 s.
-        while s.read(&mut buf).expect("the end within 10 s") > 0 {}
+        // Then to its end, which a stream that ignores the shutdown never reaches: its parts
+        // keep coming.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while s.read(&mut buf).expect("the end within 10 s") > 0 {
+            assert!(Instant::now() < deadline, "the stream outlived the server");
+        }
         Instant::now()
     });
     seen.await.unwrap();
