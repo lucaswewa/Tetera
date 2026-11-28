@@ -1,8 +1,12 @@
 //! The server: the instrument's Things on teta-wot, with its OpenAPI document and its
 //! interactive docs, served until a shutdown signal, then shut down gracefully.
 
+use crate::camera::CameraThing;
+use crate::illumination::IlluminationThing;
 use crate::instrument::Instrument;
+use crate::objective::ObjectiveThing;
 use crate::simulation::Simulation;
+use crate::stage::StageThing;
 use crate::system::System;
 use std::future::Future;
 use std::path::PathBuf;
@@ -56,7 +60,14 @@ impl std::fmt::Debug for Service {
 }
 
 /// The names the Things are served under.
-pub const THINGS: [&str; 2] = ["system", "simulation"];
+pub const THINGS: [&str; 6] = [
+    "system",
+    "simulation",
+    "camera",
+    "stage",
+    "objective",
+    "illumination",
+];
 
 /// The server for `instrument`, its settings under `roots`.
 pub fn build(instrument: Arc<Instrument>, roots: Roots) -> Result<Service> {
@@ -68,6 +79,10 @@ pub fn build(instrument: Arc<Instrument>, roots: Roots) -> Result<Service> {
         .service(Arc::new(roots))
         .thing(THINGS[0], System::default())
         .thing(THINGS[1], Simulation::default())
+        .thing(THINGS[2], CameraThing::default())
+        .thing(THINGS[3], StageThing::default())
+        .thing(THINGS[4], ObjectiveThing::default())
+        .thing(THINGS[5], IlluminationThing::default())
         .build()
         .map_err(|e| Error::internal(format!("the server won't build: {e}")))?;
     Ok(Service { server })

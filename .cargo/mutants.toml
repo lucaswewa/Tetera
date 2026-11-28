@@ -94,4 +94,8 @@ exclude_re = [
     # The virtual camera's velocity over a frame's span: the span is never zero, as the
     # shortest exposure is 0.1 ms, so `>` and `>=` divide alike.
     "replace > with >= in Shared::render_here",
+    # The camera Thing's binning and ROI: the virtual camera offers no binning but its modes'
+    # and no ROI, so each is always its default, `1 × 1` and `null`.
+    "replace CameraThing::binning -> Result<Binning, PropertyError> with Ok\\(Default::default\\(\\)\\)",
+    "replace CameraThing::roi -> Result<Option<Rect>, PropertyError> with Ok\\(None\\)",
 ]
