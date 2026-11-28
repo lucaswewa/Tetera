@@ -15,6 +15,7 @@
 //! - [`datasets`]: the `datasets` Thing: projects, datasets, their metadata, and delete
 //!   (ADR-0021).
 //! - [`autofocus`]: the `autofocus` Thing: autofocus as a job, the focus curve its result.
+//! - [`scan`]: the `scan` Thing: a scan's plan, and the scan as a job, paused and resumed.
 //! - [`error`]: Tetera's errors as teta-wot's.
 //! - [`server`]: the Things served, and shut down gracefully.
 //!
@@ -33,6 +34,7 @@ pub mod jobs;
 pub mod media;
 pub mod objective;
 pub mod preview;
+pub mod scan;
 pub mod server;
 pub mod simulation;
 pub mod stage;

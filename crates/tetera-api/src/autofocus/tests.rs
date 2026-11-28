@@ -2,7 +2,7 @@
 //! failure, the stage back; refusals; and a cancel through the `jobs` Thing.
 
 use crate::instrument::{Instrument, ObjectivesConfig, SensorSize, SimulatorConfig};
-use crate::tests::{Scratch, invoke, serve};
+use crate::tests::{Scratch, ended, invoke, serve};
 use serde_json::{Value, json};
 use std::time::Duration;
 use teta_wot::testing::TestClient;
@@ -26,21 +26,6 @@ async fn client(scratch: &Scratch) -> (TestClient, std::sync::Arc<Instrument>) {
     )
     .unwrap();
     serve(scratch, instrument).await
-}
-
-/// Job `id`, once it has ended.
-async fn ended(client: &TestClient, id: &str) -> Value {
-    for _ in 0..6_000 {
-        let job = invoke(client, "/jobs/get", json!({ "id": id })).await["output"].clone();
-        if matches!(
-            job["state"].as_str(),
-            Some("succeeded" | "failed" | "cancelled")
-        ) {
-            return job;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("job {id} never ended");
 }
 
 async fn z(client: &TestClient) -> f64 {

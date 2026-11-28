@@ -46,6 +46,7 @@ fn spec(format: PixelFormat, frames: u64) -> DatasetSpec {
         frames,
         pixel_size_um: 0.24,
         interval_s: 0.05,
+        z_step_um: None,
         instrument: json!({"objective": "20x", "exposure_ms": 5.0}),
     }
 }
@@ -274,6 +275,109 @@ fn a_frame_written_with_metadata_of_the_callers_keeps_it() {
     assert_eq!(r.read(0).unwrap(), expected(&frames[0]));
     assert_eq!(r.read(1).unwrap(), expected(&frames[1]));
     assert_eq!(r.metadata().frames, [meta, frames[1].meta().clone()]);
+}
+
+#[test]
+fn a_z_stack_is_one_array_along_z_its_step_in_the_scale_and_reads_back_whole() {
+    let scratch = Scratch::new();
+    let store = Store::open(&scratch.0).unwrap();
+    store.create_project("p").unwrap();
+    for format in [bayer16(), PixelFormat::Mono8] {
+        let (_pool, frames) = frames(format, 4);
+        let stack = DatasetSpec {
+            kind: "scan".into(),
+            interval_s: 0.0,
+            z_step_um: Some(0.75),
+            ..spec(format, 5)
+        };
+        let mut w = store.create_dataset("p", stack).unwrap();
+        for f in &frames {
+            w.append(f).unwrap();
+        }
+        // Four planes of the five planned: the array shrunk along z.
+        let info = w.finish().unwrap();
+        let image = scratch.0.join(&info.path).join(IMAGE);
+        let array = read_json(&image.join("0").join("zarr.json"));
+        assert_eq!(array["shape"], json!([1, 4, 48, 64]), "{array}");
+        assert_eq!(array["dimension_names"], json!(["c", "z", "y", "x"]));
+        assert_eq!(
+            array["chunk_grid"]["configuration"]["chunk_shape"],
+            json!([1, 1, 48, 64])
+        );
+        let group = read_json(&image.join("zarr.json"));
+        check_ngff_05(&group["attributes"]);
+        let image = &group["attributes"]["ome"]["multiscales"][0];
+        let axes: Vec<&str> = image["axes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| a["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(axes, ["c", "z", "y", "x"]);
+        assert_eq!(image["axes"][1]["unit"], "micrometer");
+        assert_eq!(
+            image["datasets"][0]["coordinateTransformations"][0]["scale"],
+            json!([1.0, 0.75, 0.24, 0.24])
+        );
+        // Plane by plane, and whole, as one 3D array.
+        let r = store.read(&info.id).unwrap();
+        assert_eq!(r.frames(), 4);
+        assert_eq!(r.metadata().spec.z_step_um, Some(0.75));
+        for (z, f) in frames.iter().enumerate() {
+            assert_eq!(r.read(z as u64).unwrap(), expected(f), "plane {z}");
+        }
+        assert!(r.read(4).is_err());
+        let whole = r.read_stack().unwrap();
+        assert_eq!((whole.shape, whole.z_step_um), ([4, 48, 64], 0.75));
+        let planes: Vec<Samples> = frames.iter().map(expected).collect();
+        let joined = match &planes[0] {
+            Samples::U8(_) => Samples::U8(
+                planes
+                    .iter()
+                    .flat_map(|p| match p {
+                        Samples::U8(s) => s.clone(),
+                        Samples::U16(_) => unreachable!(),
+                    })
+                    .collect(),
+            ),
+            Samples::U16(_) => Samples::U16(
+                planes
+                    .iter()
+                    .flat_map(|p| match p {
+                        Samples::U16(s) => s.clone(),
+                        Samples::U8(_) => unreachable!(),
+                    })
+                    .collect(),
+            ),
+        };
+        assert_eq!(whole.samples, joined, "{format:?}");
+    }
+    // Frames in time are no z-stack; and a step must be above 0.
+    let mut w = store.create_dataset("p", spec(bayer16(), 1)).unwrap();
+    let (_pool, frames) = frames(bayer16(), 1);
+    w.append(&frames[0]).unwrap();
+    let series = w.finish().unwrap();
+    assert_eq!(
+        store
+            .read(&series.id)
+            .unwrap()
+            .read_stack()
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidArgument
+    );
+    for bad in [0.0, -0.5, f64::NAN, f64::INFINITY] {
+        let e = store
+            .create_dataset(
+                "p",
+                DatasetSpec {
+                    z_step_um: Some(bad),
+                    ..spec(bayer16(), 2)
+                },
+            )
+            .unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::InvalidArgument, "{bad}");
+    }
 }
 
 #[test]

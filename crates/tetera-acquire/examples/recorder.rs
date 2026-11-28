@@ -92,6 +92,7 @@ fn main() -> Result<()> {
             frames: log.len() as u64,
             pixel_size_um: 0.12,
             interval_s: 1.0 / rate,
+            z_step_um: None,
             instrument: json!({"camera": "virtual MIChrome 20", "mode": 0, "bit_depth": 12}),
         };
         let info = tetera_store::ingest(&into, "Recordings", &log, spec, |done, of| {

@@ -33,6 +33,7 @@ fn main() -> Result<()> {
         frames: n,
         pixel_size_um: 0.12,
         interval_s: 0.138,
+        z_step_um: None,
         instrument: json!({"camera": "virtual MIChrome 20", "objective": "20x", "exposure_ms": 5.0}),
     };
     // Frames like a camera's: a smooth field with some noise, 12 bits in 16.

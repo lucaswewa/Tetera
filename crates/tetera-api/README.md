@@ -151,11 +151,28 @@ It starts the virtual instrument's live stream, then focuses 100 times at 5× an
 
 ## Scans
 
+A 3 × 3 snake at the objective fitted, planned, then scanned stop and go as a job, paused and resumed:
+
+```bash
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"pattern": {"kind": "snake", "x0": 2000, "y0": 2000, "x1": 4500, "y1": 3700, "overlap": 0.1}}' \
+  http://127.0.0.1:8310/scan/preview                            # the plan: positions, grid, estimated time
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"project": "Tonsil 3", "name": "a snake", "pattern": {"kind": "snake", "x0": 2000, "y0": 2000, "x1": 4500, "y1": 3700, "overlap": 0.1}}' \
+  http://127.0.0.1:8310/scan/scan                              # its invocation, whose output is the job
+curl -N http://127.0.0.1:8310/scan/progress -H 'Accept: text/event-stream'   # each tile as it goes
+curl -X POST http://127.0.0.1:8310/scan/pause                   # held at its next tile
+curl -X POST http://127.0.0.1:8310/scan/resume
+curl http://127.0.0.1:8310/scan/last                            # the dataset, each tile's positions, the time
+```
+
+`{"kind": "z_around", "planes": 21, "step": 1.0}` scans 21 planes around the current z into a z-stack, and `{"kind": "z_range", "from": 990, "to": 1010, "step": 0.5}` a range. `autofocus` takes `{"at": "first"}` or `{"at": "every", "tiles": 5}`; `settle_ms`, `exposure_ms` and `write_mb_s` change the settle, the exposure and the disk's throughput the estimate assumes. `scan/running` says how far the running scan has got, and `jobs/cancel` stops it, keeping the tiles taken.
+
 ```bash
 cargo run --release -p tetera-api --features cuda --example scan
 ```
 
-It plans a 5 × 5 snake of full-resolution tiles at 10× on the virtual instrument, prints the plan and its estimated time, scans it stop and go, and prints the time taken against the estimate and each tile's recorded position against the plan and the simulator's truth. `-- --smoke` takes a 2 × 2 snake of a tiny sensor on the CPU. The `scan` Thing comes in P1.17b.
+It plans a 5 × 5 snake of full-resolution tiles at 10× on the virtual instrument, prints the plan and its estimated time, scans it stop and go, and prints the time taken against the estimate and each tile's recorded position against the plan and the simulator's truth. Then a 21-plane z-scan, read back as one 3D array; and a 3 × 3 snake through the `scan` Thing on a loopback port, paused at its fourth tile for a second and resumed. `-- --smoke` does the same, smaller, with a tiny sensor on the CPU.
 
 ## The live view
 

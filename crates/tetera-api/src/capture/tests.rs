@@ -1,25 +1,10 @@
 //! A capture and its dataset over HTTP: taken as a job while the live view runs, listed, read,
 //! its thumbnail served, deleted; cancelled through the `jobs` Thing, leaving nothing.
 
-use crate::tests::{Scratch, client, invoke};
+use crate::tests::{Scratch, client, ended, invoke};
 use serde_json::{Value, json};
 use std::time::Duration;
 use teta_wot::testing::TestClient;
-
-/// Job `id`, once it has ended.
-async fn ended(client: &TestClient, id: &str) -> Value {
-    for _ in 0..3_000 {
-        let job = invoke(client, "/jobs/get", json!({ "id": id })).await["output"].clone();
-        if matches!(
-            job["state"].as_str(),
-            Some("succeeded" | "failed" | "cancelled")
-        ) {
-            return job;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("job {id} never ended");
-}
 
 /// The camera's frames delivered, once they have grown past `past`.
 async fn delivered_past(client: &TestClient, past: u64) -> u64 {
@@ -240,6 +225,7 @@ async fn a_dataset_being_written_has_no_thumbnail_yet() {
                 frames: 2,
                 pixel_size_um: 1.0,
                 interval_s: 0.0,
+                z_step_um: None,
                 instrument: Value::Null,
             },
         )

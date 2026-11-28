@@ -12,6 +12,7 @@ use crate::instrument::Instrument;
 use crate::jobs::{JobsOptions, JobsThing};
 use crate::objective::ObjectiveThing;
 use crate::preview::PreviewThing;
+use crate::scan::ScanThing;
 use crate::simulation::Simulation;
 use crate::stage::StageThing;
 use crate::system::System;
@@ -74,7 +75,7 @@ impl std::fmt::Debug for Service {
 pub const CAMERA: &str = "camera";
 
 /// The names the Things are served under.
-pub const THINGS: [&str; 11] = [
+pub const THINGS: [&str; 12] = [
     "system",
     "simulation",
     CAMERA,
@@ -86,6 +87,7 @@ pub const THINGS: [&str; 11] = [
     "capture",
     "datasets",
     "autofocus",
+    "scan",
 ];
 
 /// The server for `instrument`, its settings under `roots`, its jobs as `JobsOptions`' defaults.
@@ -136,6 +138,7 @@ pub fn build_with(
         .thing(THINGS[8], CaptureThing::default())
         .thing(THINGS[9], DatasetsThing::default())
         .thing(THINGS[10], AutofocusThing::default())
+        .thing(THINGS[11], ScanThing::default())
         .merge(media)
         .build()
         .map_err(|e| Error::internal(format!("the server won't build: {e}")))?;
