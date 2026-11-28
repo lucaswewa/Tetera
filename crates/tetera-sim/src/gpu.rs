@@ -305,20 +305,16 @@ impl HeTiles {
         shot: &Shot,
     ) -> Result<Vec<u16>> {
         let s = fov.optics.sensor;
-        let mut bytes = vec![0u8; 2 * s.width as usize * s.height as usize];
-        self.frame_into(fov, motion, light, focus, shot, &mut bytes)?;
-        Ok(bytes
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|p| u16::from_le_bytes(*p))
-            .collect())
+        let samples = s.width as usize * s.height as usize;
+        self.exposed(fov, motion, light, focus, shot, samples, |raw| {
+            self.gpu.download(raw)
+        })
     }
 
     /// The same, straight into `out`: 16-bit little-endian counts, its sensor's rows evenly
     /// spaced through it, as a frame from a pool holds them; pinned memory takes it fastest.
     /// The sensor's launch refuses rows that don't fit, and the download a buffer of an odd
-    /// length. Its buffer on the GPU is kept for the next frame.
+    /// length.
     pub fn frame_into(
         &self,
         fov: &FieldOfView,
@@ -328,8 +324,26 @@ impl HeTiles {
         shot: &Shot,
         out: &mut [u8],
     ) -> Result<()> {
-        shot.exposure.check()?;
         let samples = out.len() / 2;
+        self.exposed(fov, motion, light, focus, shot, samples, |raw| {
+            self.gpu.download_into_bytes(raw, out)
+        })
+    }
+
+    /// The raw frame on the GPU, in a buffer of `samples` counts kept for the next frame,
+    /// handed to `then`.
+    #[allow(clippy::too_many_arguments)]
+    fn exposed<R>(
+        &self,
+        fov: &FieldOfView,
+        motion: &Motion,
+        light: &Light,
+        focus: f64,
+        shot: &Shot,
+        samples: usize,
+        then: impl FnOnce(&DeviceBuffer<u16>) -> Result<R>,
+    ) -> Result<R> {
+        shot.exposure.check()?;
         self.field_moving_with(fov, motion, light, focus, |planes| {
             let mut kept = self.raw.lock().unwrap_or_else(PoisonError::into_inner);
             if kept.as_ref().is_none_or(|r| r.len() != samples) {
@@ -348,7 +362,7 @@ impl HeTiles {
                 shot.frame,
                 buffer,
             )?;
-            self.gpu.download_into_bytes(buffer, out)
+            then(buffer)
         })
     }
 
