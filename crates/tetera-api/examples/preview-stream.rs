@@ -23,7 +23,8 @@ use tokio_tungstenite::tungstenite::Message;
 struct Got {
     frames: usize,
     seconds: f64,
-    /// From each frame's exposure's end to its receipt, ms.
+    /// From each frame's exposure's end to its receipt, ms, the clocks' disagreement taken
+    /// out.
     latencies: Vec<f64>,
     lowest_quality: u8,
     lowered: usize,
@@ -120,6 +121,11 @@ async fn client(addr: SocketAddr, paint: Duration, seconds: f64) -> anyhow::Resu
         lowest_quality: 100,
         lowered: 0,
     };
+    // Each frame's receipt, when it was sent and when its exposure ended, µs. The server's
+    // times are on its clock's mapping to UTC, which can disagree with this clock by seconds
+    // in WSL2 (ADR-0019): the least gap between a receipt and its sending is that
+    // disagreement, plus the shortest trip, a fraction of a millisecond on localhost.
+    let mut times = Vec::new();
     while started.elapsed().as_secs_f64() < seconds {
         let Ok(Some(message)) = tokio::time::timeout(Duration::from_secs(5), socket.next()).await
         else {
@@ -130,8 +136,7 @@ async fn client(addr: SocketAddr, paint: Duration, seconds: f64) -> anyhow::Resu
         };
         let (header, _jpeg) = Header::parse(&bytes)?;
         let now = UtcTime::now().unix_nanos() / 1_000;
-        got.latencies
-            .push((now - header.exposure_end_utc_us) as f64 / 1e3);
+        times.push((now, header.sent_utc_us, header.exposure_end_utc_us));
         got.frames += 1;
         got.lowest_quality = got.lowest_quality.min(header.quality);
         got.lowered += usize::from(header.lowered);
@@ -141,6 +146,11 @@ async fn client(addr: SocketAddr, paint: Duration, seconds: f64) -> anyhow::Resu
         socket.send(Message::text(ack.to_string())).await?;
     }
     got.seconds = started.elapsed().as_secs_f64();
+    let offset = times.iter().map(|(r, s, _)| r - s).min().unwrap_or(0);
+    got.latencies = times
+        .iter()
+        .map(|(received, _, end)| (received - offset - end) as f64 / 1e3)
+        .collect();
     socket.close(None).await?;
     Ok(got)
 }
