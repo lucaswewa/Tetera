@@ -396,7 +396,7 @@ async fn the_clients_state_changes_its_preview_and_a_bad_one_is_answered() {
         json!({"width": 32, "height": 32, "ack": first.seq}),
     )
     .await;
-    let (smaller, seen) = loop {
+    let smaller = loop {
         let (h, _) = frame(&mut socket, Duration::from_secs(10)).await.unwrap();
         send(
             &mut socket,
@@ -404,7 +404,7 @@ async fn the_clients_state_changes_its_preview_and_a_bad_one_is_answered() {
         )
         .await;
         if h.width == 32 {
-            break (h, h.seq);
+            break h;
         }
     };
     assert_eq!(smaller.height, 24);
@@ -423,7 +423,13 @@ async fn the_clients_state_changes_its_preview_and_a_bad_one_is_answered() {
             .await
             .is_some_and(|a| a["error"].is_string())
     );
-    send(&mut socket, json!({"width": 32, "height": 32, "ack": seen})).await;
+    // The frames that came while the errors were read went unacknowledged: acknowledging
+    // every frame so far opens the window again.
+    send(
+        &mut socket,
+        json!({"width": 32, "height": 32, "ack": u64::MAX}),
+    )
+    .await;
     let (still, _) = frame(&mut socket, Duration::from_secs(10)).await.unwrap();
     assert_eq!(still.width, 32, "the last good state holds");
 }
