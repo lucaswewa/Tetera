@@ -1,6 +1,6 @@
 //! The `camera` Thing: its capabilities and configuration, each setting a property of its
-//! own; the white balance the preview applies; and a stream to watch: whether it runs, the
-//! frames it has delivered and dropped, and the last frame's metadata.
+//! own; the white balance the preview applies; and a stream into the frame bus, to watch:
+//! whether it runs, the frames it has delivered and dropped, and the last frame's metadata.
 
 use crate::error;
 use crate::instrument::Instrument;
@@ -9,6 +9,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, OnceLock, Weak};
 use teta_wot::prelude::*;
+use tetera_acquire::FrameBus;
 use tetera_core::frame::format::Binning;
 use tetera_core::frame::meta::FrameMeta;
 use tetera_core::{Frame, PixelFormat, Rect};
@@ -61,6 +62,8 @@ pub struct CameraThing {
     #[property(readonly, default = None)]
     last_frame: Prop<Option<FrameMeta>>,
     camera: OnceLock<Arc<dyn Camera>>,
+    /// The frame bus its stream goes into.
+    bus: OnceLock<Arc<FrameBus>>,
     /// Itself, for the stream's sink to update its properties from the camera's thread.
     me: OnceLock<Weak<CameraThing>>,
 }
@@ -70,6 +73,12 @@ impl CameraThing {
         self.camera
             .get()
             .ok_or_else(|| PropertyError::failed(anyhow::anyhow!("not started")))
+    }
+
+    /// The white balance's gains, red's, green's and blue's, for the preview.
+    pub(crate) fn gains(&self) -> [f64; 3] {
+        let w = self.white_balance.get();
+        [w.red, w.green, w.blue]
     }
 
     /// The configuration, changed by `change`, applied: a 422 for one it doesn't take.
@@ -98,6 +107,7 @@ impl CameraThing {
             .context("the server has no instrument")?;
         let camera: Arc<dyn Camera> = instrument.camera.clone();
         let _ = self.camera.set(camera);
+        let _ = self.bus.set(instrument.bus.clone());
         let me = ctx
             .server()
             .thing_ref::<CameraThing>(ctx.name())
@@ -225,7 +235,8 @@ impl CameraThing {
         self.reconfigure(json, |c| c.roi = value)
     }
 
-    /// Starts the stream: `frames` and `last_frame` follow it. Refused if it runs.
+    /// Starts the stream into the frame bus: `frames` and `last_frame` follow it. Refused if
+    /// it runs.
     #[action(global_lock = false)]
     async fn start_streaming(&self) -> Result<(), ActionError> {
         let camera = self
@@ -235,6 +246,7 @@ impl CameraThing {
             .ok_or_else(|| ActionError::handled("the camera hasn't started"))?;
         let sink = Arc::new(Counter {
             thing: self.me.get().cloned().unwrap_or_default(),
+            bus: self.bus.get().cloned().unwrap_or_else(FrameBus::new),
         });
         self.frames.set(FrameCount::default())?;
         camera.start(sink).map_err(error::action)?;
@@ -265,6 +277,7 @@ impl CameraThing {
     pub(crate) fn sink_for_tests(self: &Arc<Self>) -> Arc<dyn FrameSink> {
         Arc::new(Counter {
             thing: Arc::downgrade(self),
+            bus: self.bus.get().cloned().unwrap_or_else(FrameBus::new),
         })
     }
 
@@ -279,10 +292,11 @@ impl CameraThing {
     }
 }
 
-/// Where a stream's frames go until the preview takes them (P1.14a): counted, their metadata
-/// kept, and let go at once, so the camera's pool doesn't run dry.
+/// Where a stream's frames go: counted, their metadata kept, and into the frame bus, which
+/// lets them go once its readers have.
 struct Counter {
     thing: Weak<CameraThing>,
+    bus: Arc<FrameBus>,
 }
 
 impl FrameSink for Counter {
@@ -291,7 +305,7 @@ impl FrameSink for Counter {
             return;
         };
         let meta = frame.meta().clone();
-        drop(frame);
+        self.bus.publish(frame);
         let _ = thing.frames.update(|count| {
             count.delivered += 1;
             count.dropped += meta.dropped_before;

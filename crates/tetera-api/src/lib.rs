@@ -7,6 +7,7 @@
 //! - [`system`]: the `system` Thing, what Tetera runs on.
 //! - [`simulation`]: the `simulation` Thing, the sample and imperfections on demand.
 //! - [`camera`], [`stage`], [`objective`] and [`illumination`]: the device Things.
+//! - [`preview`]: the `preview` Thing, the live preview's stream (ADR-0019).
 //! - [`error`]: Tetera's errors as teta-wot's.
 //! - [`server`]: the Things served, and shut down gracefully.
 //!
@@ -19,6 +20,7 @@ pub mod host;
 pub mod illumination;
 pub mod instrument;
 pub mod objective;
+pub mod preview;
 pub mod server;
 pub mod simulation;
 pub mod stage;

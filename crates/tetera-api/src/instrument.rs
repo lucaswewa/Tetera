@@ -7,6 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
+use tetera_acquire::FrameBus;
 use tetera_core::frame::meta::LightState;
 use tetera_core::{Error, Result, StagePos, Um};
 use tetera_hal::camera::{Camera, CameraConfig};
@@ -196,6 +197,10 @@ pub struct Instrument {
     pub objectives: Arc<ManualObjectiveMount>,
     /// The light.
     pub light: Arc<VirtualIllumination>,
+    /// The frame bus the camera's stream goes into, for the previews and the recorder.
+    pub bus: Arc<FrameBus>,
+    /// Where previews are made: on the GPU when the camera renders there.
+    pub previews: Arc<tetera_compute::Compute>,
     sample: Mutex<Option<Sample>>,
     compute: Compute,
 }
@@ -274,12 +279,19 @@ impl Instrument {
             bit_depth: 8,
             ..camera.config()
         })?;
+        let previews = Arc::new(if compute.backend == "cuda" {
+            tetera_compute::Compute::detect()?
+        } else {
+            tetera_compute::Compute::cpu_only()?
+        });
         Ok(Self {
             clock: stage.clock().clone(),
             stage,
             camera,
             objectives: mount,
             light,
+            bus: FrameBus::new(),
+            previews,
             sample: Mutex::new(simulator.sample),
             compute: Compute {
                 sensor: [sensor.width, sensor.height],

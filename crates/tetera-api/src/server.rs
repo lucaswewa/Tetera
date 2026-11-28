@@ -5,6 +5,7 @@ use crate::camera::CameraThing;
 use crate::illumination::IlluminationThing;
 use crate::instrument::Instrument;
 use crate::objective::ObjectiveThing;
+use crate::preview::PreviewThing;
 use crate::simulation::Simulation;
 use crate::stage::StageThing;
 use crate::system::System;
@@ -60,13 +61,14 @@ impl std::fmt::Debug for Service {
 }
 
 /// The names the Things are served under.
-pub const THINGS: [&str; 6] = [
+pub const THINGS: [&str; 7] = [
     "system",
     "simulation",
     "camera",
     "stage",
     "objective",
     "illumination",
+    "preview",
 ];
 
 /// The server for `instrument`, its settings under `roots`.
@@ -83,6 +85,7 @@ pub fn build(instrument: Arc<Instrument>, roots: Roots) -> Result<Service> {
         .thing(THINGS[3], StageThing::default())
         .thing(THINGS[4], ObjectiveThing::default())
         .thing(THINGS[5], IlluminationThing::default())
+        .thing(THINGS[6], PreviewThing::default())
         .build()
         .map_err(|e| Error::internal(format!("the server won't build: {e}")))?;
     Ok(Service { server })

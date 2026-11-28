@@ -14,10 +14,10 @@ use tetera_hal::camera::Camera;
 use tetera_sim::GrblState;
 
 /// A folder of the test's own, removed when it drops.
-struct Scratch(PathBuf);
+pub(crate) struct Scratch(pub(crate) PathBuf);
 
 impl Scratch {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         Self(std::env::temp_dir().join(format!("tetera-api-test-{}-{n}", std::process::id())))
@@ -129,7 +129,7 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
         "/simulation/unload",
         "/simulation/inject",
     ];
-    let devices: [(&str, &[&str]); 4] = [
+    let devices: [(&str, &[&str]); 5] = [
         (
             "camera",
             &[
@@ -171,6 +171,7 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
             "illumination",
             &["capabilities", "on", "intensity", "colour_temperature"],
         ),
+        ("preview", &["defaults", "sessions", "stream"]),
     ];
     let named: Vec<String> = devices
         .iter()
@@ -601,8 +602,9 @@ async fn the_camera_is_configured_property_by_property_and_streams() {
             .status,
         422
     );
-    // The stream.
+    // The stream, into the frame bus.
     assert_eq!(client.get("/camera/streaming").await.json(), false);
+    let latest = instrument.bus.latest();
     let started = invoke(&client, "/camera/start_streaming", json!({})).await;
     assert_eq!(started["status"], "completed", "{started}");
     assert_eq!(client.get("/camera/streaming").await.json(), true);
@@ -615,6 +617,12 @@ async fn the_camera_is_configured_property_by_property_and_streams() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert!(frames["delivered"].as_u64().unwrap_or(0) >= 3, "{frames}");
+    let on_the_bus = latest
+        .recv(Duration::from_secs(5))
+        .expect("a frame on the bus");
+    assert_eq!(on_the_bus.meta().mode, 2);
+    assert!(instrument.bus.published() >= 3);
+    drop((on_the_bus, latest));
     let last = client.get("/camera/last_frame").await.json();
     assert_eq!(last["mode"], 2, "{last}");
     assert!(last["position"].is_object(), "{last}");
@@ -684,6 +692,7 @@ fn a_streams_frames_and_drops_are_counted() {
     let count = thing.frame_count();
     assert_eq!((count.delivered, count.dropped), (3, 5));
     assert_eq!(thing.last_seq(), Some(7));
+    assert_eq!(pool.stats().in_use, 0, "the bus keeps no frame");
 }
 
 fn teta_wot_sink_deliver(sink: &dyn tetera_hal::camera::FrameSink, frame: tetera_core::Frame) {
