@@ -362,3 +362,11 @@ The owner runs this at Checkpoint C, with A's and C's; the agent ran and recorde
 - [ ] Write a dataset with the example's code kept (comment out its last `remove_dir_all`), and open its `image.ome.zarr` in a reader of OME-Zarr v3, such as napari with `napari-ome-zarr`, if one is at hand — expect 20 frames of one channel.
 - [ ] `cargo test -p tetera-store` — expect 7 tests to pass.
 - **Result:** see the [notes](notes/P1.15b-the-dataset-store.md#manual-test).
+
+## P1.15c: The recorder and ingest
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU; the repository on WSL2's own ext4 disk, not `/mnt/c`.
+- [ ] `cargo run --release -p tetera-acquire --features cuda --example recorder` — expect the camera at 5472 × 3648, 12 bits, 7.24 fps, 289 MB/s; every frame recorded, none missing, the camera never held; the log ingested into a dataset; and its first frame the same as the log's, sample for sample.
+- [ ] `cargo run --release -p tetera-acquire --example recorder -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-store -p tetera-acquire` — expect 9 and 23 tests to pass.
+- **Result:** see the [notes](notes/P1.15c-the-recorder-and-ingest.md#manual-test).

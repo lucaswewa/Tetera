@@ -23,6 +23,8 @@ Tetera's acquisition services, L4 (plan §6.2, [ADR-0008](../../docs/adr/0008-th
 
   **`LiveStats`** works them out on a thread of its own, from a latest-wins subscriber, at most 10 times a second.
 
+- **`Recorder`** writes every frame of the camera's stream into a frame log on the scratch disk (`tetera-store`, P1.15c), from a lossless subscriber, on a thread of its own. A full queue holds the camera rather than losing a frame; `RecordStats` counts the frames, their bytes and rate, the times the camera was held, and any missing by their numbers or as the camera's own drops. `stop` writes what is queued and finishes the log.
+
 ## How to try it
 
 ```bash
@@ -30,3 +32,9 @@ cargo run --release -p tetera-acquire --features cuda --example preview-pipeline
 ```
 
 It streams the virtual camera, in its binned live mode at 8 bits, into the bus for 3 s, the stage jogging. Two preview sessions take frames from the bus, 1920 × 1280 and 640 × 427, and so do the live statistics. It prints the camera's rate, each session's rate, frames given way and stage times, and the statistics, and writes a few previews to `target/preview-pipeline/`. On this PC, each session keeps up with the camera's 53 frames a second: the frame to a mosaic 1.7 ms, the fused recipe 8 ms and the JPEG 3.4 ms at 1920 × 1280. `-- --smoke` runs a small sensor on the CPU for a second.
+
+```bash
+cargo run --release -p tetera-acquire --features cuda --example recorder
+```
+
+It records the virtual camera at full resolution, 12 bits, at its full rate, 7.24 frames a second and 289 MB/s, for 4 s, then ingests the frame log into a dataset as a compute job and reads the first frame back against the log's. On this PC every frame was kept, at 284 MB/s, and the camera was never held. `-- --smoke` runs a small sensor on the CPU.

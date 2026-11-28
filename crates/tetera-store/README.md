@@ -10,6 +10,8 @@ Tetera's dataset store, L2 (plan §6.2 and §6.9, [ADR-0021](../../docs/adr/0021
   - `metadata.json`: what it holds, the instrument as it was, and each frame's metadata, its number, times, settings and stage position;
   - `thumbnail.jpg`: each 2 × 2 Bayer cell as a pixel, at most 256 across.
 - **Reading back:** `read` gives a `DatasetReader`; `datasets`, `dataset`, `files`, `thumbnail`, `delete`.
+- **The frame log,** for the scratch disk (P1.15c): `FrameLogWriter` appends raw frames, their rows packed, to segment files preallocated `segment_frames` at a time, and a line for each in `index.jsonl`; `FrameLog` reads them back in order. A crash's torn last line is passed over.
+- **`ingest`** writes a frame log into a new dataset, calling a step before each frame: an error from it stops the ingest, and the half-written dataset goes with it. A job runs it, its progress and cancel check as the step.
 
 ## How to try it
 
