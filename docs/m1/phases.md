@@ -64,10 +64,11 @@ Each phase has:
 | [P1.12a](#p112a-optics-and-light-the-field-the-sensor-sees) | Optics and light: the field the sensor sees | P1.06b, P1.10b, P1.11b | 1,470 | — | G1, G1c |
 | [P1.12b](#p112b-the-sensor-and-motion) | The sensor and motion | P1.12a | 1,150 | — | G1, G1c |
 | [P1.12c](#p112c-the-virtual-camera-checkpoint-a) | The virtual camera (**Checkpoint A**) | P1.12b | 1,440 | — | G1, G1c, G2 |
-| [P1.13](#p113-the-server-and-the-device-things) | The server and the device Things | P1.12c | 1,980 | — | G1 |
-| [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13 | 1,050 | — | G1, G1c |
+| [P1.13a](#p113a-the-server-configuration-and-systemd) | The server, configuration and systemd | P1.12c | 1,320 | — | G1 |
+| [P1.13b](#p113b-the-device-things) | The device Things | P1.13a | 1,100 | — | G1 |
+| [P1.14a](#p114a-the-frame-bus-and-the-preview-pipeline) | The frame bus and the preview pipeline | P1.08d, P1.13b | 1,050 | — | G1, G1c |
 | [P1.14b](#p114b-the-preview-protocol) | The preview protocol (**Checkpoint B**) | P1.14a | 1,150 | — | G1, G2 |
-| [P1.15a](#p115a-the-job-service) | The job service | P1.13 | 800 | — | G1 |
+| [P1.15a](#p115a-the-job-service) | The job service | P1.13b | 800 | — | G1 |
 | [P1.15b](#p115b-datasets-and-capture) | Datasets and capture | P1.14a, P1.15a | 1,550 | — | G1 |
 | [P1.16](#p116-autofocus) | Autofocus | P1.15b | 1,300 | Yes | G1 |
 | [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16 | 1,530 | — | G1 |
@@ -76,7 +77,7 @@ Each phase has:
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 37 phases since P1.04 to P1.12 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 38 phases since P1.04 to P1.13 were split on 2026-11-27, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -169,7 +170,7 @@ Each phase has:
   - **fresh clone:** `checkpoint` and `milestone` clone the commit into a temporary folder and run there, with a target folder of their own kept between runs so they start warm;
   - **summary:** `target/gates/<time>/summary.md`, with each step, why it ran, its time and its result, and each step's log beside it.
 - **`cargo xtask doctor`:** reports the toolchain, mold, clang, cargo-deny, cargo-mutants, CUDA (optional until P1.04), Node (until M4) and uv (until M2); free disk (at least 40 GB); WSL's memory, and the `CARGO_BUILD_JOBS` it suggests; a warning when the repository is under `/mnt/`; git's identity and `core.autocrlf`.
-- **`.vscode/`:** `launch.json` with CodeLLDB configurations for an example and for a crate's tests (the server's comes in P1.13); `extensions.json` recommending rust-analyzer, CodeLLDB and Even Better TOML; `settings.json` with rust-analyzer checking through clippy and LF line endings.
+- **`.vscode/`:** `launch.json` with CodeLLDB configurations for an example and for a crate's tests (the server's comes in P1.13a); `extensions.json` recommending rust-analyzer, CodeLLDB and Even Better TOML; `settings.json` with rust-analyzer checking through clippy and LF line endings.
 - **`.github/pull_request_template.md`:** the Definition of Done of plan §7. No workflows.
 - **Docs:**
   - `docs/README.md`, the index;
@@ -222,7 +223,7 @@ Each phase has:
 
 **Scope.**
 
-- **Units:** `Um` (µm, `f64`) for lengths, `std::time::Duration` for times, and conversions at the edges. Serde, and JSON Schema through `schemars`, always on: every type that crosses the API needs it from P1.13, and a feature no gate turns on would leave the derives unchecked.
+- **Units:** `Um` (µm, `f64`) for lengths, `std::time::Duration` for times, and conversions at the edges. Serde, and JSON Schema through `schemars`, always on: every type that crosses the API needs it from P1.13a, and a feature no gate turns on would leave the derives unchecked.
 - **Geometry:** points and vectors in µm and in pixels; `Rect` in pixels; `Affine2` (compose, invert, apply); `StagePos { x, y, z }`.
 - **The clock:**
   - `Timestamp`: nanoseconds since the process started, from the monotonic clock;
@@ -1046,7 +1047,7 @@ Each phase has:
 - `VirtualCamera` implements `Camera`, from the stage, the objective, the light and the sample; changing the objective changes the field and the blur.
 - **A CPU fallback,** with a scaled-down sensor for tests.
 
-**Out of scope.** The server (P1.13); the preview (P1.14a, P1.14b).
+**Out of scope.** The server (P1.13a, P1.13b); the preview (P1.14a, P1.14b).
 
 **Try it.** `virtual-camera`: live frames while the stage moves at 1×, on the GPU, written as a strip of JPEGs, with the rate each mode reaches. **Checkpoint A's demo script** is in the notes.
 
@@ -1063,7 +1064,7 @@ Each phase has:
 
 ---
 
-## P1.13: The server and the device Things
+## P1.13a: The server, configuration and systemd
 
 | | |
 |---|---|
@@ -1071,10 +1072,9 @@ Each phase has:
 | Depends on | P1.12c |
 | ADRs | 0017 control plane and media plane · 0018 the service in WSL2: systemd, start-up, networking, devices |
 | Gates | G1 |
-| First estimate | code 1,300 · tests 500 · examples 60 · docs-as-code 120 = **1,980** |
-| Ready split | P1.13a: the server, configuration, the `system` and `simulation` Things, systemd (~1,000) · P1.13b: the `camera`, `stage`, `objective` and `illumination` Things (~980) |
+| Second estimate | code 730 (the command line, configuration, data roots and shutdown 250; the instrument assembled from configuration 150; device errors as teta-wot's 60; the `system` Thing 150; the `simulation` Thing, and the camera's sample swapped while it runs, 120) · tests 350 · examples 0 · docs-as-code 200 (`configs/tetera.toml`, the unit, the READMEs, the Windows notes) · glue 40 = **1,320** (1,716 at ×1.3). The agent split P1.13 (first estimate 1,980, 2,574 at ×1.3) on 2026-11-27, under the owner's standing approval, into P1.13a and P1.13b, as its ready split proposed |
 
-**Goal.** The virtual instrument served over HTTP, as Things, by a service that runs under systemd in WSL.
+**Goal.** The virtual instrument served over HTTP by a service that runs under systemd in WSL: the server, its configuration, and the Things that describe the system and drive the simulation.
 
 **Scope.**
 
@@ -1083,32 +1083,62 @@ Each phase has:
   - data roots: `./.tetera/` in development, `/var/lib/tetera/` for the service;
   - graceful shutdown.
 - **`tetera-api`,** on teta-wot v0.2.0:
+  - the instrument, assembled from the configuration: the simulated clock, the virtual stage, camera, objective mount and light, the sample, on the GPU when there is one;
+  - device errors mapped to teta-wot's error responses;
   - `system`: version, WSL's version, the kernel and distribution, GPU, disks, memory;
-  - `camera`: mode, exposure, gain, pixel format, binning, ROI, white balance, streaming;
-  - `stage`: position, moving, state, speed; move to, move by, jog, stop, home;
-  - `objective`: the catalogue, which is fitted;
-  - `illumination`: on, intensity, colour temperature;
-  - `simulation`: the sample (load, unload, seed), imperfections on demand;
-  - device errors mapped to teta-wot's error responses.
-- **systemd:** `packaging/linux/tetera.service`, with restart on failure, and how to install it for development (the owner runs the `sudo` steps).
+  - `simulation`: the sample (load, unload, seed), imperfections on demand.
+- **systemd:** `packaging/linux/tetera.service`, with restart on failure, and how to install it for development (the owner runs the `sudo` steps). The agent tests it as a user unit.
 - **Windows:** how to reach the service from a browser; how a Windows task can start WSL at logon. Hardened in P5.07.
 - **`.vscode/launch.json`** gains the server's debug configuration.
 
-**Out of scope.** The preview (P1.14a, P1.14b); jobs (P1.15a); status, logs and power (P1.20).
+**Out of scope.** The camera, stage, objective and illumination Things (P1.13b); the preview (P1.14a, P1.14b); jobs (P1.15a); status, logs and power (P1.20).
 
-**Try it.** `cargo run -p tetera-server`; teta-wot's `/docs`; a README with `curl` for each Thing, including a move and its timing.
+**Try it.** `cargo run -p tetera-server`; teta-wot's `/docs`; `curl` for `system` and `simulation`.
+
+**Done when.**
+
+- `system` and `simulation` serve their Thing Descriptions, and the OpenAPI document lists them.
+- The configuration's defaults hold, and a bad configuration is refused with what is wrong.
+- Under systemd in WSL, the service restarts after it is killed.
+- A browser on Windows reaches http://localhost:8310.
+
+**Tests.** Each Thing through teta-wot's in-process test harness; configuration defaults and errors; the server on a port the system picks, shut down gracefully. **Broken on purpose:** the unit's restart on failure.
+
+**Open questions.** Q11 (localhost only), Q12 (start-up), Q48 (port 8310).
+
+---
+
+## P1.13b: The device Things
+
+| | |
+|---|---|
+| Crates | `tetera-api` |
+| Depends on | P1.13a |
+| ADRs | — (0017) |
+| Gates | G1 |
+| Estimate | code 600 (`camera` 200, `stage` 200, `objective` 60, `illumination` 80, keeping properties current from the devices 60) · tests 400 · docs-as-code 80 (a README with `curl` for each Thing) · glue 20 = **1,100**, from P1.13's split; its own second estimate comes before its code |
+
+**Goal.** The virtual instrument's devices as Things, over HTTP.
+
+**Scope.**
+
+- `camera`: mode, exposure, gain, pixel format, binning, ROI, white balance, streaming;
+- `stage`: position, moving, state, speed; move to, move by, jog, stop, home;
+- `objective`: the catalogue, which is fitted;
+- `illumination`: on, intensity, colour temperature;
+- device errors mapped to teta-wot's error responses, the stage's alarm among them.
+
+**Out of scope.** The preview (P1.14a, P1.14b); jobs (P1.15a).
+
+**Try it.** `cargo run -p tetera-server`; a README with `curl` for each Thing, including a move and its timing.
 
 **Done when.**
 
 - Each Thing serves its Thing Description, and the OpenAPI document is complete.
 - A move through HTTP takes the time the virtual stage says.
 - Watching `position` over WebSocket shows it change during the move.
-- Under systemd in WSL, the service restarts after it is killed.
-- A browser on Windows reaches http://localhost:8310.
 
-**Tests.** Each Thing through teta-wot's in-process test harness; configuration defaults and errors; each test's server on a port the system picks. **Broken on purpose:** the error mapping for a stage alarm.
-
-**Open questions.** Q11 (localhost only), Q12 (start-up), Q48 (port 8310).
+**Tests.** Each Thing through teta-wot's in-process test harness; a move timed on a stepped clock. **Broken on purpose:** the error mapping for a stage alarm.
 
 ---
 
@@ -1117,7 +1147,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-acquire` (new, L4) |
-| Depends on | P1.08d, P1.13 |
+| Depends on | P1.08d, P1.13b |
 | ADRs | — (the frame bus's design is in ADR-0008, from P1.03) |
 | Gates | G1, G1c |
 | First estimate | code 700 · tests 300 · examples 50 = **1,050** (the owner split P1.14 on 2026-11-26) |
@@ -1198,7 +1228,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-jobs` (new, L3), `tetera-api` |
-| Depends on | P1.13 |
+| Depends on | P1.13b |
 | ADRs | 0020 the job service |
 | Gates | G1 |
 | First estimate | code 450 · tests 300 · examples 50 = **800** (the owner split P1.15 on 2026-11-26) |
