@@ -22,12 +22,15 @@ Tetera's HTTP interface, L5 (plan §6.2, [ADR-0017](../../docs/adr/0017-control-
   | `stage` | `capabilities`; `position` (µm), `state`, `moving`, kept current as it moves, so they can be watched; `speed`, the speed of moves that name none, a setting | `move_to`, `move_by` (each ends when the stage is still, and stops it if cancelled), `jog`, `stop_jog`, `halt`, `home` |
   | `objective` | `catalogue`; `fitted`, by name, written to say which is fitted; `objective`, in full | `remove`, to say none is |
   | `illumination` | `capabilities`; `on`, `intensity` (0 to 1), `colour_temperature` (K) | — |
-  | `preview` | `defaults`, what a client's preview starts from (the viewport, region, quality and rate), a setting; `sessions`, the previews open | —; its `stream` is the live preview's WebSocket |
+  | `preview` | `defaults`, what a client's preview starts from (the viewport, region, quality and rate), a setting; `sessions`, the previews open; `statistics`, the live statistics of the camera's latest frame, up to 10 a second | —; its `stream` is the live preview's WebSocket |
 
   teta-wot takes a `null` body as a missing one, as FastAPI does, so a property can't be written to `null`: an action does that, as `remove` does for the objective.
 - **`error`** maps Tetera's errors to teta-wot's.
   - **An action:** an anticipated failure ends its invocation as `error`, with a message led by its kind, such as `invalid_argument: …`. A cancellation ends it `cancelled`.
   - **A property:** a value a device refuses is a 422; anything else is a 500.
+- **`media`** has Tetera's own routes, merged in front of the Things' (ADR-0017):
+  - `/api/v1/preview/mjpeg`, the preview as MJPEG, for an `<img>` or any tool that plays it, a session for each viewer: `?width=&height=&quality=&max_rate=`, the rest from `preview/defaults`;
+  - `/live-view`, a plain page: the live image over the stream, its rate and its time from exposure to paint, a histogram, the camera's start and stop, and buttons that jog the stage.
 - **`server::build`** puts the Things on a teta-wot server, with the instrument and the data roots as its services. `Service::serve` serves them until a shutdown signal, then stops gracefully. The OpenAPI document is at `/openapi.json` and the interactive docs at `/docs`.
 
 ## How to try it
@@ -100,5 +103,9 @@ cargo run --release -p tetera-api --features cuda --example preview-stream
 ```
 
 It serves the virtual instrument on a loopback port, streams the camera in its binned live mode, and connects two clients: a quick one, and one that takes 200 ms over each frame. On this PC the quick one gets the camera's 51 frames a second, 34 ms from each frame's exposure to its receipt. The slow one gets five a second, its link down to quality 40. `-- --smoke` runs a small sensor on the CPU.
+
+## The live view
+
+With the server running, open `http://localhost:8310/live-view` in a browser on Windows and press *Start*. The page shows the camera live, with its rate and its time from each frame's exposure to the page's paint, and a histogram of the frame. Hold an arrow to jog the stage. The MJPEG stream plays on its own at `http://localhost:8310/api/v1/preview/mjpeg?width=960&height=640`.
 
 The tests run each Thing through teta-wot's in-process test client, and the preview's stream over a real socket: `cargo test -p tetera-api`.

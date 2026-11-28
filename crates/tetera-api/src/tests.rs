@@ -889,7 +889,13 @@ async fn the_preview_plays_as_mjpeg_and_bad_queries_are_refused() {
         assert_eq!((jpeg.width(), jpeg.height()), (64, 48));
     }
     publisher.join().unwrap();
-    for bad in ["zoom=2", "quality=0", "width=8"] {
+    for bad in [
+        "zoom=2",
+        "quality=0",
+        "width=8",
+        "height=9000",
+        "max_rate=0",
+    ] {
         let r = client.stream(&format!("/api/v1/preview/mjpeg?{bad}")).await;
         assert_eq!(r.status(), 400, "{bad}");
     }
@@ -934,5 +940,19 @@ async fn the_live_statistics_and_the_page_are_served() {
     assert!(
         html.contains("/preview/stream") && html.contains("TPV1") && html.contains("/stage/jog")
     );
+    // Nothing works them out once the server stops.
+    let thing = client
+        .runtime()
+        .thing_ref::<crate::preview::PreviewThing>("preview")
+        .expect("the preview Thing");
+    let thing = Arc::clone(teta_wot::prelude::ThingRef::thing(&thing));
+    assert!(thing.statistics_running());
     client.stop().await;
+    assert!(
+        !thing.statistics_running(),
+        "the statistics' thread stopped"
+    );
+    let before = thing.statistics_seq();
+    publish_frames(&instrument, 30);
+    assert_eq!(thing.statistics_seq(), before, "nothing new");
 }

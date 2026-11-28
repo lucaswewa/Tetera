@@ -262,4 +262,17 @@ impl PreviewThing {
 }
 
 #[cfg(test)]
+impl PreviewThing {
+    /// The frame the live statistics were last worked out from.
+    pub(crate) fn statistics_seq(&self) -> Option<u64> {
+        self.statistics.get().map(|s| s.seq)
+    }
+
+    /// Whether the live statistics' thread runs.
+    pub(crate) fn statistics_running(&self) -> bool {
+        lock(&self.live).is_some()
+    }
+}
+
+#[cfg(test)]
 mod tests;
