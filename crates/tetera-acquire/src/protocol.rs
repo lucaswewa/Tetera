@@ -72,7 +72,11 @@ impl Header {
         m.push(u8::from(self.lowered));
         m.extend_from_slice(&[0, 0]);
         m.extend_from_slice(&(jpeg.len() as u32).to_le_bytes());
-        m.extend_from_slice(&self.latency_us.unwrap_or(NO_LATENCY).to_le_bytes());
+        // The longest latency it says is just under the value that means none: 71 minutes.
+        let latency = self
+            .latency_us
+            .map_or(NO_LATENCY, |l| l.min(NO_LATENCY - 1));
+        m.extend_from_slice(&latency.to_le_bytes());
         m.extend_from_slice(&[0; 4]);
         m.extend_from_slice(jpeg);
         m
@@ -363,6 +367,21 @@ mod tests {
         first[4..6].copy_from_slice(&64u16.to_le_bytes());
         first.extend_from_slice(&jpeg);
         assert_eq!(Header::parse(&first).unwrap(), (none, &jpeg[..]));
+        // The first header with no payload: 64 bytes in all.
+        let mut bare = message[..FIRST_HEADER_LEN].to_vec();
+        bare[4..6].copy_from_slice(&64u16.to_le_bytes());
+        bare[60..64].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(Header::parse(&bare).unwrap(), (none, &[][..]));
+        assert!(Header::parse(&bare[..10]).is_err(), "a scrap");
+        // A latency too long to say is said as the longest.
+        let long = Header {
+            latency_us: Some(u32::MAX),
+            ..header()
+        };
+        assert_eq!(
+            Header::parse(&long.message(&jpeg)).unwrap().0.latency_us,
+            Some(u32::MAX - 1)
+        );
         assert_eq!(
             Header::parse(&header().message(&[])).unwrap(),
             (header(), &[][..]),

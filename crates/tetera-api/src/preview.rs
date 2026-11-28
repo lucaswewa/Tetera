@@ -171,7 +171,7 @@ impl PreviewThing {
                     height: p.height,
                     quality: p.quality,
                     lowered: link.step() > 0,
-                    latency_us: latency.map(|ms| (ms * 1e3).min(f64::from(u32::MAX - 1)) as u32),
+                    latency_us: latency.map(|ms| (ms * 1e3) as u32),
                 };
                 if !subscriber.send(header.message(&p.jpeg)) {
                     break Ok(());
