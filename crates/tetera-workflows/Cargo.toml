@@ -19,6 +19,7 @@ tetera-store.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+tetera-imaging.workspace = true
 tetera-sim.workspace = true
 
 [lints]

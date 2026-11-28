@@ -12,10 +12,23 @@ Tetera's workflows, L4 (plan §6.2 and §6.10): work that drives the instrument 
 
 The `capture` Thing (`tetera-api`) runs it as a hardware job, its step the job's progress and cancel check.
 
+- **`focus::search(probe, depth_of_field, limits, options, step)`** (P1.16a) finds focus through z, as [P1.16a's behaviour spec](../../docs/m1/notes/P1.16a-focus-measures-and-the-search.md#behaviour-spec) has it:
+  - **a coarse sweep** of ±8 depths of field in steps of one, then **a fine one** of ±2 in halves around its peak, and **a parabola** through the logarithm of the fine sweep's top half, whose vertex is the focus;
+  - **against backlash,** every position approached from below: down by the take-up, 10 µm, before each sweep and the focus, then only up;
+  - **no focus** on a flat curve, its peak less than 5 % above its median, or a peak at the range's end; the stage goes back to its start, and `Focus::found` gives a `not_found` error saying why;
+  - **the result,** `Focus`: where it found focus, where it started, and the curve, each position as the stage reported it and its measure.
+- **`FocusProbe`** is what the search drives: a z move that returns once the stage is still, and a measure of an image exposed since. P1.16b's is the instrument; **`focus::synthetic::Synthetic`** is a stage with backlash and steps over a known curve with noise, for tests and examples.
+
 ## How to try it
 
 ```bash
 cargo run --release -p tetera-api --features cuda --example capture
 ```
 
-The example lives in `tetera-api`, as it goes through the `capture`, `jobs` and `datasets` Things. The tests run each kind of capture on a small virtual camera, a cancel at each stage, and bad requests: `cargo test -p tetera-workflows`.
+The example lives in `tetera-api`, as it goes through the `capture`, `jobs` and `datasets` Things.
+
+```bash
+cargo run --release -p tetera-workflows --example focus-search
+```
+
+`focus-search` takes each focus measure through a stack of frames from the virtual camera, H&E at 20× on the CPU, and says where each peaks against the section's middle. Then it runs the search 100 times at each objective's depth of field, on noisy curves through a stage with backlash and steps, and prints its errors. `-- --smoke` takes a short stack from a tiny sensor and 20 searches. The tests run each kind of capture on a small virtual camera and the fake one, a cancel at each stage, and bad requests; and the search on synthetic curves, 100 times on narrow peaks and 100 on broad ones, through a stage with backlash: `cargo test -p tetera-workflows`.

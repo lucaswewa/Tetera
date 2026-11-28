@@ -276,7 +276,7 @@ Tetera/
 | `jobs` | Queue, history, progress, cancel | P1.15a |
 | `capture` | Single and multiple captures | P1.15d |
 | `datasets` | The Gallery: datasets, thumbnails, metadata, delete, export | P1.15d |
-| `autofocus` | Autofocus as a job | P1.16 |
+| `autofocus` | Autofocus as a job | P1.16b |
 | `scan` | Planners, plan preview, start, live progress | P1.17 |
 | `calibration` | Per-objective calibration sets, routines, the wizard's steps | P1.18 |
 | `pipeline` | The node catalogue, recipes, runs on datasets | P1.08a–e, P1.19 |
@@ -523,7 +523,7 @@ GPU-first, with a bit-exact CPU reference on each backend, and the two backends 
 
 **Approval.** The owner reviews and approves every PR before it is merged *(proposed, Q40)*. Nothing is pushed to `main`, and no tag is created, without the owner's word.
 
-**Spec-first phases** open their notes with a behaviour spec and its literature before any code: P1.07a, P1.07b, P1.11, P1.16, P1.18, P3.02, P3.06, P3.08 and P3.09.
+**Spec-first phases** open their notes with a behaviour spec and its literature before any code: P1.07a, P1.07b, P1.11, P1.16a, P1.18, P3.02, P3.06, P3.08 and P3.09.
 
 **Checkpoints.** Each stage that ends in a checkpoint has a demo script in its last phase's notes, and runs the checkpoint gate (G2).
 
@@ -628,7 +628,8 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 
 | ID | Phase | Scope | Try it | ADRs |
 |---|---|---|---|---|
-| P1.16 | Autofocus *(spec-first)* | Focus measures; coarse-to-fine search; a job | `ex-autofocus` at 5× and 50× | — |
+| P1.16a | Focus measures and the search *(spec-first)* | Focus measures; coarse-to-fine search against backlash | `ex-focus-search` on synthetic curves | — |
+| P1.16b | Autofocus on the instrument | Frames after the stage stops; a job; the `autofocus` Thing | `ex-autofocus` at 5× and 50× | — |
 | P1.17 | Snake scan and z-scan | Planners (XY snake, z-scan), the stop-and-go engine, positions in the metadata, scan datasets | `ex-scan`: a 5 × 5 snake and a 21-plane z-scan | 0022 |
 | P1.18 | Calibration *(spec-first)* | Calibration targets in the simulator; master dark and flat; pixel size and rotation from moves; CCM from a colour chart; per-objective sets, applied by the ISP. **Checkpoint C:** calibrate, autofocus, scan | `ex-calibrate` | 0023 |
 
@@ -1186,3 +1187,5 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-28 | **P1.15c measured 1,265 lines against its second estimate of 980 (×1.29):** code 648, tests 400. The recorder takes every frame of the camera's 289 MB/s onto WSL2's ext4 disk, buffering 16 to ride out the disk's stalls; ingest writes the log into a dataset as a compute job ([notes](m1/notes/P1.15c-the-recorder-and-ingest.md#size)) |
 | 2026-11-28 | **P1.15d's second estimate,** before its code, counting tests at the code's size: code 480 (capture 200, the Things and the thumbnail's route 220, the server's wiring 60) · tests 480 · examples 80 · docs-as-code 40 · glue 20 = **1,100**, 1,430 at ×1.3, against 960 first |
 | 2026-11-28 | **P1.15d measured 1,877 lines against its second estimate of 1,100 (×1.71):** code 715, tests 827. A frame, a series or a burst into a dataset as a hardware job, the camera switched to full resolution in about 0.6 s and back; the `capture` and `datasets` Things and the thumbnail's route. Most of the overrun is tests on the fake camera, for what the mutants showed the virtual camera couldn't ([notes](m1/notes/P1.15d-capture-and-its-things.md#size)) |
+| 2026-11-28 | **P1.16's second estimate,** before its code, counting tests at the code's size: code 840 (the green channel and the four measures 180; the search, its take-up against backlash, its fit and its failures 220; the probe it drives and its result 80; the instrument's probe, frames after the stage stops, 150; the job 50; the `autofocus` Thing 120; the depth of field 40) · tests 840 · examples 200 · docs-as-code 70 · glue 20 = 1,970, 2,561 at ×1.3, against 1,300 first. Over 2,000: **split by the agent** under the owner's standing approval. P1.16a, the focus measures and the search on synthetic curves, spec-first: **1,090**, 1,417 at ×1.3. P1.16b, autofocus on the instrument: **880**, 1,144 at ×1.3. P1.17 now depends on P1.16b. 79 phases, M1 42 |
+| 2026-11-28 | **P1.16a measured 1,930 lines against its second estimate of 1,090 (×1.77):** code 756, tests 923. Four focus measures on the green channel, all peaking at the virtual section's middle, and a search through z against backlash, within a quarter of the depth of field in 100 of 100 trials at each objective. Its spec's fine sweep and fit were widened after the first runs, for broad peaks ([notes](m1/notes/P1.16a-focus-measures-and-the-search.md#size)) |
