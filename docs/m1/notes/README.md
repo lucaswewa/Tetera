@@ -30,7 +30,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.11b | The H&E sample on the GPU, and its tiles | Done | [P1.11b](P1.11b-the-he-sample-on-the-gpu-and-its-tiles.md) |
 | P1.12a | Optics and light: the field the sensor sees | Done | [P1.12a](P1.12a-optics-and-light-the-field-the-sensor-sees.md) |
 | P1.12b | The sensor and motion | Done | [P1.12b](P1.12b-the-sensor-and-motion.md) |
-| P1.12c | The virtual camera | In progress | [P1.12c](P1.12c-the-virtual-camera.md) |
+| P1.12c | The virtual camera | Done | [P1.12c](P1.12c-the-virtual-camera.md) |
 | P1.13 | The server and the device Things | Not started | — |
 | P1.14a | The frame bus and the preview pipeline | Not started | — |
 | P1.14b | The preview protocol | Not started | — |
