@@ -338,6 +338,7 @@ impl VirtualCamera {
                         height: s.height,
                         bit_depths: vec![deep, 8],
                         max_fps: m.fast_fps,
+                        max_fps_16: m.deep_fps,
                     }
                 })
                 .collect(),

@@ -22,15 +22,14 @@ The facts that shape it:
 4. **Stop and go,** for each position:
    1. one move to it;
    2. the stage's report that it is still;
-   3. a settle, 50 ms unless asked otherwise;
-   4. autofocus, if the schedule says so;
-   5. a frame at full resolution, the camera switched to it once for the scan and back after, as a capture does (D5);
-   6. the position, recorded from the stage while still and checked unchanged after the frame: for stop and go, the stage's track at the exposure's midpoint;
-   7. the frame handed to a writer thread, two frames deep, so writing overlaps the next move.
+   3. autofocus, if the schedule says so;
+   4. **the first frame of the full-resolution stream whose exposure starts a settle after the stage was still,** 50 ms unless asked otherwise. The camera is switched to full resolution once for the scan, and back after, as a capture does (D5), and streams meanwhile: a snap at full resolution took 280 to 385 ms on the virtual camera, its readout and its rendering one after the other, where the stream overlaps them at 7.24 frames a second;
+   5. the position, recorded from the stage while still and checked unchanged after the frame: for stop and go, the stage's track at the exposure's midpoint;
+   6. the frame handed to a writer thread, two frames deep, so writing overlaps the next move.
 5. **The autofocus schedule:** none, the first tile, or every N tiles. A tile after an autofocus takes its z.
 6. **The time estimate** follows the same model:
    - each move from the stage's capabilities, as its own planner would make it: a trapezoid or a triangle along the line, at the speed and acceleration of the most limited axis. The stage's capabilities now include each axis's acceleration;
-   - per position: the stage's report period, the settle, and a frame, the mode's frame interval;
+   - per position: half the stage's report period and its latency; the settle; then half a frame interval on average to the stream's next exposure, the exposure, and its readout, a frame interval at full resolution. The interval is the mode's at the scan's bits: a camera mode now states its rate in 16-bit words as well as in 8 bits, half as fast on the MIChrome 20;
    - writing: the frame's bytes at a throughput, 120 MB/s unless asked otherwise, overlapped with the rest, so a tile takes the longer of the two;
    - autofocus: 26 positions, each a move of a depth of field, a report, and a live frame;
    - the mode switch there and back.
@@ -48,6 +47,7 @@ The facts that shape it:
   - stop and go spends most of a tile's time moving and settling.
 - **To watch:**
   - the settle needed on the real stage, in M5;
+  - the stream's next exposure is up to a frame interval after the settle: on average half of one, which the estimate assumes, so a short scan's time varies more than a long one's;
   - the real stage's repeatability against the positions recorded.
 
 ## Alternatives considered

@@ -1,12 +1,12 @@
 //! The stop-and-go engine (P1.17a, ADR-0022): for each position of a plan, a move, the
-//! stage's report that it is still, a settle, an autofocus if the schedule says so, a frame
-//! at full resolution, and its position from the stage, the frame written by a thread of its
-//! own meanwhile. Pause, resume and cancel are heard between positions and in every wait; a
+//! stage's report that it is still, an autofocus if the schedule says so, and the first frame
+//! of the full-resolution stream exposed a settle after, with its position from the stage, the
+//! frame written by a thread of its own meanwhile. Pause, resume and cancel are heard between positions and in every wait; a
 //! cancelled scan keeps the tiles it took, as a valid, partial dataset.
 
 use super::{Pattern, Plan, Timing, estimate, move_time, positions};
 use crate::autofocus::{AutofocusRequest, FocusRig, autofocus, depth_of_field};
-use crate::capture::{SNAP, restore, to_full};
+use crate::capture::{restore, to_full};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::sync_channel;
@@ -22,6 +22,9 @@ use tetera_store::{DatasetInfo, DatasetSpec, DatasetWriter, Store};
 
 /// How long a move may take to end.
 const MOVE: Duration = Duration::from_secs(60);
+
+/// How long a frame exposed after the settle may take to come.
+const FRAME: Duration = Duration::from_secs(10);
 
 /// The camera's mode and bits for a scan's frames: the whole sensor, 12 bits.
 const MODE: u32 = 0;
@@ -248,8 +251,11 @@ pub fn preview(rig: &ScanRig<'_>, request: &ScanRequest) -> Result<Plan> {
         .modes
         .iter()
         .find(|m| m.id == MODE)
-        .map_or(0.0, |m| 1e3 / m.max_fps);
-    let frame_ms = interval_ms.max(config.exposure.as_secs_f64() * 1e3);
+        .map_or(0.0, |m| 1e3 / m.fps(BITS));
+    // The stream's next exposure, half an interval on average after the settle, then the
+    // exposure and its readout, an interval at full resolution.
+    let exposure_ms = config.exposure.as_secs_f64() * 1e3;
+    let frame_ms = 1.5 * interval_ms.max(exposure_ms) + exposure_ms;
     let bytes = f64::from(layout.width) * f64::from(layout.height) * 2.0;
     let d = depth_of_field(
         objective.magnification,
@@ -297,7 +303,12 @@ pub fn scan(
     if streaming {
         camera.stop()?;
     }
+    // The full-resolution stream, into the bus: each tile its first frame after the settle.
     let ran = to_full(camera, MODE, BITS, request.exposure_ms, &before)
+        .and_then(|config| {
+            camera.start(rig.bus.clone())?;
+            Ok(config)
+        })
         .and_then(|config| run(rig, request, &plan, &config, control, step));
     let back = restore(camera, &before, streaming, rig.live.as_ref(), rig.bus);
     let (dataset, tiles) = ran?;
@@ -391,7 +402,6 @@ fn take(
         };
         rig.stage.move_to(planned, None)?;
         let mut still_at = rig.stage.wait(MOVE)?.at;
-        std::thread::sleep(settle);
         if request.autofocus.at(i) {
             let focusing = FocusRig {
                 camera: rig.camera,
@@ -411,7 +421,9 @@ fn take(
             still_at = rig.stage.wait(MOVE)?.at;
         }
         let recorded = rig.stage.reading()?.position;
-        let frame = rig.camera.snap(SNAP)?;
+        let frame = rig
+            .bus
+            .first_after(still_at.saturating_add(settle), FRAME)?;
         let after = rig.stage.reading()?.position;
         if after != recorded {
             return Err(Error::hardware(format!(

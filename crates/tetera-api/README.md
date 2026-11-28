@@ -149,6 +149,14 @@ cargo run --release -p tetera-api --features cuda --example autofocus
 
 It starts the virtual instrument's live stream, then focuses 100 times at 5× and 100 at 50× from random starts within ±6 depths of field of the section's middle, the simulator's true focus, and prints each set's errors. Then it times a search at 10×, and focuses on a blank field, which finds none and leaves the stage where it was. `-- --compare` runs the other three measures too, and `-- --smoke` a single start on a tiny sensor on the CPU.
 
+## Scans
+
+```bash
+cargo run --release -p tetera-api --features cuda --example scan
+```
+
+It plans a 5 × 5 snake of full-resolution tiles at 10× on the virtual instrument, prints the plan and its estimated time, scans it stop and go, and prints the time taken against the estimate and each tile's recorded position against the plan and the simulator's truth. `-- --smoke` takes a 2 × 2 snake of a tiny sensor on the CPU. The `scan` Thing comes in P1.17b.
+
 ## The live view
 
 With the server running, open `http://localhost:8310/live-view` in a browser on Windows and press *Start*. The page shows the camera live, with its rate and its time from each frame's exposure to the page's paint, and a histogram of the frame. Hold an arrow to jog the stage. The MJPEG stream plays on its own at `http://localhost:8310/api/v1/preview/mjpeg?width=960&height=640`.

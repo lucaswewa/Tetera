@@ -88,6 +88,7 @@ impl FakeCamera {
                     height: 480,
                     bit_depths: vec![12, 8],
                     max_fps,
+                    max_fps_16: max_fps,
                 },
                 CameraMode {
                     id: 1,
@@ -96,6 +97,7 @@ impl FakeCamera {
                     height: 120,
                     bit_depths: vec![8, 12],
                     max_fps: max_fps * 2.0,
+                    max_fps_16: max_fps * 2.0,
                 },
             ],
             binnings: vec![Binning { x: 2, y: 2 }],
