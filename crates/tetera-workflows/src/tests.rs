@@ -164,6 +164,19 @@ fn going(_: f64, _: &str) -> Result<()> {
     Ok(())
 }
 
+/// A step that fails once `limit` has passed: a wait gone wrong ends the test there, not at
+/// its timeout.
+fn within(limit: Duration) -> impl FnMut(f64, &str) -> Result<()> {
+    let began = Instant::now();
+    move |_, _| {
+        if began.elapsed() > limit {
+            Err(Error::timeout(format!("the capture took over {limit:?}")))
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// The fake camera, 640 × 480 at up to 100 frames a second, quick to snap; its live view a
 /// region of its small mode, binned 2 × 2, at 8 bits.
 fn fake() -> FakeCamera {
@@ -238,7 +251,12 @@ fn a_series_keeps_its_interval_and_a_burst_its_rate_and_count() {
         count: 3,
         interval_ms: 150.0,
     };
-    let r = capture(&s.rig(), &request(series), &mut going).unwrap();
+    let r = capture(
+        &s.rig(),
+        &request(series),
+        &mut within(Duration::from_secs(20)),
+    )
+    .unwrap();
     let frames = s
         .store
         .read(&r.dataset.id)
@@ -317,7 +335,9 @@ fn a_cancelled_capture_leaves_no_dataset_and_the_camera_as_it_was() {
     let live = s.camera.config();
     s.camera.start(s.bus.clone()).unwrap();
     let stop_at = |at: f64| {
-        move |done: f64, _: &str| -> Result<()> {
+        let mut limit = within(Duration::from_secs(20));
+        move |done: f64, msg: &str| -> Result<()> {
+            limit(done, msg)?;
             if done >= at {
                 Err(Error::cancelled("cancelled"))
             } else {
@@ -455,15 +475,29 @@ fn a_series_waits_out_its_interval_and_says_how_far_it_has_got() {
         count: 4,
         interval_ms: 150.0,
     };
+    let mut first_step = None;
     let r = capture(&s.rig_for(&camera), &request(series), &mut |done, msg| {
         // A wait gone wrong fails here, not at the test's timeout.
         if began.elapsed() > Duration::from_secs(10) {
             return Err(Error::timeout("the series took over 10 s"));
         }
+        first_step.get_or_insert_with(|| began.elapsed());
         steps.push((done, msg.to_string()));
         Ok(())
     })
     .unwrap();
+    let took = began.elapsed();
+    // The fake camera switches in a snap: within the time to the first frame, and the switch
+    // back within the whole.
+    let first_ms = first_step.unwrap().as_secs_f64() * 1e3;
+    assert!(
+        r.switch_ms > 0.0 && r.switch_ms <= first_ms,
+        "{r:?}, the first step at {first_ms} ms"
+    );
+    assert!(
+        r.back_ms > 0.0 && r.back_ms <= took.as_secs_f64() * 1e3 - first_ms,
+        "{r:?}"
+    );
     let frames = s
         .store
         .read(&r.dataset.id)
