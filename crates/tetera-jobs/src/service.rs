@@ -174,23 +174,27 @@ impl Shared {
         lock(&self.listeners).retain(|l| l.send(job.clone()).is_ok());
     }
 
-    /// Writes job `id` to the history: a failure is logged, as the job goes on in memory.
+    /// Writes job `id` to the history, if it is still in memory: a failure is logged, as the
+    /// job goes on. The jobs' lock is held while it writes, so it can't write over the record
+    /// of a job that ended meanwhile: the jobs' lock, then the history's, always.
     fn save(&self, id: &str) {
-        let job = lock(&self.jobs).get(id).map(|e| e.job.clone());
-        if let Some(job) = job
-            && let Err(e) = lock(&self.history).save(&job)
+        let jobs = lock(&self.jobs);
+        if let Some(e) = jobs.get(id)
+            && let Err(err) = lock(&self.history).save(&e.job)
         {
-            tracing::warn!("job {id} not saved: {e}");
+            tracing::warn!("job {id} not saved: {err}");
         }
     }
 
     /// Ends job `id` in `state`: saves it, lets the ended jobs past the history's age go,
-    /// tells the listeners, and only then lets it leave memory, so whoever sees it ended
-    /// finds it in the history, and has heard its end.
+    /// tells the listeners, and lets it leave memory, all under the jobs' lock, so whoever sees
+    /// it ended finds it in the history, and has heard its end.
     fn end(&self, id: &str, state: JobState, change: impl FnOnce(&mut Job)) {
-        let Some(mut job) = lock(&self.jobs).get(id).map(|e| e.job.clone()) else {
+        let mut jobs = lock(&self.jobs);
+        let Some(entry) = jobs.get(id) else {
             return;
         };
+        let mut job = entry.job.clone();
         change(&mut job);
         job.finish(state);
         {
@@ -203,7 +207,8 @@ impl Shared {
             }
         }
         self.tell(&job);
-        lock(&self.jobs).remove(id);
+        jobs.remove(id);
+        drop(jobs);
         self.wake();
     }
 

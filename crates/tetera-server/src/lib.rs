@@ -132,7 +132,7 @@ pub async fn serve(
         data = %roots.data.display(),
         "serving"
     );
-    let service = tetera_api::build(Arc::new(instrument), roots)?;
+    let service = tetera_api::build_with(Arc::new(instrument), roots, &config.jobs)?;
     service.serve(listener, shutdown).await
 }
 

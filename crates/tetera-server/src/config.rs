@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
-use tetera_api::{ObjectivesConfig, SimulatorConfig};
+use tetera_api::{JobsOptions, ObjectivesConfig, SimulatorConfig};
 use tetera_core::{Error, Result};
 use tetera_log::LogConfig;
 
@@ -70,6 +70,8 @@ pub struct Config {
     pub simulator: SimulatorConfig,
     /// The objectives.
     pub objectives: ObjectivesConfig,
+    /// The job service.
+    pub jobs: JobsOptions,
     /// Logging.
     pub log: LogConfig,
 }

@@ -129,7 +129,7 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
         "/simulation/unload",
         "/simulation/inject",
     ];
-    let devices: [(&str, &[&str]); 5] = [
+    let devices: [(&str, &[&str]); 6] = [
         (
             "camera",
             &[
@@ -172,6 +172,7 @@ async fn the_openapi_document_and_the_docs_cover_every_thing() {
             &["capabilities", "on", "intensity", "colour_temperature"],
         ),
         ("preview", &["defaults", "sessions", "statistics", "stream"]),
+        ("jobs", &["active", "get", "list", "cancel"]),
     ];
     let named: Vec<String> = devices
         .iter()
@@ -964,4 +965,99 @@ async fn the_live_statistics_and_the_page_are_served() {
     let before = thing.statistics_seq();
     publish_frames(&instrument, 30);
     assert_eq!(thing.statistics_seq(), before, "nothing new");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_jobs_are_followed_listed_and_cancelled_over_http() {
+    use tetera_jobs::{JobKind, JobService};
+    let scratch = Scratch::new();
+    let roots = Roots::make(scratch.0.join("data"), scratch.0.join("scratch")).unwrap();
+    let service = crate::build_with(
+        Arc::new(instrument()),
+        roots,
+        &crate::JobsOptions {
+            compute_workers: 1,
+            ..crate::JobsOptions::default()
+        },
+    )
+    .unwrap();
+    let jobs: Arc<JobService> = service.jobs().clone();
+    assert!(
+        scratch
+            .0
+            .join("data")
+            .join(crate::server::DATABASE)
+            .exists()
+    );
+    let client = TestClient::start(service.into_inner()).await.unwrap();
+    let mut changes = client.events("/jobs/changed").await;
+    assert_eq!(client.get("/jobs/active").await.json(), json!([]));
+    let (go, gate) = std::sync::mpsc::channel::<()>();
+    let gated = jobs
+        .submit(JobKind::Hardware, "capture", 0, move |ctx| {
+            gate.recv().unwrap();
+            ctx.progress(0.5, "half way");
+            Ok(json!({"frames": 2}))
+        })
+        .unwrap();
+    // Each change comes as an event, and `active` follows.
+    let first = changes.next_within(Duration::from_secs(10)).await.unwrap();
+    assert_eq!(
+        (first["id"].as_str(), first["state"].as_str()),
+        (Some(gated.as_str()), Some("queued"))
+    );
+    let mut active = Value::Null;
+    for _ in 0..500 {
+        active = client.get("/jobs/active").await.json();
+        if active[0]["state"] == "running" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(active[0]["id"], gated.as_str(), "{active}");
+    assert_eq!(active[0]["state"], "running", "{active}");
+    go.send(()).unwrap();
+    let mut states = Vec::new();
+    while states.last().map(String::as_str) != Some("succeeded") {
+        let e = changes
+            .next_within(Duration::from_secs(10))
+            .await
+            .expect("a change");
+        states.push(e["state"].as_str().unwrap().to_string());
+    }
+    assert!(states.contains(&"running".to_string()), "{states:?}");
+    let got = invoke(&client, "/jobs/get", json!({"id": gated})).await;
+    assert_eq!(got["output"]["state"], "succeeded", "{got}");
+    assert_eq!(got["output"]["result"], json!({"frames": 2}));
+    // A running job, cancelled.
+    let busy = jobs
+        .submit(JobKind::Compute, "denoise", 0, |ctx| {
+            ctx.sleep(Duration::from_secs(60))?;
+            Ok(json!(null))
+        })
+        .unwrap();
+    while jobs.get(&busy).unwrap().state != tetera_jobs::JobState::Running {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let cancelled = invoke(&client, "/jobs/cancel", json!({"id": busy})).await;
+    assert_eq!(cancelled["output"]["cancel_requested"], true, "{cancelled}");
+    let ended = jobs.wait(&busy, Duration::from_secs(5)).unwrap();
+    assert_eq!(ended.state, tetera_jobs::JobState::Cancelled);
+    let listed = invoke(&client, "/jobs/list", json!({"limit": 1})).await;
+    assert_eq!(
+        listed["output"][0]["id"],
+        busy.as_str(),
+        "the newest: {listed}"
+    );
+    let all = invoke(&client, "/jobs/list", json!({})).await;
+    assert_eq!(all["output"].as_array().map(Vec::len), Some(2));
+    for (path, body) in [
+        ("/jobs/get", json!({"id": "no such job"})),
+        ("/jobs/cancel", json!({"id": "no such job"})),
+        ("/jobs/cancel", json!({"id": gated})),
+    ] {
+        let refused = invoke(&client, path, body.clone()).await;
+        assert_eq!(refused["status"], "error", "{path} {body}: {refused}");
+    }
+    client.stop().await;
 }

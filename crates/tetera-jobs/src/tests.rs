@@ -484,3 +484,23 @@ fn a_jobs_log_keeps_its_latest_lines_and_bad_configurations_are_refused() {
     assert_eq!(e.kind(), ErrorKind::Timeout);
     assert!(JobState::Cancelled.is_finished() && !JobState::Running.is_finished());
 }
+
+#[test]
+fn a_job_cancelled_as_it_ends_is_recorded_as_it_ended() {
+    // Cancel and the job's own end race: whichever writes the history last must write the
+    // job as it ended. Many short jobs, each cancelled as it runs.
+    let scratch = Scratch::new();
+    let jobs = service(&scratch);
+    for _ in 0..40 {
+        let id = jobs
+            .submit(JobKind::Hardware, "short", 0, |ctx| {
+                ctx.sleep(Duration::from_millis(3))?;
+                Ok(json!(null))
+            })
+            .unwrap();
+        until_running(&jobs, &id);
+        let _ = jobs.cancel(&id);
+        let ended = jobs.wait(&id, Duration::from_secs(2)).unwrap();
+        assert!(ended.state.is_finished(), "{ended:?}");
+    }
+}

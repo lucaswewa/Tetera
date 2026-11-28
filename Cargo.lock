@@ -1549,6 +1549,7 @@ dependencies = [
  "tetera-core",
  "tetera-hal",
  "tetera-imaging",
+ "tetera-jobs",
  "tetera-sim",
  "tokio",
  "tokio-tungstenite",
