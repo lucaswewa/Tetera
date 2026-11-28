@@ -42,6 +42,15 @@ fn each_measure_gives_the_known_value_of_a_simple_image() {
     assert!(near(laplacian_variance(&bowl), 0.0));
     let trough = image(5, 6, |_, y| 3.0 * (y * y) as f64);
     assert_eq!(laplacian_variance(&trough), 0.0);
+    // The checkerboard on 5 × 6: its 12 interior values, ±8, counted as 12.
+    let wide = image(5, 6, |x, y| {
+        10.0 + if (x + y) % 2 == 0 { 1.0 } else { -1.0 }
+    });
+    assert!(
+        near(laplacian_variance(&wide), 64.0),
+        "{}",
+        laplacian_variance(&wide)
+    );
     // A flat image is no sharper than any.
     let flat = image(5, 5, |_, _| 100.0);
     for m in FocusMeasure::ALL {
