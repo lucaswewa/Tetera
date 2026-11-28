@@ -276,11 +276,15 @@ mod tests {
         }
         let publishing = started.elapsed();
         let stats = recorder.stop().unwrap();
+        assert_eq!(
+            (stats.frames, stats.missing),
+            (40, 0),
+            "no frame lost: {stats:?}"
+        );
         assert!(
             publishing >= Duration::from_millis(150),
             "the camera held: {publishing:?}"
         );
-        assert_eq!((stats.frames, stats.missing), (40, 0), "{stats:?}");
         assert!(stats.waits > 0);
         assert_eq!(stats.bytes, 40 * 64 * 48 * 2);
         assert!(stats.seconds > 0.15 && stats.rate() > 0.0);
