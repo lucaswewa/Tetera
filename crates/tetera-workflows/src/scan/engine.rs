@@ -262,9 +262,13 @@ pub fn preview(rig: &ScanRig<'_>, request: &ScanRequest) -> Result<Plan> {
         objective.numerical_aperture,
         rig.sensor_pixel_um,
     );
-    let step = StagePos::new(here.x, here.y, Um(here.z.um() + d));
-    let autofocus_ms = AUTOFOCUS_POSITIONS
-        * (move_time(here, step, &capabilities)? * 1e3 + REPORT_MS + 1.5 * frame_ms);
+    // Each of its positions a z move of a depth of field, a report and a live frame.
+    let step = move_time(
+        StagePos::new(here.x, here.y, Um(0.0)),
+        StagePos::new(here.x, here.y, Um(d)),
+        &capabilities,
+    )?;
+    let autofocus_ms = AUTOFOCUS_POSITIONS * (step * 1e3 + REPORT_MS + 1.5 * frame_ms);
     let timing = Timing {
         report_ms: REPORT_MS,
         settle_ms: request.settle(),
