@@ -26,6 +26,7 @@ tetera-jobs = { path = "crates/tetera-jobs" }
 tetera-log = { path = "crates/tetera-log" }
 tetera-pipeline = { path = "crates/tetera-pipeline" }
 tetera-sim = { path = "crates/tetera-sim" }
+tetera-store = { path = "crates/tetera-store" }
 
 # Each at least two weeks old when added (ADR-0002).
 # Errors at the HTTP boundary, as teta-wot's actions and hooks take them (P1.13a).
@@ -55,6 +56,8 @@ tracing = "0.1.44"
 turbojpeg = { version = "1.5.1", default-features = false, features = ["cmake", "require-simd"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "registry", "fmt", "ansi", "env-filter"] }
 uuid = { version = "1.29.2", features = ["v7", "serde"] }
+# Datasets in OME-Zarr v3, compressed with zstd (P1.15b).
+zarrs = { version = "0.23.14", default-features = false, features = ["filesystem", "zstd"] }
 # The preview stream's WebSocket client, in tests and examples, as axum's own (P1.14b).
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = "0.29.0"
