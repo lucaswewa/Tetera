@@ -14,7 +14,7 @@ use tetera_hal::camera::{Camera, CameraConfig, FrameSink};
 use tetera_store::{DatasetInfo, DatasetSpec, FrameLog, Store};
 
 /// How long a snap may take, the mode's first frame included.
-const SNAP: Duration = Duration::from_secs(30);
+pub(crate) const SNAP: Duration = Duration::from_secs(30);
 
 /// What a capture takes.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -139,13 +139,20 @@ pub fn capture(
     if streaming {
         camera.stop()?;
     }
-    let taken = switch(rig, request, &before).and_then(|config| {
+    let taken = to_full(
+        camera,
+        request.mode.unwrap_or(0),
+        request.bit_depth.unwrap_or(12),
+        request.exposure_ms,
+        &before,
+    )
+    .and_then(|config| {
         let switch_ms = switching.elapsed().as_secs_f64() * 1e3;
         take(rig, request, &config, step).map(|(dataset, missing)| (dataset, missing, switch_ms))
     });
     // Back as it was, whatever happened.
     let returning = Instant::now();
-    let back = restore(rig, &before, streaming);
+    let back = restore(camera, &before, streaming, rig.live.as_ref(), rig.bus);
     let back_ms = returning.elapsed().as_secs_f64() * 1e3;
     let (dataset, missing, switch_ms) = taken?;
     back?;
@@ -157,38 +164,53 @@ pub fn capture(
     })
 }
 
-/// The camera in the capture's mode, its first frame made, which builds the mode's buffers.
-fn switch(rig: &Rig<'_>, request: &CaptureRequest, before: &CameraConfig) -> Result<CameraConfig> {
-    let exposure = match request.exposure_ms {
+/// The camera in `mode` at `bit_depth` bits, the whole sensor unbinned, at `exposure_ms` or
+/// as `before`, its first frame made, which builds the mode's buffers: a capture's or a
+/// scan's (D5).
+pub(crate) fn to_full(
+    camera: &dyn Camera,
+    mode: u32,
+    bit_depth: u8,
+    exposure_ms: Option<f64>,
+    before: &CameraConfig,
+) -> Result<CameraConfig> {
+    let exposure = match exposure_ms {
         Some(ms) => Duration::try_from_secs_f64(ms / 1e3)
             .map_err(|e| Error::invalid_argument(format!("an exposure of {ms} ms: {e}")))?,
         None => before.exposure,
     };
     let config = CameraConfig {
-        mode: request.mode.unwrap_or(0),
-        bit_depth: request.bit_depth.unwrap_or(12),
+        mode,
+        bit_depth,
         roi: None,
         binning: Default::default(),
         exposure,
         ..before.clone()
     };
-    rig.camera.configure(&config)?;
-    drop(rig.camera.snap(SNAP)?);
+    camera.configure(&config)?;
+    drop(camera.snap(SNAP)?);
     Ok(config)
 }
 
-/// The camera back to `before`, and the live view restarted if it ran.
-fn restore(rig: &Rig<'_>, before: &CameraConfig, streaming: bool) -> Result<()> {
-    if rig.camera.is_streaming() {
-        rig.camera.stop()?;
+/// The camera back to `before`, and the live view restarted if it ran: into `live`, or else
+/// the frame bus.
+pub(crate) fn restore(
+    camera: &dyn Camera,
+    before: &CameraConfig,
+    streaming: bool,
+    live: Option<&Arc<dyn FrameSink>>,
+    bus: &Arc<FrameBus>,
+) -> Result<()> {
+    if camera.is_streaming() {
+        camera.stop()?;
     }
-    rig.camera.configure(before)?;
+    camera.configure(before)?;
     if streaming {
-        let sink: Arc<dyn FrameSink> = match &rig.live {
+        let sink: Arc<dyn FrameSink> = match live {
             Some(live) => live.clone(),
-            None => rig.bus.clone(),
+            None => bus.clone(),
         };
-        rig.camera.start(sink)?;
+        camera.start(sink)?;
     }
     Ok(())
 }

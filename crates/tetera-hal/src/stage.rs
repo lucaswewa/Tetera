@@ -55,6 +55,9 @@ pub struct AxisCapabilities {
     pub travel: Span,
     /// Its fastest speed, in µm/s.
     pub max_speed: f64,
+    /// How fast it speeds up and slows down, in µm/s²: with the speed, the time a move takes
+    /// (ADR-0022).
+    pub acceleration: f64,
 }
 
 /// What a stage can do.
@@ -211,6 +214,7 @@ mod tests {
             axis,
             travel: Span { min: 0.0, max },
             max_speed,
+            acceleration: 10.0 * max_speed,
         };
         StageCapabilities {
             model: "a stage".into(),
