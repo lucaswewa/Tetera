@@ -229,13 +229,13 @@ A crate depends only on crates in lower layers, plus the few edges within a laye
 | | `tetera-sim` | The simulated world: the H&E sample, optics, illumination, the virtual camera and the virtual stage | P1.10a |
 | | `tetera-grbl` | The grblHAL driver and its protocol fake | P5.02 |
 | | `tetera-tucsen` | The TUCam SDK binding and the camera driver *(unsafe)* | P5.03 |
-| L2 Data | `tetera-store` | Datasets in OME-Zarr, the scratch frame log, the SQLite index | P1.15b |
+| L2 Data | `tetera-store` | Datasets in OME-Zarr, the scratch frame log, the SQLite index | P1.15b, P1.15c |
 | L3 Engines | `tetera-jobs` | The job service | P1.15a |
 | | `tetera-pipeline` | The DAG engine, the node registry, the stock node wrappers, GPU residency and fusion | P1.08a |
 | | `tetera-ext` | `.tetx` packages, the native loader and the Python worker supervisor *(unsafe)* | P2.01 |
 | | `tetera-ext-sdk` | What Rust extension authors build against *(unsafe in generated glue)* | P2.02 |
 | L4 Services | `tetera-acquire` | The frame bus, preview, live statistics and the recorder | P1.14a |
-| | `tetera-workflows` | Capture, autofocus, scans, calibration, batch processing; the workflow trait that extensions implement | P1.15b |
+| | `tetera-workflows` | Capture, autofocus, scans, calibration, batch processing; the workflow trait that extensions implement | P1.15d |
 | L5 Interface | `tetera-api` | teta-wot Things and the media-plane routes. **The only crate that depends on `teta-wot`** | P1.13a |
 | L6 Applications | `tetera-server` | The binary: configuration, systemd integration, the web app's static files | P1.13a |
 
@@ -274,8 +274,8 @@ Tetera/
 | `simulation` | Samples (choose, load, unload), illumination model, imperfections on demand | P1.13a |
 | `preview` | Preview defaults, sessions, and the binary stream | P1.14b |
 | `jobs` | Queue, history, progress, cancel | P1.15a |
-| `capture` | Single and multiple captures | P1.15b |
-| `datasets` | The Gallery: datasets, thumbnails, metadata, delete, export | P1.15b |
+| `capture` | Single and multiple captures | P1.15d |
+| `datasets` | The Gallery: datasets, thumbnails, metadata, delete, export | P1.15d |
 | `autofocus` | Autofocus as a job | P1.16 |
 | `scan` | Planners, plan preview, start, live progress | P1.17 |
 | `calibration` | Per-objective calibration sets, routines, the wizard's steps | P1.18 |
@@ -620,7 +620,9 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 | P1.14b | The preview stream | The binary WebSocket with acknowledgements and slow links; the `preview` Thing; the camera's stream into the frame bus | `ex-preview-stream`: a quick client and a slow one | 0019 |
 | P1.14c | MJPEG and the live-view page | MJPEG; the live statistics on the `preview` Thing. **Checkpoint B:** live H&E in a browser while jogging | `ex-live-view`: one plain HTML page | — |
 | P1.15a | The job service | Jobs, the hardware queue and the compute pool, cancel, the SQLite history; the `jobs` Thing | `ex-jobs` | 0020 |
-| P1.15b | Datasets and capture | The scratch recorder; projects and datasets in OME-Zarr with the SQLite index; single and multiple capture, switching the camera from its binned live mode to full resolution and back; the `capture` and `datasets` Things | `ex-capture`: a burst, then the dataset on disk | 0021 |
+| P1.15b | The dataset store | Projects and datasets in OME-Zarr with the SQLite index; metadata and thumbnails | `ex-datasets`: a dataset written, read back, and one abandoned | 0021 |
+| P1.15c | The recorder and ingest | The scratch recorder, a lossless subscriber of the frame bus; ingest into a dataset as a compute job | `ex-recorder`: the camera at its full rate onto disk | — |
+| P1.15d | Capture and its Things | Single and multiple capture, switching the camera from its binned live mode to full resolution and back; the `capture` and `datasets` Things | `ex-capture`: a burst, then the dataset on disk | —
 
 #### Stage 1E: Workflows (ends with Checkpoint C)
 
@@ -1178,3 +1180,4 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-28 | **P1.14c measured 709 lines against its second estimate of 810 (×0.88):** code 232, tests 263, the page 202. **Checkpoint B holds:** live H&E in a browser page while jogging, from the server, at 48 to 49 fps by Windows' clock and 32 to 49 ms from exposure to paint. WSL2's monotonic clock runs at 0.90 of Windows' on this PC, so the header now carries the server's own latency (ADR-0019) ([notes](m1/notes/P1.14c-mjpeg-and-the-live-view-page.md#checkpoint-b)) |
 | 2026-11-28 | **P1.15a's second estimate,** before its code, counting tests at the code's size: code 620 (the job model 90; the service, its hardware queue, its compute pool on a VRAM budget, and cancel 260; the history in SQLite and its pruning 140; the `jobs` Thing 130) · tests 620 · examples 100 · docs-as-code 40 · glue 30 = **1,410**, 1,833 at ×1.3, against 800 first. `rusqlite` 0.42.0 (bundled), released 2026-11-11, is its new dependency |
 | 2026-11-28 | **P1.15a measured 1,900 lines against its second estimate of 1,410 (×1.35):** code 994, tests 709. Hardware jobs one at a time, compute jobs on a pool within a VRAM budget, cancel within a second, and a history in SQLite that survives a restart; the `jobs` Thing ([notes](m1/notes/P1.15a-the-job-service.md#size)) |
+| 2026-11-28 | **P1.15b's second estimate,** before its code, counting tests at the code's size: code 1,320 · tests 1,320 · examples 220 · docs-as-code 110 · glue 60 = 3,030, 3,939 at ×1.3, against 1,550 first; its ready split's first half alone was still 2,015 at ×1.3. Over 2,000: **split by the agent** under the owner's standing approval into three. P1.15b, the dataset store: code 520 (the index 150, folders, metadata and thumbnails 120, OME-Zarr through `zarrs` 200, the store 50) · tests 520 · examples 80 · docs-as-code 40 · glue 30 = **1,190**, 1,547 at ×1.3. P1.15c, the recorder and ingest: **880**. P1.15d, capture and its Things: **960**. P1.16 now depends on P1.15d. 78 phases, M1 41 |
