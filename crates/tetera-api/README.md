@@ -99,6 +99,6 @@ When the window holds previews back for more than half of a second, the link ste
 cargo run --release -p tetera-api --features cuda --example preview-stream
 ```
 
-It serves the virtual instrument on a loopback port, streams the camera in its binned live mode, and connects two clients: a quick one, and one that takes 200 ms over each frame. On this PC the quick one gets the camera's 51 frames a second, 35 ms from each frame's exposure to its receipt. The slow one gets five a second, its link down to quality 40. `-- --smoke` runs a small sensor on the CPU.
+It serves the virtual instrument on a loopback port, streams the camera in its binned live mode, and connects two clients: a quick one, and one that takes 200 ms over each frame. On this PC the quick one gets the camera's 51 frames a second, 34 ms from each frame's exposure to its receipt. The slow one gets five a second, its link down to quality 40. `-- --smoke` runs a small sensor on the CPU.
 
 The tests run each Thing through teta-wot's in-process test client, and the preview's stream over a real socket: `cargo test -p tetera-api`.

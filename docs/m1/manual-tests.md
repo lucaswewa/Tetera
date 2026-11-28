@@ -320,5 +320,5 @@ The owner runs this at Checkpoint C, with B's and C's; the agent ran and recorde
 - [ ] `cargo run --release -p tetera-api --example preview-stream -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo run --release -p tetera-server`, then from Windows: `curl.exe http://localhost:8310/preview/` — expect the Thing Description, with `defaults`, `sessions` and the `stream`'s link (`subprotocol` `websocket`); `curl.exe http://localhost:8310/preview/defaults` — the 1920 × 1280 viewport, quality 80, 60 a second.
 - [ ] With the server running and the camera streaming (`POST /camera/start_streaming`), connect to `ws://localhost:8310/preview/stream` from Windows (the browser's console: `new WebSocket(...)`, `binaryType = "arraybuffer"`), send `{"width": 640, "height": 480}`, and expect two binary messages, each beginning `TPV1`, then none until an `ack`; send `{"quality": 0}` and expect `{"error": …}`.
-- [ ] `cargo test -p tetera-acquire -p tetera-api` — expect 20 and 29 tests to pass.
+- [ ] `cargo test -p tetera-acquire -p tetera-api` — expect 20 and 30 tests to pass.
 - **Result:** see the [notes](notes/P1.14b-the-preview-stream.md#manual-test).
