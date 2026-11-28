@@ -277,7 +277,7 @@ Tetera/
 | `capture` | Single and multiple captures | P1.15d |
 | `datasets` | The Gallery: datasets, thumbnails, metadata, delete, export | P1.15d |
 | `autofocus` | Autofocus as a job | P1.16b |
-| `scan` | Planners, plan preview, start, live progress | P1.17 |
+| `scan` | Planners, plan preview, start, live progress | P1.17b |
 | `calibration` | Per-objective calibration sets, routines, the wizard's steps | P1.18 |
 | `pipeline` | The node catalogue, recipes, runs on datasets | P1.08a–e, P1.19 |
 | `status` | Each subsystem's health, rolled up into one status | P1.20 |
@@ -630,7 +630,8 @@ The tables give each phase's scope. The detailed specs (goal, scope, example, do
 |---|---|---|---|---|
 | P1.16a | Focus measures and the search *(spec-first)* | Focus measures; coarse-to-fine search against backlash | `ex-focus-search` on synthetic curves | — |
 | P1.16b | Autofocus on the instrument | Frames after the stage stops; a job; the `autofocus` Thing | `ex-autofocus` at 5× and 50× | — |
-| P1.17 | Snake scan and z-scan | Planners (XY snake, z-scan), the stop-and-go engine, positions in the metadata, scan datasets | `ex-scan`: a 5 × 5 snake and a 21-plane z-scan | 0022 |
+| P1.17a | Scan planning and the stop-and-go engine | Planners (XY snake, z-scan), the plan's time, the stop-and-go engine, positions in the metadata, a dataset of tiles | `ex-scan`: a 5 × 5 snake | 0022 |
+| P1.17b | z-stacks and the `scan` Thing | z-stacks as 3D arrays; the `scan` Thing, pause and resume | `ex-scan`: a 21-plane z-scan | — |
 | P1.18 | Calibration *(spec-first)* | Calibration targets in the simulator; master dark and flat; pixel size and rotation from moves; CCM from a colour chart; per-objective sets, applied by the ISP. **Checkpoint C:** calibrate, autofocus, scan | `ex-calibrate` | 0023 |
 
 #### Stage 1F: Running an instrument (ends with Milestone 1)
@@ -737,7 +738,7 @@ Numbered across the project. Each is written in the phase named.
 | 0019 | The preview protocol | P1.14b |
 | 0020 | The job service | P1.15a |
 | 0021 | Datasets on disk | P1.15b |
-| 0022 | Scan planning and the scan engine | P1.17 |
+| 0022 | Scan planning and the scan engine | P1.17a |
 | 0023 | The calibration model | P1.18 |
 | 0024 | Power actions under WSL2 | P1.20 |
 | 0025 | Extension packages | P2.01 |
@@ -1190,3 +1191,5 @@ Each question has this draft's assumption in **bold**. Answer any of them, and t
 | 2026-11-28 | **P1.16's second estimate,** before its code, counting tests at the code's size: code 840 (the green channel and the four measures 180; the search, its take-up against backlash, its fit and its failures 220; the probe it drives and its result 80; the instrument's probe, frames after the stage stops, 150; the job 50; the `autofocus` Thing 120; the depth of field 40) · tests 840 · examples 200 · docs-as-code 70 · glue 20 = 1,970, 2,561 at ×1.3, against 1,300 first. Over 2,000: **split by the agent** under the owner's standing approval. P1.16a, the focus measures and the search on synthetic curves, spec-first: **1,090**, 1,417 at ×1.3. P1.16b, autofocus on the instrument: **880**, 1,144 at ×1.3. P1.17 now depends on P1.16b. 79 phases, M1 42 |
 | 2026-11-28 | **P1.16a measured 1,930 lines against its second estimate of 1,090 (×1.77):** code 756, tests 923. Four focus measures on the green channel, all peaking at the virtual section's middle, and a search through z against backlash, within a quarter of the depth of field in 100 of 100 trials at each objective. Its spec's fine sweep and fit were widened after the first runs, for broad peaks ([notes](m1/notes/P1.16a-focus-measures-and-the-search.md#size)) |
 | 2026-11-28 | **P1.16b measured 985 lines against its estimate of 880 (×1.12):** code 315, tests 446. Autofocus on the virtual instrument as a job and the `autofocus` Thing: 100 of 100 within a quarter of the depth of field at 5× and at 50×, 3.0 s a search at 10×, and a blank field failing cleanly ([notes](m1/notes/P1.16b-autofocus-on-the-instrument.md#size)) |
+| 2026-11-28 | **P1.17's second estimate,** before its code, counting tests at the code's size: code 960 (the planners 160; the plan's time 100; the stage's acceleration 20; the engine, pause, resume and cancel, and a dataset of tiles 320; a dataset's z axis 120; the z-scan 60; the `scan` Thing 180) · tests 960 · examples 220 · docs-as-code 70 · glue 20 = 2,230, 2,899 at ×1.3, against 1,530 first. Over 2,000: **split by the agent** under the owner's standing approval. P1.17a, scan planning and the stop-and-go engine, with ADR-0022: **1,370**, 1,781 at ×1.3. P1.17b, z-stacks and the `scan` Thing: **860**, 1,118 at ×1.3. P1.18 now depends on P1.17b. 80 phases, M1 43 |
+| 2026-11-28 | **P1.17a measured 1,731 lines against its estimate of 1,370 (×1.26):** code 753, tests 832. Scans planned and run stop and go: an XY snake and z-scans, each with its estimated time; each tile the first full-resolution frame exposed a settle after the stage stopped, its position from the stage. A 5 × 5 snake at 10× within 1.5 % of its estimate, its positions at the simulator's truth; a cancel keeps the tiles taken. A camera mode now states its rate in 16-bit words ([notes](m1/notes/P1.17a-scan-planning-and-the-stop-and-go-engine.md#size)) |

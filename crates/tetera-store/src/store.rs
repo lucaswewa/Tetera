@@ -258,6 +258,18 @@ impl DatasetWriter {
         self.push(samples, frame.meta().clone())
     }
 
+    /// Writes `frame`, the next, with `meta` for its metadata: a scan's, its position as the
+    /// stage recorded it (ADR-0022).
+    pub fn append_as(
+        &mut self,
+        frame: &Frame,
+        meta: tetera_core::frame::meta::FrameMeta,
+    ) -> Result<()> {
+        self.room()?;
+        let samples = dataset::samples(frame, &self.spec)?;
+        self.push(samples, meta)
+    }
+
     /// Writes the next frame from its rows, `packed`, and its metadata, as a frame log keeps
     /// them.
     pub fn append_packed(

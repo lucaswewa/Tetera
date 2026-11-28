@@ -110,13 +110,6 @@ impl Bench {
     }
 }
 
-/// The CPU, alone: the virtual camera renders every frame of its stream on it.
-fn alone() -> std::sync::RwLockWriteGuard<'static, ()> {
-    crate::tests::CPU
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
 fn going(_: f64, _: &str) -> Result<()> {
     Ok(())
 }
@@ -130,7 +123,7 @@ fn the_depth_of_field_is_the_wave_term_and_the_geometric_one() {
 
 #[test]
 fn autofocus_finds_the_sections_middle_from_below_and_above_and_leaves_the_stream_as_it_was() {
-    let _cpu = alone();
+    let _cpu = crate::tests::alone();
     let d = depth_of_field(20.0, 0.42, 2.4);
     for (start, streaming) in [(FOCUS - 2.5 * d, false), (FOCUS + 3.5 * d, true)] {
         let b = bench(start);
@@ -157,7 +150,7 @@ fn autofocus_finds_the_sections_middle_from_below_and_above_and_leaves_the_strea
 
 #[test]
 fn no_frame_exposed_during_a_move_is_measured() {
-    let _cpu = alone();
+    let _cpu = crate::tests::alone();
     let b = bench(FOCUS);
     b.camera.start(b.bus.clone()).unwrap();
     let mut probe = StageProbe::new(b.stage.as_ref(), &b.bus, FocusMeasure::Tenengrad).unwrap();
@@ -178,7 +171,7 @@ fn no_frame_exposed_during_a_move_is_measured() {
 
 #[test]
 fn a_blank_field_finds_no_focus_and_leaves_the_stage_where_it_was() {
-    let _cpu = alone();
+    let _cpu = crate::tests::alone();
     let start = FOCUS + 3.0;
     let b = bench(start);
     b.camera.set_sample(None).unwrap();
@@ -202,7 +195,7 @@ fn a_blank_field_finds_no_focus_and_leaves_the_stage_where_it_was() {
 
 #[test]
 fn autofocus_needs_an_objective_and_options_it_can_take_and_a_failed_search_stops_the_stream() {
-    let _cpu = alone();
+    let _cpu = crate::tests::alone();
     let b = bench(FOCUS);
     b.mount.fit(None).unwrap();
     let e = autofocus(&b.rig(), &AutofocusRequest::default(), &mut going).unwrap_err();

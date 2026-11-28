@@ -18,8 +18,9 @@ use tetera_imaging::focus::FocusMeasure;
 /// How long a z move may take to end.
 const MOVE: Duration = Duration::from_secs(10);
 
-/// How long a frame exposed after a move may take to come.
-const FRAME: Duration = Duration::from_secs(5);
+/// How long a frame exposed after a move may take to come: as long as a scan's tile may,
+/// as a scan's autofocus measures its full-resolution stream (ADR-0022).
+const FRAME: Duration = Duration::from_secs(10);
 
 /// The light's wavelength the depth of field is worked out at, µm.
 pub const WAVELENGTH_UM: f64 = 0.55;

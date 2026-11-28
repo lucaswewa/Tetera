@@ -193,6 +193,7 @@ impl FakeStage {
             axis,
             travel: Span { min: 0.0, max },
             max_speed,
+            acceleration: 10.0 * max_speed,
         };
         Self {
             capabilities: StageCapabilities {

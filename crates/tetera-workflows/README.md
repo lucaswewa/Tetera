@@ -18,6 +18,11 @@ The `capture` Thing (`tetera-api`) runs it as a hardware job, its step the job's
   - **no focus** on a flat curve, its peak less than 5 % above its median, or a peak at the range's end; the stage goes back to its start, and `Focus::found` gives a `not_found` error saying why;
   - **the result,** `Focus`: where it found focus, where it started, and the curve, each position as the stage reported it and its measure.
 - **`autofocus(rig, request, step)`** (P1.16b) runs the search on the instrument. Each position is measured on **the first frame of the live stream exposed after the stage reported itself still,** through the frame bus, so a moving stage never blurs a measurement. The depth of field comes from the objective fitted and the sensor's pitch. The stream is started for it if it wasn't running, and stopped after. The request names the measure, normalised variance by default, and the search's options; the result is the search's, with the measure, the objective and the time.
+- **`scan`** (P1.17a, [ADR-0022](../../docs/adr/0022-scan-planning-and-the-scan-engine.md)) plans a scan and runs it stop and go:
+  - **planners:** `Pattern::Snake`, a rectangle of x and y covered with tiles of the field of view at an overlap, the grid centred on it, in serpentine order; `ZRange` and `ZAround`, planes rising;
+  - **`preview`:** the plan, its positions and its estimated time, from the stage's speeds and accelerations, the settle, the frames and their writing; nothing moves;
+  - **`scan`:** for each position, a move, the stage's report that it is still, an autofocus if `AutofocusAt` says so, the first frame of the full-resolution stream exposed a settle (50 ms) after, and its position from the stage, checked unchanged through the exposure; frames are written by a thread of their own, two deep, into one dataset of tiles;
+  - **`ScanControl`** pauses and resumes it between positions; a cancel keeps the tiles taken as a valid, partial dataset.
 - **`FocusProbe`** is what the search drives: a z move that returns once the stage is still, and a measure of an image exposed since. P1.16b's is the instrument; **`focus::synthetic::Synthetic`** is a stage with backlash and steps over a known curve with noise, for tests and examples.
 
 ## How to try it
@@ -32,6 +37,6 @@ The example lives in `tetera-api`, as it goes through the `capture`, `jobs` and 
 cargo run --release -p tetera-workflows --example focus-search
 ```
 
-`tetera-api`'s example `autofocus` runs it on the virtual instrument, 100 times at 5× and at 50×.
+`tetera-api`'s example `autofocus` runs it on the virtual instrument, 100 times at 5× and at 50×, and its example `scan` takes a 5 × 5 snake at 10×, its time against the plan's estimate.
 
 `focus-search` takes each focus measure through a stack of frames from the virtual camera, H&E at 20× on the CPU, and says where each peaks against the section's middle. Then it runs the search 100 times at each objective's depth of field, on noisy curves through a stage with backlash and steps, and prints its errors. `-- --smoke` takes a short stack from a tiny sensor and 20 searches. The tests run each kind of capture on a small virtual camera and the fake one, a cancel at each stage, and bad requests; and the search on synthetic curves, 100 times on narrow peaks and 100 on broad ones, through a stage with backlash: `cargo test -p tetera-workflows`.

@@ -28,16 +28,22 @@ use tetera_store::Store;
 pub(crate) static CPU: std::sync::RwLock<()> = std::sync::RwLock::new(());
 
 /// The CPU, shared.
-fn shared() -> std::sync::RwLockReadGuard<'static, ()> {
+pub(crate) fn shared() -> std::sync::RwLockReadGuard<'static, ()> {
     CPU.read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// The CPU, alone: for a test whose virtual camera renders its live stream on it.
+pub(crate) fn alone() -> std::sync::RwLockWriteGuard<'static, ()> {
+    CPU.write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// A folder of the test's own, removed when it drops.
-struct Scratch(PathBuf);
+pub(crate) struct Scratch(pub(crate) PathBuf);
 
 impl Scratch {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir =

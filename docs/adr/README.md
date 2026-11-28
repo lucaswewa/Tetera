@@ -27,3 +27,4 @@ The [plan's §10](../implementation-plan.md#10-planned-adrs) lists the ADRs stil
 | [0019](0019-the-preview-protocol.md) | The preview protocol | Accepted | P1.14b |
 | [0020](0020-the-job-service.md) | The job service | Accepted | P1.15a |
 | [0021](0021-datasets-on-disk.md) | Datasets on disk | Accepted | P1.15b |
+| [0022](0022-scan-planning-and-the-scan-engine.md) | Scan planning and the scan engine | Accepted | P1.17a |

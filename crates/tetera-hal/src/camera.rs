@@ -22,8 +22,22 @@ pub struct CameraMode {
     pub height: u32,
     /// The bit depths it reads out at.
     pub bit_depths: Vec<u8>,
-    /// Its fastest frame rate, whole frame and shortest exposure.
+    /// Its fastest frame rate, whole frame and shortest exposure, in 8 bits.
     pub max_fps: f64,
+    /// The same in 16-bit words, 12 or 16 bits a sample: as fast, or slower where the link
+    /// carries twice the bytes.
+    pub max_fps_16: f64,
+}
+
+impl CameraMode {
+    /// Its fastest frame rate at `bit_depth` bits: 8, or in 16-bit words above.
+    pub fn fps(&self, bit_depth: u8) -> f64 {
+        if bit_depth > 8 {
+            self.max_fps_16
+        } else {
+            self.max_fps
+        }
+    }
 }
 
 /// What starts each frame.
@@ -281,6 +295,7 @@ mod tests {
                     height: 48,
                     bit_depths: vec![12, 8],
                     max_fps: 30.0,
+                    max_fps_16: 15.0,
                 },
                 CameraMode {
                     id: 3,
@@ -289,6 +304,7 @@ mod tests {
                     height: 24,
                     bit_depths: vec![8],
                     max_fps: 60.0,
+                    max_fps_16: 60.0,
                 },
             ],
             binnings: vec![Binning { x: 2, y: 2 }],
@@ -303,6 +319,16 @@ mod tests {
             },
             triggers: vec![Trigger::FreeRun, Trigger::Software],
         }
+    }
+
+    #[test]
+    fn a_modes_rate_is_its_8_bit_one_or_in_16_bit_words_above() {
+        let c = caps();
+        let m = &c.modes[0];
+        assert_eq!(
+            [m.fps(8), m.fps(9), m.fps(12), m.fps(16)],
+            [30.0, 15.0, 15.0, 15.0]
+        );
     }
 
     #[test]

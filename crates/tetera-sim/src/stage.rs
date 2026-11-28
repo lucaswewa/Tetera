@@ -141,6 +141,7 @@ impl VirtualStageConfig {
                     axis,
                     travel: a.travel,
                     max_speed: a.limits.max_speed,
+                    acceleration: a.limits.acceleration,
                 })
                 .collect(),
             resolution: self.resolution,
