@@ -5,6 +5,7 @@
 use crate::camera::CameraThing;
 use crate::illumination::IlluminationThing;
 use crate::instrument::Instrument;
+use crate::jobs::{JobsOptions, JobsThing};
 use crate::objective::ObjectiveThing;
 use crate::preview::PreviewThing;
 use crate::simulation::Simulation;
@@ -16,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use teta_wot::server::ThingServer;
 use tetera_core::{Error, Result};
+use tetera_jobs::JobService;
 use tokio::net::TcpListener;
 
 pub use teta_wot::server::shutdown_signal;
@@ -53,6 +55,7 @@ pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 /// The instrument's Things, ready to serve.
 pub struct Service {
     server: ThingServer,
+    jobs: Arc<JobService>,
 }
 
 impl std::fmt::Debug for Service {
@@ -62,7 +65,7 @@ impl std::fmt::Debug for Service {
 }
 
 /// The names the Things are served under.
-pub const THINGS: [&str; 7] = [
+pub const THINGS: [&str; 8] = [
     "system",
     "simulation",
     "camera",
@@ -70,10 +73,34 @@ pub const THINGS: [&str; 7] = [
     "objective",
     "illumination",
     "preview",
+    "jobs",
 ];
 
-/// The server for `instrument`, its settings under `roots`.
+/// The server for `instrument`, its settings under `roots`, its jobs as `JobsOptions`' defaults.
 pub fn build(instrument: Arc<Instrument>, roots: Roots) -> Result<Service> {
+    build_with(instrument, roots, &JobsOptions::default())
+}
+
+/// The jobs' history, in the data root.
+pub const DATABASE: &str = "tetera.db";
+
+/// The server for `instrument`, its settings under `roots`, its job service as `jobs` says:
+/// its history in the data root's `tetera.db`, its compute jobs sharing the GPU's budgets.
+pub fn build_with(
+    instrument: Arc<Instrument>,
+    roots: Roots,
+    jobs: &JobsOptions,
+) -> Result<Service> {
+    let budget = instrument.budgets.as_ref().and_then(|b| {
+        b.reserve("compute jobs", jobs.vram_mib << 20)
+            .inspect_err(|e| tracing::warn!("compute jobs get no VRAM budget: {e}"))
+            .ok()
+    });
+    let service = Arc::new(JobService::open(
+        &roots.data.join(DATABASE),
+        jobs.config(),
+        budget,
+    )?);
     let preview = Arc::new(PreviewThing::default());
     let media = crate::media::routes(instrument.clone(), preview.clone());
     let server = ThingServer::builder()
@@ -82,6 +109,7 @@ pub fn build(instrument: Arc<Instrument>, roots: Roots) -> Result<Service> {
         .shutdown_grace(SHUTDOWN_GRACE)
         .service(instrument)
         .service(Arc::new(roots))
+        .service(service.clone())
         .thing(THINGS[0], System::default())
         .thing(THINGS[1], Simulation::default())
         .thing(THINGS[2], CameraThing::default())
@@ -89,13 +117,22 @@ pub fn build(instrument: Arc<Instrument>, roots: Roots) -> Result<Service> {
         .thing(THINGS[4], ObjectiveThing::default())
         .thing(THINGS[5], IlluminationThing::default())
         .thing_arc(THINGS[6], preview)
+        .thing(THINGS[7], JobsThing::default())
         .merge(media)
         .build()
         .map_err(|e| Error::internal(format!("the server won't build: {e}")))?;
-    Ok(Service { server })
+    Ok(Service {
+        server,
+        jobs: service,
+    })
 }
 
 impl Service {
+    /// The job service, for the work that submits jobs.
+    pub fn jobs(&self) -> &Arc<JobService> {
+        &self.jobs
+    }
+
     /// Starts the Things and serves on `listener` until `shutdown` completes, then shuts down
     /// gracefully: unfinished invocations are cancelled, and the Things stopped.
     pub async fn serve(

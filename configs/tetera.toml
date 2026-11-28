@@ -43,6 +43,13 @@ sample = { seed = 7, thickness = 4.0, folds = false }
 catalogue = "objectives.toml"
 fitted = "20x"
 
+[jobs]
+# Compute jobs that run at once; days the history keeps a job after it ends; and the GPU
+# memory compute jobs share, MiB. The history is `tetera.db` in the data root.
+compute_workers = 2
+keep_days = 30
+vram_mib = 1024
+
 [log]
 # Which records are kept, in tracing's filter syntax. RUST_LOG overrides it.
 filter = "info"

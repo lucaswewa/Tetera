@@ -202,6 +202,9 @@ pub struct Instrument {
     pub bus: Arc<FrameBus>,
     /// Where previews are made: on the GPU when the camera renders there.
     pub previews: Arc<tetera_compute::Compute>,
+    /// The GPU's memory, shared out: the camera's budget, and the compute jobs'. `None` on
+    /// the CPU.
+    pub budgets: Option<tetera_compute::budget::VramBudgets>,
     sample: Mutex<Option<Sample>>,
     compute: Compute,
 }
@@ -253,7 +256,7 @@ impl Instrument {
             },
         )?;
         let first = simulator.sample.unwrap_or_default();
-        let (backend, compute) = backend(simulator)?;
+        let (backend, compute, budgets) = backend(simulator)?;
         let sensor = simulator.sensor.sensor(compute.backend == "cuda");
         let scene = Scene {
             stage: stage.clone(),
@@ -293,6 +296,7 @@ impl Instrument {
             light,
             bus: FrameBus::new(),
             previews,
+            budgets,
             sample: Mutex::new(simulator.sample),
             compute: Compute {
                 sensor: [sensor.width, sensor.height],
@@ -342,8 +346,17 @@ impl Instrument {
     }
 }
 
-/// The camera's backend, and what `system` says of it.
-fn backend(simulator: &SimulatorConfig) -> Result<(Backend, Compute)> {
+/// The GPU's memory kept out of every budget, for the driver and the desktop.
+pub const KEEP_FREE: f64 = 0.25;
+
+/// The camera's backend, what `system` says of it, and the GPU's budgets.
+fn backend(
+    simulator: &SimulatorConfig,
+) -> Result<(
+    Backend,
+    Compute,
+    Option<tetera_compute::budget::VramBudgets>,
+)> {
     let cpu = |reason: String| Compute {
         backend: "cpu".into(),
         device: None,
@@ -357,6 +370,7 @@ fn backend(simulator: &SimulatorConfig) -> Result<(Backend, Compute)> {
         return Ok((
             Backend::Cpu,
             cpu("the configuration asks for the CPU".into()),
+            None,
         ));
     }
     #[cfg(feature = "cuda")]
@@ -366,7 +380,8 @@ fn backend(simulator: &SimulatorConfig) -> Result<(Backend, Compute)> {
             Selection::Cuda(device) => {
                 let gpu = Arc::new(tetera_compute::CudaBackend::new(device.ordinal)?);
                 let mib = simulator.vram_mib << 20;
-                let budgets = tetera_compute::budget::VramBudgets::new(mib);
+                let budgets =
+                    tetera_compute::budget::VramBudgets::from_free(device.total_memory, KEEP_FREE);
                 let budget = budgets.reserve("camera", mib)?;
                 let compute = Compute {
                     backend: "cuda".into(),
@@ -380,13 +395,17 @@ fn backend(simulator: &SimulatorConfig) -> Result<(Backend, Compute)> {
                     reason: None,
                     sensor: [0, 0],
                 };
-                Ok((Backend::Gpu { gpu, budget }, compute))
+                Ok((Backend::Gpu { gpu, budget }, compute, Some(budgets)))
             }
-            Selection::Cpu { reason } => Ok((Backend::Cpu, cpu(reason))),
+            Selection::Cpu { reason } => Ok((Backend::Cpu, cpu(reason), None)),
         }
     }
     #[cfg(not(feature = "cuda"))]
-    Ok((Backend::Cpu, cpu("this build has no `cuda` feature".into())))
+    Ok((
+        Backend::Cpu,
+        cpu("this build has no `cuda` feature".into()),
+        None,
+    ))
 }
 
 #[cfg(test)]
@@ -485,6 +504,12 @@ pub(crate) mod tests {
         .unwrap();
         let c = i.compute();
         assert_eq!(c.backend, "cuda");
+        let budgets = i.budgets.as_ref().expect("the GPU's budgets");
+        assert_eq!(budgets.reserved(), 512 << 20, "the camera's 512 MiB");
+        assert!(
+            budgets.capacity() > budgets.reserved(),
+            "room for compute jobs"
+        );
         assert_eq!(c.sensor, [5_472, 3_648]);
         assert!(
             c.device.is_some() && c.memory.is_some() && c.reason.is_none(),

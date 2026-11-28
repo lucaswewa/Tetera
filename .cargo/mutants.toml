@@ -100,9 +100,9 @@ exclude_re = [
     "replace CameraThing::roi -> Result<Option<Rect>, PropertyError> with Ok\\(None\\)",
     # A preview's fit at exactly the viewport's shape: either branch gives the viewport.
     "replace > with >= in fit$",
-    # A session's or the statistics' `stop` emptied: dropping it, at the end of `stop`,
-    # halts it the same.
-    "replace (Session|LiveStats)::stop with \\(\\)",
+    # A session's, the statistics' or the job service's `stop` emptied: dropping it, at the
+    # end of `stop`, halts it the same.
+    "replace (Session|LiveStats|JobService)::stop with \\(\\)",
     # The statistics' pace: `<` and `<=` differ only at the very instant the next is due.
     "replace < with <= in LiveStats::start",
 ]

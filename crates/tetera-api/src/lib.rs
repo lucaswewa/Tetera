@@ -9,6 +9,7 @@
 //! - [`camera`], [`stage`], [`objective`] and [`illumination`]: the device Things.
 //! - [`preview`]: the `preview` Thing, the live preview's stream (ADR-0019).
 //! - [`media`]: Tetera's own routes: the preview as MJPEG, and the `live-view` page.
+//! - [`jobs`]: the `jobs` Thing (ADR-0020), and the job service's options.
 //! - [`error`]: Tetera's errors as teta-wot's.
 //! - [`server`]: the Things served, and shut down gracefully.
 //!
@@ -20,6 +21,7 @@ pub mod error;
 pub mod host;
 pub mod illumination;
 pub mod instrument;
+pub mod jobs;
 pub mod media;
 pub mod objective;
 pub mod preview;
@@ -29,7 +31,8 @@ pub mod stage;
 pub mod system;
 
 pub use instrument::{Instrument, ObjectivesConfig, Sample, SensorSize, SimulatorConfig};
-pub use server::{Roots, Service, build, shutdown_signal};
+pub use jobs::JobsOptions;
+pub use server::{Roots, Service, build, build_with, shutdown_signal};
 
 #[cfg(test)]
 mod tests;

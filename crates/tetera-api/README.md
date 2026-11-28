@@ -22,6 +22,7 @@ Tetera's HTTP interface, L5 (plan §6.2, [ADR-0017](../../docs/adr/0017-control-
   | `stage` | `capabilities`; `position` (µm), `state`, `moving`, kept current as it moves, so they can be watched; `speed`, the speed of moves that name none, a setting | `move_to`, `move_by` (each ends when the stage is still, and stops it if cancelled), `jog`, `stop_jog`, `halt`, `home` |
   | `objective` | `catalogue`; `fitted`, by name, written to say which is fitted; `objective`, in full | `remove`, to say none is |
   | `illumination` | `capabilities`; `on`, `intensity` (0 to 1), `colour_temperature` (K) | — |
+  | `jobs` | `active`, the jobs queued and running; the `changed` event, each change to a job | `get` (`id`), `list` (`limit`, the newest first), `cancel` (`id`) |
   | `preview` | `defaults`, what a client's preview starts from (the viewport, region, quality and rate), a setting; `sessions`, the previews open; `statistics`, the live statistics of the camera's latest frame, up to 10 a second | —; its `stream` is the live preview's WebSocket |
 
   teta-wot takes a `null` body as a missing one, as FastAPI does, so a property can't be written to `null`: an action does that, as `remove` does for the objective.
@@ -31,7 +32,8 @@ Tetera's HTTP interface, L5 (plan §6.2, [ADR-0017](../../docs/adr/0017-control-
 - **`media`** has Tetera's own routes, merged in front of the Things' (ADR-0017):
   - `/api/v1/preview/mjpeg`, the preview as MJPEG, for an `<img>` or any tool that plays it, a session for each viewer: `?width=&height=&quality=&max_rate=`, the rest from `preview/defaults`;
   - `/live-view`, a plain page: the live image over the stream, its rate and its time from exposure to paint, a histogram, the camera's start and stop, and buttons that jog the stage.
-- **`server::build`** puts the Things on a teta-wot server, with the instrument and the data roots as its services. `Service::serve` serves them until a shutdown signal, then stops gracefully. The OpenAPI document is at `/openapi.json` and the interactive docs at `/docs`.
+- **`jobs`** is the `jobs` Thing over the job service (`tetera-jobs`, ADR-0020), and `JobsOptions`, the server's `[jobs]`.
+- **`server::build`** puts the Things on a teta-wot server, with the instrument, the data roots and the job service as its services. `build_with` takes the job service's options: its history is the data root's `tetera.db`, and its compute jobs share the GPU's budgets with the camera. `Service::serve` serves them until a shutdown signal, then stops gracefully. The OpenAPI document is at `/openapi.json` and the interactive docs at `/docs`.
 
 ## How to try it
 

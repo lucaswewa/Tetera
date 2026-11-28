@@ -36,7 +36,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.14a | The frame bus and the preview pipeline | Done | [P1.14a](P1.14a-the-frame-bus-and-the-preview-pipeline.md) |
 | P1.14b | The preview stream | Done | [P1.14b](P1.14b-the-preview-stream.md) |
 | P1.14c | MJPEG and the live-view page | Done | [P1.14c](P1.14c-mjpeg-and-the-live-view-page.md) |
-| P1.15a | The job service | Not started | — |
+| P1.15a | The job service | Done | [P1.15a](P1.15a-the-job-service.md) |
 | P1.15b | Datasets and capture | Not started | — |
 | P1.16 | Autofocus | Not started | — |
 | P1.17 | Snake scan and z-scan | Not started | — |

@@ -23,6 +23,7 @@ tetera-acquire.workspace = true
 tetera-compute.workspace = true
 tetera-core.workspace = true
 tetera-hal.workspace = true
+tetera-jobs.workspace = true
 tetera-sim.workspace = true
 tokio.workspace = true
 tracing.workspace = true
