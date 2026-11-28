@@ -370,3 +370,11 @@ The owner runs this at Checkpoint C, with A's and C's; the agent ran and recorde
 - [ ] `cargo run --release -p tetera-acquire --example recorder -- --smoke` — expect `smoke: ok`.
 - [ ] `cargo test -p tetera-store -p tetera-acquire` — expect 9 and 23 tests to pass.
 - **Result:** see the [notes](notes/P1.15c-the-recorder-and-ingest.md#manual-test).
+
+## P1.15d: Capture and its Things
+
+- **Prerequisites:** the phase's branch; the CUDA toolkit 13.3 in WSL, and the GPU; the repository on WSL2's own ext4 disk, not `/mnt/c`; a quiet system, not straight after a build.
+- [ ] `cargo run --release -p tetera-api --features cuda --example capture` — expect the camera on the GPU at 5472 × 3648 in its binned live mode; a burst of 20 full frames as a job, none lost, at 7.2 frames a second; the switch to full resolution and back each timed, and the live view streaming in mode 1 afterwards; the dataset at 5472 × 3648, 12 bits, 0.12 µm a pixel; its tree on disk with 20 chunks; and its frames read back in order.
+- [ ] `cargo run --release -p tetera-api --example capture -- --smoke` — expect `smoke: ok`.
+- [ ] `cargo test -p tetera-workflows -p tetera-api` — expect 7 and 39 tests to pass.
+- **Result:** see the [notes](notes/P1.15d-capture-and-its-things.md#manual-test).
