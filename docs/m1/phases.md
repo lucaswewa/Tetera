@@ -22,7 +22,7 @@ Each phase has:
 
 - A first estimate is in five parts, in hand-written lines: code, tests, examples, docs-as-code (READMEs, schemas, configuration), and glue. Doc comments and blank lines count. Markdown docs don't.
 - Before a phase's code, its second estimate goes into the plan's change log, in a commit of its own (plan §7).
-- **The target is 1,500 lines a phase. An estimate over 2,000 goes to the owner,** who decides whether to split it. Two specs were over 2,000 (P1.14 and P1.15), and the owner split both on 2026-11-26: P1.14a and P1.14b, P1.15a and P1.15b. P1.14b's second estimate was over 2,000 again, and the agent split it on 2026-11-28 under the owner's standing approval: P1.14b and P1.14c. So was P1.15b's, split the same day into P1.15b, P1.15c and P1.15d.
+- **The target is 1,500 lines a phase. An estimate over 2,000 goes to the owner,** who decides whether to split it. Two specs were over 2,000 (P1.14 and P1.15), and the owner split both on 2026-11-26: P1.14a and P1.14b, P1.15a and P1.15b. P1.14b's second estimate was over 2,000 again, and the agent split it on 2026-11-28 under the owner's standing approval: P1.14b and P1.14c. So was P1.15b's, split the same day into P1.15b, P1.15c and P1.15d, and P1.16's, into P1.16a and P1.16b.
 - Specs between 1,500 and 2,000 list a split that is ready if the second estimate grows.
 
 **What every phase does, so the specs don't repeat it** (plan §7):
@@ -73,14 +73,15 @@ Each phase has:
 | [P1.15b](#p115b-the-dataset-store) | The dataset store | P1.15a | 1,190 | — | G1 |
 | [P1.15c](#p115c-the-recorder-and-ingest) | The recorder and ingest | P1.14a, P1.15b | 980 | — | G1 |
 | [P1.15d](#p115d-capture-and-its-things) | Capture and its Things | P1.15c | 1,100 | — | G1 |
-| [P1.16](#p116-autofocus) | Autofocus | P1.15d | 1,300 | Yes | G1 |
-| [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16 | 1,530 | — | G1 |
+| [P1.16a](#p116a-focus-measures-and-the-search) | Focus measures and the search | P1.15d | 1,090 | Yes | G1 |
+| [P1.16b](#p116b-autofocus-on-the-instrument) | Autofocus on the instrument | P1.16a | 880 | — | G1 |
+| [P1.17](#p117-snake-scan-and-z-scan) | Snake scan and z-scan | P1.16b | 1,530 | — | G1 |
 | [P1.18](#p118-calibration) | Calibration (**Checkpoint C**) | P1.17 | 1,900 | Yes | G1, G1c, G2 |
 | [P1.19](#p119-batch-processing) | Batch processing | P1.15b, P1.08e | 1,400 | — | G1, G1c |
 | [P1.20](#p120-status-logs-power-and-settings) | Status, logs, power and settings | P1.15a | 1,780 | — | G1 |
 | [P1.21](#p121-milestone-1-close) | Milestone 1 close | all | 950 | — | G3 |
 
-**In all:** 41 phases since P1.04 to P1.13 were split on 2026-11-27, and P1.14b and P1.15b on 2026-11-28, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
+**In all:** 42 phases since P1.04 to P1.13 were split on 2026-11-27, and P1.14b, P1.15b and P1.16 on 2026-11-28, about **34,800 lines** by first estimates, P1.S0 aside. The median phase is about 1,550.
 
 - **Over 2,000:** none, since the owner split P1.14 and P1.15 on 2026-11-26.
 - **Over the 1,500 target:** 15 phases. They're kept whole, because OScope's second estimates for later phases came in under their specs (M2's median was 0.79) as reuse grew. Twelve of them have a ready split; the other three (P1.04, P1.09, P1.17) are within 3 % of the target.
@@ -1279,7 +1280,7 @@ Each phase has:
 - **The history** in SQLite (`rusqlite`, bundled), pruned by age.
 - **The `jobs` Thing:** list, get, cancel, with events.
 
-**Out of scope.** The work itself: captures (P1.15d), autofocus (P1.16), scans (P1.17), batches (P1.19).
+**Out of scope.** The work itself: captures (P1.15d), autofocus (P1.16a, P1.16b), scans (P1.17), batches (P1.19).
 
 **Try it.** `jobs`: hardware and compute jobs queued, one cancelled, then the history read back after a restart.
 
@@ -1392,39 +1393,74 @@ Each phase has:
 
 ---
 
-## P1.16: Autofocus
+## P1.16a: Focus measures and the search
 
 | | |
 |---|---|
-| Crates | `tetera-workflows`, `tetera-imaging`, `tetera-api` |
+| Crates | `tetera-imaging`, `tetera-workflows` |
 | Depends on | P1.15d |
 | ADRs | — |
 | Gates | G1 |
-| Spec-first | Yes |
-| First estimate | code 800 · tests 400 · examples 80 · docs-as-code 20 = **1,300** |
+| Spec-first | Yes: the behaviour spec, in the notes, covers P1.16b too |
+| Second estimate | code 480 (the green channel, binned 60; the four measures 120; the search: its range and steps from the depth of field 40, the sweeps and the take-up against backlash 80, the fit 60, no focus 40; the probe it drives and its result 80) · tests 480 · examples 80 · docs-as-code 40 · glue 10 = **1,090** (1,417 at ×1.3). The first, 1,300, was P1.16's whole, split by the agent on 2026-11-28 |
 
-**Goal.** Find focus quickly and reliably at every objective.
+**Goal.** Measures that peak at focus, and a search that finds the peak quickly and reliably, against backlash, on any curve.
 
 **Scope.**
 
-- **Focus measures** on the raw green channel, binned: Brenner's gradient, the variance of the Laplacian, normalised variance, Tenengrad. The spec picks the default from the literature (Groen, Young and Ligthart, 1985; Sun, Duthaler and Nelson, 2004).
-- **The search:** a coarse sweep, then a fine search around the peak (a parabola, or golden section), always approaching from one side, against backlash. The range and the steps come from the objective's depth of field.
-- **Frames** from "the first frame exposed after t", so a moving stage never blurs a measurement.
+- **Focus measures** (`tetera-imaging`) on the raw green channel, binned: Brenner's gradient, the variance of the Laplacian, normalised variance, Tenengrad. The spec picks the default from the literature (Groen, Young and Ligthart, 1985; Sun, Duthaler and Nelson, 2004).
+- **The search** (`tetera-workflows`): a coarse sweep, then a fine one around the peak and a parabola through it, always approaching from one side, against backlash. The range and the steps come from the objective's depth of field.
+- **The probe** it drives: a z move that ends when the stage is still, and a measure. The tests' probes are synthetic; P1.16b's is the instrument.
+- **No focus:** on a flat curve, or a peak at the range's end, it reports that it found none, and moves back where it started.
+
+**Out of scope.** The instrument's probe, the job and the `autofocus` Thing (P1.16b). Focus maps and tracking (M3's workflows).
+
+**Try it.** `focus-search`: each measure through a synthetic stack, where it peaks; then the search, 100 times, on noisy known curves through a stage with backlash, with its errors.
+
+**Done when.**
+
+- The spec came first.
+- Each measure peaks at a synthetic stack's focus.
+- On known curves with noise, through a probe with backlash, the search's error is a quarter of the depth of field or less in at least 99 of 100 trials.
+- A flat curve fails cleanly, the probe back where it started.
+
+**Tests.** Each measure's peak on synthetic stacks; the search on known curves with noise; backlash; a flat curve, and a peak at the range's end. **Broken on purpose:** the approach direction, and the flat-curve check.
+
+**Open questions.** None.
+
+---
+
+## P1.16b: Autofocus on the instrument
+
+| | |
+|---|---|
+| Crates | `tetera-workflows`, `tetera-api` |
+| Depends on | P1.16a |
+| ADRs | — |
+| Gates | G1 |
+| Second estimate | code 360 (the instrument's probe: a z move until the stage is still, the first frame exposed after it, and its measure 150; the job and its result 50; the `autofocus` Thing 120; the depth of field from the objective fitted 40) · tests 360 · examples 120 · docs-as-code 30 · glue 10 = **880** (1,144 at ×1.3), from P1.16's split on 2026-11-28 |
+
+**Goal.** Find focus quickly and reliably at every objective, on the instrument.
+
+**Scope.**
+
+- **Frames** from "the first frame exposed after t", so a moving stage never blurs a measurement: the live mode's stream, through the frame bus.
 - **A job,** with the focus curve as its result; the `autofocus` Thing.
 - **Failure:** on a blank field, it reports that it found no focus, and leaves the stage where it was.
 
 **Out of scope.** Focus maps and tracking (M3's workflows).
 
-**Try it.** `autofocus`: 100 starts at random distances from focus, at 5× and at 50×, with the error against the simulator's true focus.
+**Try it.** `autofocus`: 100 starts at random distances from focus, at 5× and at 50×, with the error against the simulator's true focus; and a search's time at 10×.
 
 **Done when.**
 
-- The spec came first.
 - In at least 95 of 100 trials at each objective, the error is a quarter of the depth of field or less.
 - At 10×, it takes 5 s or less (plan §6.15).
 - A blank field fails cleanly.
 
-**Tests.** Each measure's peak on synthetic stacks; the search on known curves with noise; backlash; the blank field. **Broken on purpose:** the approach direction, and the blank-field check.
+**Tests.** No frame exposed during a move is measured; autofocus on the virtual instrument; the blank field; the Thing over HTTP, and a cancel. **Broken on purpose:** the frame-after-t rule, a frame in flight measured.
+
+**Open questions.** None.
 
 ---
 
@@ -1433,7 +1469,7 @@ Each phase has:
 | | |
 |---|---|
 | Crates | `tetera-workflows`, `tetera-store`, `tetera-api` |
-| Depends on | P1.16 |
+| Depends on | P1.16b |
 | ADRs | 0022 scan planning and the scan engine |
 | Gates | G1 |
 | First estimate | code 1,000 · tests 450 · examples 80 = **1,530** |
