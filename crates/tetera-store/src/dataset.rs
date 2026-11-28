@@ -1,6 +1,6 @@
 //! A dataset on disk (ADR-0021): its folder, holding the frames as OME-Zarr v3 with OME-NGFF
 //! 0.5's metadata, its `metadata.json`, and a JPEG thumbnail; written frame by frame, and read
-//! back.
+//! back. Its frames are in time, or a z-stack's planes along z (P1.17b).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -9,8 +9,8 @@ use std::sync::Arc;
 use tetera_core::frame::format::{BayerPattern, Channel};
 use tetera_core::frame::meta::FrameMeta;
 use tetera_core::{Error, Frame, PixelFormat, Result, UtcTime};
-use zarrs::array::Array;
 use zarrs::array::codec::ZstdCodec;
+use zarrs::array::{Array, ArraySubset};
 use zarrs::filesystem::FilesystemStore;
 use zarrs::group::GroupBuilder;
 
@@ -48,8 +48,43 @@ pub struct DatasetSpec {
     pub pixel_size_um: f64,
     /// The time between frames, s; 0 for a single one.
     pub interval_s: f64,
+    /// The planes' step, µm, for a z-stack, its frames planes rising along z rather than in
+    /// time: `None`, or left out, for frames in time.
+    #[serde(default)]
+    pub z_step_um: Option<f64>,
     /// The instrument as it was: camera settings, objective, calibration and the like.
     pub instrument: serde_json::Value,
+}
+
+impl DatasetSpec {
+    /// The image's axis its frames go along: 0, time, or 1, z, for a z-stack.
+    pub fn frame_axis(&self) -> usize {
+        usize::from(self.z_step_um.is_some())
+    }
+
+    /// The image's axes, in OME-NGFF 0.5's order, time, the channel, then space: `t`, `c`,
+    /// `y` and `x`, or a z-stack's `c`, `z`, `y` and `x`.
+    pub fn axes(&self) -> [&'static str; 4] {
+        if self.z_step_um.is_some() {
+            ["c", "z", "y", "x"]
+        } else {
+            ["t", "c", "y", "x"]
+        }
+    }
+
+    /// The image's shape, holding `frames`.
+    pub(crate) fn shape(&self, frames: u64) -> Vec<u64> {
+        let mut shape = vec![1, 1, u64::from(self.height), u64::from(self.width)];
+        shape[self.frame_axis()] = frames;
+        shape
+    }
+
+    /// Frame `i`'s chunk, a frame each.
+    pub(crate) fn chunk(&self, i: u64) -> [u64; 4] {
+        let mut at = [0; 4];
+        at[self.frame_axis()] = i;
+        at
+    }
 }
 
 /// A dataset's `metadata.json`.
@@ -87,28 +122,35 @@ pub(crate) fn check_format(format: PixelFormat) -> Result<()> {
     }
 }
 
-/// OME-NGFF 0.5's metadata for the image: axes t, c, y and x, one scale.
+/// OME-NGFF 0.5's metadata for the image, one scale: axes t, c, y and x, time's the interval;
+/// or a z-stack's c, z, y and x, z's the planes' step.
 pub fn ngff(spec: &DatasetSpec) -> serde_json::Value {
-    let interval = if spec.interval_s > 0.0 {
-        spec.interval_s
-    } else {
-        1.0
+    let space =
+        |name: &str| serde_json::json!({"name": name, "type": "space", "unit": "micrometer"});
+    let channel = serde_json::json!({"name": "c", "type": "channel"});
+    let (outer, scale) = match spec.z_step_um {
+        Some(step) => ([channel, space("z")], [1.0, step]),
+        None => {
+            let interval = if spec.interval_s > 0.0 {
+                spec.interval_s
+            } else {
+                1.0
+            };
+            let time = serde_json::json!({"name": "t", "type": "time", "unit": "second"});
+            ([time, channel], [interval, 1.0])
+        }
     };
+    let [first, second] = outer;
     serde_json::json!({
         "version": "0.5",
         "multiscales": [{
             "name": spec.name,
-            "axes": [
-                {"name": "t", "type": "time", "unit": "second"},
-                {"name": "c", "type": "channel"},
-                {"name": "y", "type": "space", "unit": "micrometer"},
-                {"name": "x", "type": "space", "unit": "micrometer"}
-            ],
+            "axes": [first, second, space("y"), space("x")],
             "datasets": [{
                 "path": "0",
                 "coordinateTransformations": [{
                     "type": "scale",
-                    "scale": [interval, 1.0, spec.pixel_size_um, spec.pixel_size_um]
+                    "scale": [scale[0], scale[1], spec.pixel_size_um, spec.pixel_size_um]
                 }]
             }]
         }]
@@ -128,13 +170,8 @@ pub(crate) fn create_image(dir: &Path, spec: &DatasetSpec) -> Result<Array<Files
     } else {
         zarrs::array::data_type::uint16()
     };
-    let shape = vec![
-        spec.frames,
-        1,
-        u64::from(spec.height),
-        u64::from(spec.width),
-    ];
-    let chunk = vec![1, 1, u64::from(spec.height), u64::from(spec.width)];
+    let shape = spec.shape(spec.frames);
+    let chunk = spec.shape(1);
     let fill: zarrs::array::FillValue = if spec.format.bytes_per_sample() == 1 {
         0u8.into()
     } else {
@@ -142,7 +179,7 @@ pub(crate) fn create_image(dir: &Path, spec: &DatasetSpec) -> Result<Array<Files
     };
     let array = zarrs::array::ArrayBuilder::new(shape, chunk, data_type, fill)
         .bytes_to_bytes_codecs(vec![Arc::new(ZstdCodec::new(ZSTD_LEVEL, false))])
-        .dimension_names(Some(["t", "c", "y", "x"]))
+        .dimension_names(Some(spec.axes()))
         .build(store, "/0")
         .map_err(zarr)?;
     array.store_metadata().map_err(zarr)?;
@@ -201,13 +238,30 @@ pub(crate) fn samples_from_packed(packed: &[u8], spec: &DatasetSpec) -> Result<S
     })
 }
 
-/// Stores `samples` as frame `t` of `array`.
-pub(crate) fn store_frame(array: &Array<FilesystemStore>, t: u64, samples: Samples) -> Result<()> {
+/// Stores `samples` as frame `i` of `array`, an image of `spec`.
+pub(crate) fn store_frame(
+    array: &Array<FilesystemStore>,
+    spec: &DatasetSpec,
+    i: u64,
+    samples: Samples,
+) -> Result<()> {
+    let at = spec.chunk(i);
     match samples {
-        Samples::U8(s) => array.store_chunk(&[t, 0, 0, 0], s),
-        Samples::U16(s) => array.store_chunk(&[t, 0, 0, 0], s),
+        Samples::U8(s) => array.store_chunk(&at, s),
+        Samples::U16(s) => array.store_chunk(&at, s),
     }
     .map_err(zarr)
+}
+
+/// A z-stack read back whole: its planes as one 3D array.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Stack {
+    /// Its shape: planes, rows and columns.
+    pub shape: [u64; 3],
+    /// The planes' step, µm.
+    pub z_step_um: f64,
+    /// Its samples, plane by plane, each row by row.
+    pub samples: Samples,
 }
 
 /// A dataset read back from its folder.
@@ -241,12 +295,12 @@ impl DatasetReader {
         &self.metadata
     }
 
-    /// Its frames.
+    /// Its frames, or a z-stack's planes.
     pub fn frames(&self) -> u64 {
-        self.array.shape()[0]
+        self.array.shape()[self.metadata.spec.frame_axis()]
     }
 
-    /// Frame `t`'s samples.
+    /// Frame `t`'s samples, or a z-stack's plane `t`.
     pub fn read(&self, t: u64) -> Result<Samples> {
         if t >= self.frames() {
             return Err(Error::invalid_argument(format!(
@@ -254,11 +308,43 @@ impl DatasetReader {
                 self.frames()
             )));
         }
-        let at = [t, 0, 0, 0];
+        let at = self.metadata.spec.chunk(t);
         Ok(if self.metadata.spec.format.bytes_per_sample() == 1 {
             Samples::U8(self.array.retrieve_chunk::<Vec<u8>>(&at).map_err(zarr)?)
         } else {
             Samples::U16(self.array.retrieve_chunk::<Vec<u16>>(&at).map_err(zarr)?)
+        })
+    }
+
+    /// A z-stack's planes, read at once as one 3D array, z by y by x. Refused for frames in
+    /// time.
+    pub fn read_stack(&self) -> Result<Stack> {
+        let spec = &self.metadata.spec;
+        let z_step_um = spec.z_step_um.ok_or_else(|| {
+            Error::invalid_argument(format!(
+                "dataset {} holds frames in time, not a z-stack",
+                self.metadata.id
+            ))
+        })?;
+        let (n, h, w) = (self.frames(), u64::from(spec.height), u64::from(spec.width));
+        let all = ArraySubset::new_with_ranges(&[0..1, 0..n, 0..h, 0..w]);
+        let samples = if spec.format.bytes_per_sample() == 1 {
+            Samples::U8(
+                self.array
+                    .retrieve_array_subset::<Vec<u8>>(&all)
+                    .map_err(zarr)?,
+            )
+        } else {
+            Samples::U16(
+                self.array
+                    .retrieve_array_subset::<Vec<u16>>(&all)
+                    .map_err(zarr)?,
+            )
+        };
+        Ok(Stack {
+            shape: [n, h, w],
+            z_step_um,
+            samples,
         })
     }
 }

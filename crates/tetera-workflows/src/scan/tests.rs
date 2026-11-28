@@ -492,6 +492,7 @@ fn a_snake_is_taken_stop_and_go_its_positions_recorded_and_settled() {
         (meta.spec.pixel_size_um - 0.12).abs() < 1e-12,
         "2.4 µm at 20×"
     );
+    assert_eq!(meta.spec.z_step_um, None, "tiles, not a z-stack");
     assert_eq!(
         meta.spec.instrument["scan"]["plan"]["grid"],
         serde_json::json!([3, 2])
@@ -626,6 +627,9 @@ fn a_z_scan_takes_its_planes_rising() {
         zs,
         [FOCUS - 2.5, FOCUS - 1.25, FOCUS, FOCUS + 1.25, FOCUS + 2.5]
     );
+    // A z-stack: one 3D array along z, the planes' step in its scale (P1.17b).
+    let stack = b.store.read(&r.dataset.id).unwrap().read_stack().unwrap();
+    assert_eq!((stack.shape, stack.z_step_um), ([5, 128, 192], 1.25));
 }
 
 #[test]

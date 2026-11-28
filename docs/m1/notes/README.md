@@ -43,7 +43,7 @@ One file per phase, from the [template](template.md): what was built, how to try
 | P1.16a | Focus measures and the search | Done | [P1.16a](P1.16a-focus-measures-and-the-search.md) |
 | P1.16b | Autofocus on the instrument | Done | [P1.16b](P1.16b-autofocus-on-the-instrument.md) |
 | P1.17a | Scan planning and the stop-and-go engine | Done | [P1.17a](P1.17a-scan-planning-and-the-stop-and-go-engine.md) |
-| P1.17b | z-stacks and the `scan` Thing | Not started | — |
+| P1.17b | z-stacks and the `scan` Thing | Done | [P1.17b](P1.17b-z-stacks-and-the-scan-thing.md) |
 | P1.18 | Calibration | Not started | — |
 | P1.19 | Batch processing | Not started | — |
 | P1.20 | Status, logs, power and settings | Not started | — |

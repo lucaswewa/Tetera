@@ -170,15 +170,17 @@ impl Store {
             || spec.name.is_empty()
             || !(spec.pixel_size_um.is_finite() && spec.pixel_size_um > 0.0)
             || !(spec.interval_s.is_finite() && spec.interval_s >= 0.0)
+            || spec.z_step_um.is_some_and(|z| !(z.is_finite() && z > 0.0))
         {
             return Err(Error::invalid_argument(format!(
-                "a dataset of {} frames of {} × {}, named {:?}, its pixels {} µm, {} s apart",
+                "a dataset of {} frames of {} × {}, named {:?}, its pixels {} µm, {} s apart, its planes {:?} µm",
                 spec.frames,
                 spec.width,
                 spec.height,
                 spec.name,
                 spec.pixel_size_um,
-                spec.interval_s
+                spec.interval_s,
+                spec.z_step_um
             )));
         }
         let project = self.shared.index().project(project)?;
@@ -297,7 +299,7 @@ impl DatasetWriter {
             self.first = Some(samples.clone());
         }
         let array = self.array.as_ref().expect("made with the writer");
-        dataset::store_frame(array, self.written(), samples)?;
+        dataset::store_frame(array, &self.spec, self.written(), samples)?;
         self.frames.push(meta);
         Ok(())
     }
@@ -313,7 +315,7 @@ impl DatasetWriter {
         if written != self.spec.frames {
             let array = self.array.as_mut().expect("made with the writer");
             let mut shape = array.shape().to_vec();
-            shape[0] = written;
+            shape[self.spec.frame_axis()] = written;
             array
                 .set_shape(shape)
                 .map_err(|e| Error::internal(format!("OME-Zarr: {e}")))?;

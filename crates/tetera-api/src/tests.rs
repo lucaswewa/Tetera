@@ -52,6 +52,21 @@ pub(crate) async fn serve(
     (client, instrument)
 }
 
+/// Job `id`, once it has ended, within a minute.
+pub(crate) async fn ended(client: &TestClient, id: &str) -> Value {
+    for _ in 0..6_000 {
+        let job = invoke(client, "/jobs/get", json!({ "id": id })).await["output"].clone();
+        if matches!(
+            job["state"].as_str(),
+            Some("succeeded" | "failed" | "cancelled")
+        ) {
+            return job;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("job {id} never ended");
+}
+
 /// Invokes `path` with `body`, and waits for the invocation to end: its last state.
 pub(crate) async fn invoke(client: &TestClient, path: &str, body: Value) -> Value {
     let started = client.post_json(path, Some(&body)).await;

@@ -16,7 +16,7 @@ pub mod index;
 pub mod ingest;
 pub mod store;
 
-pub use dataset::{DatasetReader, DatasetSpec, Metadata, Samples};
+pub use dataset::{DatasetReader, DatasetSpec, Metadata, Samples, Stack};
 pub use framelog::{FrameLog, FrameLogWriter, LogEntry, LogHeader};
 pub use index::{DatasetInfo, FileInfo, Index, Project};
 pub use ingest::{ingest, ingest_first};

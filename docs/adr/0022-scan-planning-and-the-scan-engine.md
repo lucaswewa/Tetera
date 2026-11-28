@@ -34,7 +34,7 @@ The facts that shape it:
    - autofocus: 26 positions, each a move of a depth of field, a report, and a live frame;
    - the mode switch there and back.
 7. **Pause, resume and cancel** are heard between positions and during every wait. A paused scan keeps its place and the camera in its capture mode; resumed, it goes on. Cancelled, it finishes the dataset with the tiles taken, a valid, partial dataset, and ends cancelled; one cancelled before its first tile leaves none.
-8. **A dataset of tiles** is one OME-Zarr array, a frame per tile along its first axis, each tile's recorded position in its frame's metadata, and the plan, the planned positions and the grid, in the dataset's metadata. The z-scan's 3D array is P1.17b's.
+8. **A dataset of tiles** is one OME-Zarr array, a frame per tile along its first axis, each tile's recorded position in its frame's metadata, and the plan, the planned positions and the grid, in the dataset's metadata. **A z-scan's is a z-stack** (P1.17b): its planes along the array's z axis, c, z, y and x in OME-NGFF 0.5's order, their step z's scale.
 
 ## Consequences
 

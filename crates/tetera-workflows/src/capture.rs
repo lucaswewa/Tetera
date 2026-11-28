@@ -235,6 +235,7 @@ fn spec(rig: &Rig<'_>, request: &CaptureRequest, config: &CameraConfig) -> Resul
         frames: u64::from(request.kind.frames()),
         pixel_size_um,
         interval_s,
+        z_step_um: None,
         instrument: serde_json::json!({
             "instrument": rig.instrument,
             "camera": config,

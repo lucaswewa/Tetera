@@ -347,6 +347,11 @@ fn run(
         frames: plan.positions.len() as u64,
         pixel_size_um: rig.sensor_pixel_um / objective.as_ref().map_or(1.0, |o| o.magnification),
         interval_s: 0.0,
+        // A z-scan's planes, one 3D array along z, its step in the scale (P1.17b).
+        z_step_um: match plan.pattern {
+            Pattern::ZRange { step, .. } | Pattern::ZAround { step, .. } => Some(step),
+            Pattern::Snake { .. } => None,
+        },
         instrument: serde_json::json!({
             "instrument": rig.instrument,
             "camera": config,
